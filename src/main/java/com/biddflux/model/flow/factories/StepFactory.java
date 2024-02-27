@@ -1,0 +1,103 @@
+package com.biddflux.model.flow.factories;
+
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.function.Function;
+
+import org.springframework.beans.factory.annotation.Autowired;
+
+import com.biddflux.EnvironmentVars;
+import com.biddflux.commons.util.JsonUtils;
+import com.biddflux.model.flow.From;
+import com.biddflux.model.flow.Step;
+import com.biddflux.model.flow.To;
+import com.biddflux.model.flow.db.DataSourceFactory;
+import com.biddflux.model.flow.db.mysql.MySqlDropTables;
+import com.biddflux.model.flow.db.mysql.MySqlScript;
+import com.biddflux.model.flow.db.mysql.StartReplica;
+import com.biddflux.model.flow.db.mysql.StopReplica;
+import com.biddflux.model.flow.file.Unzip;
+import com.biddflux.model.flow.out.Storage;
+import com.fasterxml.jackson.databind.JsonNode;
+
+import lombok.Getter;
+
+public class StepFactory extends AbstractFactory<Step>{
+	@Autowired
+	private SourceFactory sourceFactory;
+	@Autowired
+	private StorageFactory storageFactory;
+	@Autowired
+	private JsonUtils jsonUtils;
+	
+	@Getter
+	private Map<String, Function<JsonNode, Step>> builders = Map.of(
+			"StopReplica", node -> {
+				String datasource = node.findValue("datasource").asText(null);
+				StopReplica s = new StopReplica();
+				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				setCommonBeans(s);
+				return s;
+			},
+			"StartReplica", node -> {
+				String datasource = node.findValue("datasource").asText(null);
+				StartReplica s = new StartReplica();
+				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				setCommonBeans(s);
+				return s;
+			},
+			"From", node -> {
+				From s = new From();
+				setCommonBeans(s);
+				JsonNode sourceNode = node.get("source");
+				s.setSource(sourceFactory.from(sourceNode));
+				return s;
+			},
+			"To", node -> {
+				To s = new To();
+				setCommonBeans(s);
+				JsonNode targetsNode = node.get("targets");
+				List<Storage> targets = new LinkedList<>();
+				if(targetsNode != null && targetsNode.isArray()) {
+					for(JsonNode tNode : targetsNode){
+						Storage target = storageFactory.from(tNode);
+						targets.add(target);
+					}
+				}
+				s.setTargets(targets);
+				return s;
+			},
+			"Unzip", node -> {
+				Unzip unzip = new Unzip();
+				setCommonBeans(unzip);
+				return unzip;
+			},
+			"MySqlScript", node ->  {
+				MySqlScript mScript = new MySqlScript();
+				String datasource = node.findValue("datasource").asText(null);
+				mScript.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
+				String script = node.findValue("script").asText();
+				mScript.setScript(script);
+				setCommonBeans(mScript);
+				return mScript;
+			},
+			"MySqlDropTables", node ->  {
+				MySqlDropTables dropTables = new MySqlDropTables();
+				String datasource = node.findValue("datasource").asText(null);
+				dropTables.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
+				boolean all = jsonUtils.asBoolean(node.findValue("all"), false);
+				dropTables.setAll(all);
+				Set<String> tables = jsonUtils.asSet(node.get("tables"));
+				dropTables.setTables(tables);
+				setCommonBeans(dropTables);
+				return dropTables;
+			}
+			);
+	@Override
+	protected void setCommonBeans(Step s) {
+		s.setEnv(context.getBean(EnvironmentVars.class));
+		context.getAutowireCapableBeanFactory().autowireBean(s);
+	}
+}
