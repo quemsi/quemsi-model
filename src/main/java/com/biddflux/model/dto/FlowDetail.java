@@ -43,6 +43,8 @@ public class FlowDetail extends BaseDto<Long>{
 	private String model;
 	@NotNull
 	private ObjectReference agent;
+	@JsonView(Views.BasicInfo.class)
+	private int displayOrder;
 
 	public static class FlowViews{
 		public class WithFK implements Views.OnlyIdName{	
