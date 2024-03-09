@@ -10,7 +10,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.model.dto.DataType;
 import com.biddflux.model.flow.DataPackage;
@@ -35,8 +34,7 @@ public class MySqlDb extends AbstractStorage{
     }
 
     @Override
-    public void init(Flow f, EnvironmentVars env) {
-        
+    public void init(Flow f) {
     }
 
     @Override
@@ -65,15 +63,12 @@ public class MySqlDb extends AbstractStorage{
     public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
         throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getDataPackage'");
     }
+    
     @Override
     public void deleteFile(String dir, String fileName) throws IOException {
         throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.deleteFile'");
     }
-    @Override
-    public void setApplyVersion(boolean applyVersion) {
-        throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.setApplyVersion'");
-    }
-
+    
     @Override
     public boolean isReady() {
         return true;

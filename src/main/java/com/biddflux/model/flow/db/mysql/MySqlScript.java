@@ -10,7 +10,6 @@ import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.model.flow.AbstractStep;
 import com.biddflux.model.flow.Flow;
@@ -52,9 +51,9 @@ public class MySqlScript extends AbstractStep{
 	}
 	
 	@Override
-	public void init(Flow f, EnvironmentVars env) {
-		super.init(f, env);
-		super.initNext(f, env);
+	public void init(Flow f) {
+		super.init(f);
+		super.initNext(f);
 	}
 	
 	@Override

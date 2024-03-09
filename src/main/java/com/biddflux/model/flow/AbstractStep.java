@@ -3,8 +3,6 @@ package com.biddflux.model.flow;
 import java.util.List;
 import java.util.Map;
 
-import com.biddflux.EnvironmentVars;
-
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -12,13 +10,11 @@ import lombok.extern.slf4j.Slf4j;
 public abstract class AbstractStep implements Step {
 	@Setter
 	protected Step nextStep;
-	@Setter
-	protected EnvironmentVars env;
 	protected boolean initialized;
 	@Setter
 	protected Flow flow;
 	@Override
-	public void init(Flow f, EnvironmentVars env) {
+	public void init(Flow f) {
 		this.flow = f;
 		initialized = true;
 	}
@@ -30,9 +26,9 @@ public abstract class AbstractStep implements Step {
 		}
 	} 
 	@Override
-	public void initNext(Flow f, EnvironmentVars env) {
+	public void initNext(Flow f) {
 		if(nextStep != null) {
-			nextStep.init(f, env);
+			nextStep.init(f);
 		}else {
 			log.debug("flow intialization is completed");
 		}

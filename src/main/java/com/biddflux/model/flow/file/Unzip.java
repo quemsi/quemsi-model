@@ -15,7 +15,6 @@ import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.io.IOUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileNameUtil;
 import com.biddflux.commons.util.FileResource;
@@ -63,9 +62,9 @@ public class Unzip extends AbstractStep {
     }
 
     @Override
-    public void init(Flow f, EnvironmentVars env) {
-        super.init(f, env);
-        super.initNext(f, env);
+    public void init(Flow f) {
+        super.init(f);
+        super.initNext(f);
     }
 
     @Override

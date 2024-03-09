@@ -41,11 +41,6 @@ public class Timer{
 	private boolean initialized;
 	private TriggerKey triggerKey;
 	
-	
-	public Timer() {
-		System.out.println(this);
-	}
-	
 	@Getter
 	private Map<String, FlowRunnable> runnables = new HashMap<>();
 	public void add(FlowRunnable r) {

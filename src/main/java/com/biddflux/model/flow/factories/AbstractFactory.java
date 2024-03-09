@@ -17,8 +17,12 @@ public abstract class AbstractFactory<T> {
 	
 	protected abstract void setCommonBeans(T s);
 	
+	public String type(JsonNode step){
+		return step.get("type").asText(null);
+	}
+
 	public T from(JsonNode step) {
-		String type = step.get("type").asText(null);
+		String type = type(step);
 		if(!getBuilders().containsKey(type)) {
 			throw Exceptions.badRequest("not-supported-object-type").withExtra("type", type).get();
 		}

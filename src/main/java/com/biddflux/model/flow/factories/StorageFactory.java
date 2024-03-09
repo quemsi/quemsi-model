@@ -16,13 +16,10 @@ public class StorageFactory extends AbstractFactory<Storage>{
 	@Getter
 	private Map<String, Function<JsonNode, Storage>> builders = Map.of(
 			"Gstorage", node -> {
-				boolean applyVersion = node.get("applyVersion").asBoolean(false);
 				String rootPath = node.get("rootPath").asText(null);
 				String googleDrive = node.findValue("googleDrive").asText(null);
 				
 				Gstorage s = new Gstorage();
-				s.setApplyVersion(applyVersion);
-				// s.setCheckSumProducer(context.getBean(ChecksumProducer.class));
 				s.setGoogleDrive(context.getBean(googleDrive, GoogleDrive.class));
 				// s.setGoogleDriveService(context.getBean(GoogleDriveManager.class));
 				s.setRootPath(rootPath);

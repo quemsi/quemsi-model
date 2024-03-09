@@ -11,7 +11,6 @@ import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.persistence.Views;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileNameUtil;
@@ -43,8 +42,8 @@ public class LStorage extends  AbstractStorage{
 	private RetentionPolicy retentionPolicy;
 	
 	@Override
-	public void init(Flow f, EnvironmentVars env) {
-		super.init(f, env);
+	public void init(Flow f) {
+		super.init(f);
 		dirPath = Paths.get(localDrive.getStorageRoot(), rootPath);
 		if(!Files.exists(dirPath)) {
 			try {
@@ -73,7 +72,7 @@ public class LStorage extends  AbstractStorage{
 		
 		dataPackages.forEach(dp -> {
 			log.debug("storin java.io.File file :{}", dp.getName());
-			String destPath = dirPath + "/" + dataName + "/" + util.versionedFileName(dp.getName(), version);
+			String destPath = dirPath + File.separator + dataName + File.separator + util.versionedFileName(dp.getName(), version);
 			log.debug("destination :{}", destPath);
 			localDrive.checkForCapacity(dp.getLength());
 			try {
@@ -87,13 +86,13 @@ public class LStorage extends  AbstractStorage{
 
 	@Override
 	public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-		File dataFile = new File(dirPath + "/" + dataName + "-" + version + "." + type.getExt());
+		File dataFile = new File(dirPath +  File.separator + dataName + File.separator + dataName + "-" + version + "." + type.getExt());
 		return List.of(new DataPackageFile(dataFile, dataFile.length(), util.getFileType(dataFile.getName())));
 	}
 
 	@Override
 	public void deleteFile(String dir, String fileName) throws IOException{
-		File dataFile = new File(dirPath + "/" + dir + "/" + fileName);
+		File dataFile = new File(dirPath + File.separator + dir + File.separator + fileName);
 		if(dataFile.exists()){
 			dataFile.delete();
 		}

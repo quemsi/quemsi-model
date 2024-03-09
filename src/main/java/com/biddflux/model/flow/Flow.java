@@ -9,12 +9,15 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.util.BaseRuntimeException;
 import com.biddflux.commons.util.DateUtils;
 import com.biddflux.model.dto.DataGroup;
+import com.biddflux.model.dto.DataVersion;
 import com.biddflux.model.dto.FlowDetail;
+import com.biddflux.model.dto.FlowHistory;
 import com.biddflux.model.dto.FlowHistoryStatus;
+import com.biddflux.model.dto.NamedEntityReference;
+import com.biddflux.model.dto.Tag;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.Data;
@@ -24,7 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 @Data
 @Slf4j
 public class Flow {
-	@JsonIgnore
+	// @JsonIgnore
 	// @Autowired
 	// private FlowHistoryServiceImpl flowHistoryService;
 	// @JsonIgnore
@@ -43,21 +46,21 @@ public class Flow {
 	@JsonIgnore
 	protected ReentrantLock lock = new ReentrantLock();
 	
-	public void initialize(EnvironmentVars env) {
-		first.init(this, env);
+	public void initialize() {
+		first.init(this);
 	}
 	
-	public void execute(FlowContext fc){
+	public FlowHistory execute(FlowContext fc){
 		try{
 			if(lock.tryLock()) {
-				if(!this.back && fc.getDataVersion() == null){
+				if(!this.back){
 					if(!fc.getTags().containsKey("date")){
 						fc.getTags().put("date", dateUtils.getDateString(LocalDateTime.now()));
 					}
 					if(!fc.getTags().containsKey("time")){
 						fc.getTags().put("time", dateUtils.getTimeString(LocalDateTime.now()));
 					}
-					// fc.setDataVersion(dataVersionService.createNew(this.data, fc.getTags()));
+					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
 				}
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
@@ -74,9 +77,10 @@ public class Flow {
 				}
 				fc.getFlowHistory().setFinishedAt(new Date(System.currentTimeMillis()));
 				fc.getFlowHistory().setVersion(fc.getDataVersion());
-				// flowHistoryService.save(fc.getFlowHistory());
+				return fc.getFlowHistory();
 			}else {
 				log.info("{} flow is already running", this.getName());
+				return null;
 			}
 		}finally{
 			lock.unlock();
@@ -84,15 +88,17 @@ public class Flow {
 	}
 
 	public void execute() {
+		//TODO: test this with timer and persist result
 		log.info("starting flow {} without parameter");
 		FlowContext fc = new FlowContext(this);
 		execute(fc);
 	}
 
-	public void execute(Map<String, String> tags) {
+	public FlowHistory execute(Long versionId, Map<String, String> tags) {
 		FlowContext fc = new FlowContext(this);
 		fc.setTags(tags);
-		execute(fc);
+		fc.setDataVersion(DataVersion.builder().id(versionId).data(NamedEntityReference.builder().id(data.getId()).name(data.getName()).build()).build());
+		return execute(fc);
 	}
 
 	public void setSteps(List<Step> steps) {
@@ -141,7 +147,8 @@ public class Flow {
 		public void run() {
 			Map<String, String> tags = Map.of("date", dateUtils.getDateString(LocalDateTime.now())
 				, "time", dateUtils.getTimeString(LocalDateTime.now()));
-			execute(tags);
+			//TODO get version from api
+			// execute(tags);
 		}
 	}
 }

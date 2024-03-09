@@ -5,9 +5,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.util.BaseRuntimeException;
 import com.biddflux.commons.util.Exceptions;
+import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.flow.out.Storage;
 
 import lombok.Data;
@@ -16,8 +16,6 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = false)
 public class To extends AbstractStep {
-	// @Autowired
-	// private DataFileServiceImpl dataFileService;
 	private List<Storage> targets;
 
 	@Override
@@ -26,7 +24,16 @@ public class To extends AbstractStep {
 			targets.stream().forEach(t -> {
 				t.store(context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
 				if(t.recordFiles()){
-					// dataFileService.persistFilesInVersion(context.getDataVersion(), t.getName(), t.getRootPath(), context.getDataPackages());
+					context.getFlowHistory().getVersion().setFiles(context.getDataPackages().stream().map(dp -> {
+						DataFile df = new DataFile();
+						df.setActive(true);
+						df.setContentType(dp.getContentType());
+						df.setDir(context.getDataVersion().getData().getName());
+						df.setName(dp.getName());
+						df.setSize(dp.getLength());
+						df.setStorage(t.getName());
+						return df;
+					}).toList());
 				}
 			});
 			if(context.isDeleteAfterwards()) {
@@ -42,10 +49,10 @@ public class To extends AbstractStep {
 	}
 	
 	@Override
-	public void init(Flow f, EnvironmentVars env) {
-		targets.forEach(t -> t.init(f, env));
-		super.init(f, env);
-		super.initNext(f, env);
+	public void init(Flow f) {
+		targets.forEach(t -> t.init(f));
+		super.init(f);
+		super.initNext(f);
 	}
 	
 	@Override

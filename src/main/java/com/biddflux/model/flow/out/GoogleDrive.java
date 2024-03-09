@@ -13,10 +13,8 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Async;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.persistence.Views;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileResource;
@@ -34,7 +32,6 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.store.DataStore;
-import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.Drive.Files;
 import com.google.api.services.drive.DriveScopes;
@@ -70,8 +67,8 @@ public class GoogleDrive {
 	private String tokensDirectoryPath = "tokens";
 	@Setter
 	private String credentialFilePath = "/credentials.json";
-	@Autowired
-	private EnvironmentVars env;
+	// @Autowired
+	// private EnvironmentVars env;
 	@JsonView(Views.BasicInfo.class)
 	@Getter
 	private String authUrl;
@@ -106,15 +103,15 @@ public class GoogleDrive {
 		if (credentialFilePath.startsWith("/") || ':' == credentialFilePath.charAt(1)) {
 			credentialPath = credentialFilePath + java.io.File.separator + "credentials.json";
 		} else {
-			credentialPath = this.env.getHomeDir() + java.io.File.separator + credentialFilePath
-					+ java.io.File.separator + "credentials.json";
+			// credentialPath = this.env.getHomeDir() + java.io.File.separator + credentialFilePath
+			// 		+ java.io.File.separator + "credentials.json";
 		}
 		InputStream in = new FileInputStream(credentialPath);
 		GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY, new InputStreamReader(in));
 		if (credentialDataStored == null) {
-			credentialDataStored = new FileDataStoreFactory(new java.io.File(this.env.googleDriveFilesLocation()
-					+ java.io.File.separator + name + java.io.File.separator + "token"))
-					.getDataStore(CREDENTIAL_STORE_ID);
+			// credentialDataStored = new FileDataStoreFactory(new java.io.File(this.env.googleDriveFilesLocation()
+			// 		+ java.io.File.separator + name + java.io.File.separator + "token"))
+			// 		.getDataStore(CREDENTIAL_STORE_ID);
 		}
 		// Build flow and trigger user authorization request.
 		GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
@@ -137,7 +134,6 @@ public class GoogleDrive {
 	@Async
 	public void connectToDrive() throws GeneralSecurityException, IOException {
 		if (!this.connected) {
-			log.info("homeDir : {}", this.env.getHomeDir());
 			final NetHttpTransport HTTP_TRANSPORT = GoogleNetHttpTransport.newTrustedTransport();
 			driveService = new Drive.Builder(HTTP_TRANSPORT, JSON_FACTORY, getCredentials(HTTP_TRANSPORT))
 					.setApplicationName(APPLICATION_NAME)

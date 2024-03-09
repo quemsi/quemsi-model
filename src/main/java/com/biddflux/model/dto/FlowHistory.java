@@ -13,19 +13,12 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class FlowHistory extends BaseDto<Long>{
-	@JsonView(Views.OnlyIdName.class)
 	private Long flowId;
-	@JsonView(Views.OnlyIdName.class)
 	private String flowName;
-	@JsonView(Views.BasicInfo.class)
 	private Date startedAt;
-	@JsonView(Views.BasicInfo.class)
 	private Date finishedAt;
-	@JsonView(Views.BasicInfo.class)
 	private FlowHistoryStatus status;
-	@JsonView(Views.BasicInfo.class)
 	private DataVersion version;
-	@JsonView(Views.BasicInfo.class)
 	private String logs;
 	
 	public StringWriter logWriter() {

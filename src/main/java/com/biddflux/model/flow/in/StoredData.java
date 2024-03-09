@@ -9,33 +9,29 @@ import com.biddflux.model.dto.DataVersion;
 import com.biddflux.model.flow.FlowContext;
 import com.biddflux.model.flow.out.Storage;
 
+import lombok.Getter;
 import lombok.Setter;
 
 public class StoredData implements Source{
 	@Setter
 	private Storage storage;
+	@Getter
 	@Setter
 	private String version;
+	@Getter
 	@Setter
 	private Map<String, String> tags;
-	//TODO: select version in api and execute in agent
-	// @Autowired
-	// private DataVersionServiceImpl dataVersionService;
 	
 	@Override
 	public void execute(FlowContext context) {
 		try {
 			DataGroup data = context.getFlow().getData();
-			Map<String, String> effectiveTags = tags;
-			if(context.getTags() != null && !context.getTags().isEmpty()){
-				effectiveTags = context.getTags();
-			}
-			DataVersion dataVersion = null; //dataVersionService.findVersionByTags(data.getName(), version, effectiveTags);
+			DataVersion dataVersion = context.getDataVersion(); 
 			if(dataVersion == null){
 				throw Exceptions.notFound("version-not-found").withExtra("data", data.getName()).withExtra("version", version).withExtra("tags", tags).get();
 			}
-			context.setDataPackages(storage.getDataPackage(data.getName(), data.getType(), dataVersion.getId()));
 			context.setDataVersion(dataVersion);
+			context.setDataPackages(storage.getDataPackage(data.getName(), data.getType(), dataVersion.getId()));
 		} catch (IOException e) {
 			throw Exceptions.server("io-exception").withCause(e).get();
 		}

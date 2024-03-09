@@ -6,7 +6,7 @@ import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.biddflux.model.flow.db.mysql.DataSourceFactoryMySql;
-import com.biddflux.model.flow.in.DbProperties;
+import com.biddflux.model.flow.in.MySqlBackupProperties;
 import com.biddflux.model.flow.in.MySqlBackup;
 import com.biddflux.model.flow.in.Source;
 import com.biddflux.model.flow.in.StoredData;
@@ -26,7 +26,7 @@ public class SourceFactory extends AbstractFactory<Source>{
 				String datasource = node.findValue("datasource").asText(null);
 				MySqlBackup s = new MySqlBackup();
 				s.setDatasource(context.getBean(datasource, DataSourceFactoryMySql.class));
-				s.setDbProperties(context.getBean(DbProperties.class));
+				s.setDbProperties(context.getBean(MySqlBackupProperties.class));
 				setCommonBeans(s);
 				return s;
 			},

@@ -29,6 +29,7 @@ public class FlowContext {
 		flowHistory = new FlowHistory();
 		flowHistory.setActive(true);
 		flowHistory.setFlowName(flow.getName());
+		flowHistory.setFlowId(flow.getId());
 		flowHistory.setStartedAt(new Date(System.currentTimeMillis()));
 		this.tags = new HashMap<>();
 		this.flow = flow;

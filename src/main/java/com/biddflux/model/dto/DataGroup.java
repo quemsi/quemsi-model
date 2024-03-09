@@ -15,16 +15,16 @@ import lombok.EqualsAndHashCode;
 @EqualsAndHashCode(callSuper = true)
 public class DataGroup extends BaseDto<Long>{
     @NotEmpty
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String name;
 	@NotEmpty
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String title;
 	@NotNull
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private DataType type;
 	@NotEmpty
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String retentionPolicy;
 	private List<DataVersion> versions;
 	private Long companyId;

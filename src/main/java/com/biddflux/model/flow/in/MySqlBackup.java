@@ -19,7 +19,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class MySqlBackup implements Source{
 	@Setter
-	private DbProperties dbProperties;
+	private MySqlBackupProperties dbProperties;
 	@Setter
 	private DataSourceFactoryMySql datasource;
 	@Autowired

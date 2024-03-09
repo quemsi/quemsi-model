@@ -45,13 +45,16 @@ public class Default implements RetentionPolicy{
     }
     @Override
     public void clear(){
+        if(sizeLimit < 10000000000000L){
+            return;
+        }
         List<DataFile> files = null; //fileService.findDataFilesByStorage(storage.getName());
         Long totalSize = files.stream().map(f-> f.getSize()).reduce(Long.valueOf(0L), (a, b) -> a+b);
         if((countLimit <= 0 || files.size() < countLimit) && (sizeLimit <= 0 || totalSize < (sizeLimit * 0.8))){
             log.info("no retention is required for {} files in size of {}", files.size(), totalSize);
             return;
         }
-        Set<DataVersion> versionSet = files.stream().map(f -> f.getVersion()).collect(Collectors.toSet());
+        Set<DataVersion> versionSet = null; //files.stream().map(f -> f.getVersion()).collect(Collectors.toSet());
         LinkedHashMap<String, LinkedList<DataVersion>> versions = new LinkedHashMap<>();
         AtomicInteger counter = new AtomicInteger();
         AtomicLong usedSize = new AtomicLong();

@@ -26,19 +26,19 @@ public class FlowDetail extends BaseDto<Long>{
 	@JsonView(Views.OnlyIdName.class)
 	@NotEmpty
 	private String name;
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	@NotEmpty
 	private String title;
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	@NotNull
 	private DataGroup data;
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private boolean back;
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String timer;
 	@JsonView(FlowViews.WithSteps.class)
 	private List<Map<String, Object>> steps;
-	@JsonView(Views.BasicInfo.class)
+	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	@NotEmpty
 	private String model;
 	@NotNull

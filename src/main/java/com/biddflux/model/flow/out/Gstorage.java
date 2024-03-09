@@ -6,7 +6,6 @@ import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.persistence.Views;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileNameUtil;
@@ -17,7 +16,6 @@ import com.biddflux.model.flow.DataPackage;
 import com.biddflux.model.flow.DataPackageFileResource;
 import com.biddflux.model.flow.Flow;
 import com.biddflux.model.flow.retention.RetentionPolicy;
-import com.biddflux.model.service.GoogleDriveManager;
 import com.fasterxml.jackson.annotation.JsonView;
 import com.google.api.client.auth.oauth2.TokenResponseException;
 import com.google.api.services.drive.model.File;
@@ -29,12 +27,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class Gstorage extends AbstractStorage {
 	@Setter
-	private File versionDir;
-	@Setter
 	private File rootDir;
-	@Setter
-	@Autowired
-	private GoogleDriveManager googleDriveService;
+	// @Setter
+	// @Autowired
+	// private GoogleDriveManager googleDriveService;
 	@Getter
 	@Setter
 	private GoogleDrive googleDrive;
@@ -59,16 +55,14 @@ public class Gstorage extends AbstractStorage {
 	}
 	
 	@Override
-    public void init(Flow f, EnvironmentVars env) {
-    	super.init(f, env);
+    public void init(Flow f) {
+    	super.init(f);
     	this.isReady();
 		googleDrive.getConnectedFuture().thenAccept(gd -> {
             try {
 				rootDir = googleDrive.getFile(rootPath);
-				if(rootDir != null) {
-		            versionDir = googleDrive.getFileInFolder(VERSION_DIR, rootDir);
-	            }else {
-	            	initialize();
+				if(rootDir == null) {
+		            initialize();
 	            }
 				this.ready = true;
 			} catch(TokenResponseException e) {
@@ -78,7 +72,7 @@ public class Gstorage extends AbstractStorage {
 				log.error(e.getDetails().getErrorDescription());
 				googleDrive.clearConnection();
 				googleDrive.setError(StringUtils.stackTraceOf(e));
-				googleDriveService.connectToDrives();
+				// googleDriveService.connectToDrives();
 			} catch (IOException e) {
 				log.error("error initializing gstorage", e);
 				googleDrive.setError(StringUtils.stackTraceOf(e));
@@ -149,9 +143,8 @@ public class Gstorage extends AbstractStorage {
 	}
 
 	protected boolean initialize() throws IOException {
-		if(!googleDrive.fileExists(rootPath + "/" + VERSION_DIR)) {
+		if(!googleDrive.fileExists(rootPath)) {
 			rootDir = googleDrive.createFolder(rootPath, null);
-			versionDir = googleDrive.createFolder(VERSION_DIR, rootDir);
 		}
 		return true;
 	}

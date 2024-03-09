@@ -7,7 +7,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.model.flow.AbstractStep;
 import com.biddflux.model.flow.Flow;
 import com.biddflux.model.flow.FlowContext;
@@ -48,9 +47,9 @@ public class ShellCommand extends AbstractStep{
 	}
 	
 	@Override
-	public void init(Flow f, EnvironmentVars env) {
-		super.init(f, env);
-		super.initNext(f, env);
+	public void init(Flow f) {
+		super.init(f);
+		super.initNext(f);
 	}
 	
 	@Override

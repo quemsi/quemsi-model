@@ -8,7 +8,6 @@ import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.biddflux.EnvironmentVars;
 import com.biddflux.commons.util.JsonUtils;
 import com.biddflux.model.flow.From;
 import com.biddflux.model.flow.Step;
@@ -97,7 +96,6 @@ public class StepFactory extends AbstractFactory<Step>{
 			);
 	@Override
 	protected void setCommonBeans(Step s) {
-		s.setEnv(context.getBean(EnvironmentVars.class));
 		context.getAutowireCapableBeanFactory().autowireBean(s);
 	}
 }
