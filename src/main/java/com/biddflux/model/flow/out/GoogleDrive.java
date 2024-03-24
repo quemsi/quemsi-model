@@ -74,9 +74,7 @@ public class GoogleDrive {
 	private DataStore<StoredCredential> credentialDataStored;
 	@Setter
 	private BiConsumer<String, String> browserConsumer;
-	@Setter
-	private String homeDir;
-
+	
 	public GoogleDrive() {
 		connectedFuture = new CompletableFuture<>();
 	}
@@ -98,7 +96,7 @@ public class GoogleDrive {
 		InputStream in = new FileInputStream(credentialPath);
 		GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY, new InputStreamReader(in));
 		if (credentialDataStored == null) {
-			credentialDataStored = new FileDataStoreFactory(new java.io.File(this.homeDir + java.io.File.separator + "googleDrives" 
+			credentialDataStored = new FileDataStoreFactory(new java.io.File("googleDrives" 
 					+ java.io.File.separator + name + java.io.File.separator + "token")).getDataStore(CREDENTIAL_STORE_ID);
 		}
 		GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
