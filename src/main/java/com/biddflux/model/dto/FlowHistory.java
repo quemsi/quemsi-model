@@ -4,8 +4,6 @@ import java.io.StringWriter;
 import java.util.Date;
 
 import com.biddflux.commons.persistence.BaseDto;
-import com.biddflux.commons.persistence.Views;
-import com.fasterxml.jackson.annotation.JsonView;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;

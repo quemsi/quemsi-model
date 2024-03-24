@@ -28,25 +28,19 @@ import lombok.extern.slf4j.Slf4j;
 public class Gstorage extends AbstractStorage {
 	@Setter
 	private File rootDir;
-	// @Setter
-	// @Autowired
-	// private GoogleDriveManager googleDriveService;
 	@Getter
 	@Setter
 	private GoogleDrive googleDrive;
-    private boolean ready;
 	@Setter
 	@Autowired
 	private FileNameUtil util;
-    // @Autowired
-	// private DataFileServiceImpl dataFileService;
-	@Getter
+    @Getter
 	@Setter
 	private RetentionPolicy retentionPolicy;
 
 	@Override
 	public boolean isReady() {
-		return ready && googleDrive.isConnected();
+		return googleDrive.isConnected();
 	}
 
 	@Override
@@ -60,11 +54,11 @@ public class Gstorage extends AbstractStorage {
     	this.isReady();
 		googleDrive.getConnectedFuture().thenAccept(gd -> {
             try {
+				initialize();
 				rootDir = googleDrive.getFile(rootPath);
 				if(rootDir == null) {
-		            initialize();
+		            throw Exceptions.server("gdrive-not-initialized").withExtra("driveName", googleDrive.getName()).get();
 	            }
-				this.ready = true;
 			} catch(TokenResponseException e) {
 				log.error("token error on initialize", e);
 				log.error("status {}, {}", e.getStatusCode());
@@ -91,10 +85,10 @@ public class Gstorage extends AbstractStorage {
 		}
 		
 		try {
-			if(!googleDrive.fileExists(dataName)){
+			if(!googleDrive.fileExists(rootPath + "/" + dataName)){
 				googleDrive.createFolder(dataName, rootDir);
 			}
-			File dataDir = googleDrive.getFile(dataName);
+			File dataDir = googleDrive.getFile(rootPath + "/" + dataName);
 			dataPackages.forEach(dp -> {
 				log.debug("storin java.io.File file :{}", dp.getName());
 				

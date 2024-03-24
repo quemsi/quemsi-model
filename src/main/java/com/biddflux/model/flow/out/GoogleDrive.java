@@ -11,14 +11,13 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.BiConsumer;
 import java.util.stream.Collectors;
 
 import org.springframework.scheduling.annotation.Async;
 
-import com.biddflux.commons.persistence.Views;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileResource;
-import com.fasterxml.jackson.annotation.JsonView;
 import com.google.api.client.auth.oauth2.Credential;
 import com.google.api.client.auth.oauth2.StoredCredential;
 import com.google.api.client.extensions.java6.auth.oauth2.AuthorizationCodeInstalledApp;
@@ -32,6 +31,7 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import com.google.api.client.json.JsonFactory;
 import com.google.api.client.json.jackson2.JacksonFactory;
 import com.google.api.client.util.store.DataStore;
+import com.google.api.client.util.store.FileDataStoreFactory;
 import com.google.api.services.drive.Drive;
 import com.google.api.services.drive.Drive.Files;
 import com.google.api.services.drive.DriveScopes;
@@ -50,37 +50,32 @@ public class GoogleDrive {
 	protected static final String COMMON_FIELDS = "name,mimeType,id,parents,md5Checksum";
 	private static final JsonFactory JSON_FACTORY = JacksonFactory.getDefaultInstance();
 	private static final List<String> SCOPES = Collections.singletonList(DriveScopes.DRIVE);
-	@JsonView(Views.OnlyIdName.class)
 	@Getter
 	@Setter
 	private String name;
-	@JsonView(Views.BasicInfo.class)
 	@Getter
 	private boolean connected;
-	@JsonView(Views.BasicInfo.class)
 	@Setter
 	private String callbackBaseUrl;
 	@Setter
-	@JsonView(Views.BasicInfo.class)
 	private Integer callbackPort = 8888;
 	@Setter
 	private String tokensDirectoryPath = "tokens";
 	@Setter
-	private String credentialFilePath = "/credentials.json";
-	// @Autowired
-	// private EnvironmentVars env;
-	@JsonView(Views.BasicInfo.class)
+	private String credentialFilePath = "credentials.json";
 	@Getter
 	private String authUrl;
-	@JsonView(Views.BasicInfo.class)
 	@Getter
 	@Setter
 	private String error;
-	@JsonView(Views.ExtraInfo.class)
 	@Getter
 	private CompletableFuture<GoogleDrive> connectedFuture;
 	private Drive driveService;
 	private DataStore<StoredCredential> credentialDataStored;
+	@Setter
+	private BiConsumer<String, String> browserConsumer;
+	@Setter
+	private String homeDir;
 
 	public GoogleDrive() {
 		connectedFuture = new CompletableFuture<>();
@@ -99,21 +94,13 @@ public class GoogleDrive {
 
 	private Credential getCredentials(final NetHttpTransport HTTP_TRANSPORT) throws IOException {
 		// Load client secrets.
-		String credentialPath = null;
-		if (credentialFilePath.startsWith("/") || ':' == credentialFilePath.charAt(1)) {
-			credentialPath = credentialFilePath + java.io.File.separator + "credentials.json";
-		} else {
-			// credentialPath = this.env.getHomeDir() + java.io.File.separator + credentialFilePath
-			// 		+ java.io.File.separator + "credentials.json";
-		}
+		String credentialPath = "credentials.json";
 		InputStream in = new FileInputStream(credentialPath);
 		GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY, new InputStreamReader(in));
 		if (credentialDataStored == null) {
-			// credentialDataStored = new FileDataStoreFactory(new java.io.File(this.env.googleDriveFilesLocation()
-			// 		+ java.io.File.separator + name + java.io.File.separator + "token"))
-			// 		.getDataStore(CREDENTIAL_STORE_ID);
+			credentialDataStored = new FileDataStoreFactory(new java.io.File(this.homeDir + java.io.File.separator + "googleDrives" 
+					+ java.io.File.separator + name + java.io.File.separator + "token")).getDataStore(CREDENTIAL_STORE_ID);
 		}
-		// Build flow and trigger user authorization request.
 		GoogleAuthorizationCodeFlow flow = new GoogleAuthorizationCodeFlow.Builder(
 				HTTP_TRANSPORT, JSON_FACTORY, clientSecrets, SCOPES)
 				.setCredentialDataStore(credentialDataStored)
@@ -128,7 +115,7 @@ public class GoogleDrive {
 			redirectUrl = redirectUrl.replace("http://localhost:" + callbackPort, callbackBaseUrl);
 			receiver.setRedirectUri(redirectUrl);
 		}
-		return new AuthorizationCodeInstalledApp(flow, receiver, new BakerBrowser()).authorize("user");
+		return new AuthorizationCodeInstalledApp(flow, receiver, new BiddfluxBrowser()).authorize("user");
 	}
 
 	@Async
@@ -250,7 +237,7 @@ public class GoogleDrive {
 		return file;
 	}
 
-	private class BakerBrowser implements Browser {
+	private class BiddfluxBrowser implements Browser {
 		@Override
 		public void browse(String url) throws IOException {
 			log.debug("open url :{}", url);
@@ -259,6 +246,9 @@ public class GoogleDrive {
 				authUrl = url.replace("http://localhost:" + callbackPort + "/", callbackBaseUrl);
 			}
 			log.debug("auth url :{}", authUrl);
+			if(browserConsumer != null){
+				browserConsumer.accept(name, authUrl);
+			}
 		}
 	}
 
