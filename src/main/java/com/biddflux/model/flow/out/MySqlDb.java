@@ -49,7 +49,7 @@ public class MySqlDb extends AbstractStorage{
             try (Connection conn = datasourceFactory.getDataSource().getConnection()){
                 List<SqlToken> tokens = sqlParser.split(dp.getInputStream());
                 Statement statement = conn.createStatement();
-                tokens.forEach(Exceptions.wrapEx(st -> { statement.addBatch(st.getValue());}));
+                tokens.forEach(Exceptions.wrapConsumer(st -> { statement.addBatch(st.getValue());}));
                 int[] results = statement.executeBatch();
                 String resultsStr = Arrays.stream(results).mapToObj(Integer::toString).collect(Collectors.joining(", "));
                 log.info("executeUpdate results {}", resultsStr);

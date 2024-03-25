@@ -19,6 +19,7 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = ExecuteFlow.class, name = "ExecuteFlow"),
     @JsonSubTypes.Type(value = DelayAgentCommand.class, name = "DelayAgentCommand"),
     @JsonSubTypes.Type(value = GoogleDriveConnect.class, name = "GoogleDriveConnect"),
+    @JsonSubTypes.Type(value = UpdateAgentModel.class, name = "UpdateAgentModel"),
 
     @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
     @JsonSubTypes.Type(value = UpdateGoogleDrive.class, name = "UpdateGoogleDrive")

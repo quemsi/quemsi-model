@@ -18,7 +18,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.quartz.MethodInvokingJobDetailFactoryBean;
 
 import com.biddflux.commons.util.Exceptions;
-import com.biddflux.model.flow.Flow.FlowRunnable;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -42,9 +41,9 @@ public class Timer{
 	private TriggerKey triggerKey;
 	
 	@Getter
-	private Map<String, FlowRunnable> runnables = new HashMap<>();
-	public void add(FlowRunnable r) {
-		runnables.put(r.getFlowName(), r);
+	private Map<String, NamedRunnable> runnables = new HashMap<>();
+	public void add(NamedRunnable r) {
+		runnables.put(r.getName(), r);
 	}
 	
 	public void tick() {
@@ -88,5 +87,9 @@ public class Timer{
         } catch (Throwable se) {
             log.error("error creating timer " + this.name, se);
         }
-	}	
+	}
+	
+	public static interface NamedRunnable extends Runnable {
+		String getName();
+	}
 }

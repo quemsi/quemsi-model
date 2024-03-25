@@ -21,18 +21,11 @@ import com.biddflux.model.dto.Tag;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.Data;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 
 @Data
 @Slf4j
 public class Flow {
-	// @JsonIgnore
-	// @Autowired
-	// private FlowHistoryServiceImpl flowHistoryService;
-	// @JsonIgnore
-	// @Autowired
-	// private DataVersionServiceImpl dataVersionService;
 	@Autowired
 	private DateUtils dateUtils;
 	private Step first;
@@ -87,13 +80,6 @@ public class Flow {
 		}
 	}
 
-	public void execute() {
-		//TODO: test this with timer and persist result
-		log.info("starting flow {} without parameter");
-		FlowContext fc = new FlowContext(this);
-		execute(fc);
-	}
-
 	public FlowHistory execute(Long versionId, Map<String, String> tags) {
 		FlowContext fc = new FlowContext(this);
 		fc.setTags(tags);
@@ -126,29 +112,5 @@ public class Flow {
 		List<Map<String, Object>> steps = new ArrayList<>();
 		first.fillDetails(steps);
 		return FlowDetail.builder().id(this.id).name(name).title(title).data(data).active(active).back(back).steps(steps).build();
-	}
-
-	public FlowRunnable getRunnable(String timerName){
-		return new FlowRunnable(timerName);
-	}
-
-	public class FlowRunnable implements Runnable
-	{
-		@Getter
-		private String timerName;
-		public String getFlowName(){
-			return name;
-		}
-		private FlowRunnable(String timerName){
-			this.timerName = timerName;
-		}
-
-		@Override
-		public void run() {
-			Map<String, String> tags = Map.of("date", dateUtils.getDateString(LocalDateTime.now())
-				, "time", dateUtils.getTimeString(LocalDateTime.now()));
-			//TODO get version from api
-			// execute(tags);
-		}
-	}
+	}	
 }
