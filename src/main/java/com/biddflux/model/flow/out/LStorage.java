@@ -34,8 +34,6 @@ public class LStorage extends  AbstractStorage{
 	private LocalDrive localDrive;
 	@Autowired
 	private FileNameUtil util;
-	// @Autowired
-	// private DataFileServiceImpl dataFileService;
 	private Path dirPath;
 	@Setter
 	@Getter
