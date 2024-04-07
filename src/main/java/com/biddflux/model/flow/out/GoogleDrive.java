@@ -91,7 +91,6 @@ public class GoogleDrive {
 	}
 
 	private Credential getCredentials(final NetHttpTransport HTTP_TRANSPORT) throws IOException {
-		// Load client secrets.
 		String credentialPath = "credentials.json";
 		InputStream in = new FileInputStream(credentialPath);
 		GoogleClientSecrets clientSecrets = GoogleClientSecrets.load(JSON_FACTORY, new InputStreamReader(in));

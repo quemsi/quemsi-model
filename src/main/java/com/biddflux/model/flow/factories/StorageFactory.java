@@ -21,7 +21,6 @@ public class StorageFactory extends AbstractFactory<Storage>{
 				
 				Gstorage s = new Gstorage();
 				s.setGoogleDrive(context.getBean(googleDrive, GoogleDrive.class));
-				// s.setGoogleDriveService(context.getBean(GoogleDriveManager.class));
 				s.setRootPath(rootPath);
 				context.getAutowireCapableBeanFactory().autowireBean(s);
 				setCommonBeans(s);

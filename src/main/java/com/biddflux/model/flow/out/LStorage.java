@@ -37,6 +37,12 @@ public class LStorage extends  AbstractStorage{
 	// @Autowired
 	// private DataFileServiceImpl dataFileService;
 	private Path dirPath;
+	@Setter
+	@Getter
+	private long capacity;
+	@Setter
+	@Getter
+	private long usedSize;
     @Setter
 	@Getter
 	private RetentionPolicy retentionPolicy;
@@ -103,11 +109,6 @@ public class LStorage extends  AbstractStorage{
 		return ready;
 	}
 
-	@JsonView(Views.BasicInfo.class)
-	public long getUsedSize(){
-        return 0L; //dataFileService.findSizeByDataStorage(name);
-    }
-	
 	@Override
 	public void fillDetails(Map<String, Object> props) {
 		props.put("name", name);

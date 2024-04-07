@@ -31,6 +31,8 @@ public class AgentModel {
         private String retentionPolicy;
         private long countLimit;
         private long sizeLimit;
+        private long capacity;
+        private long usedSize;
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
@@ -40,6 +42,7 @@ public class AgentModel {
         private String title;
         private String callbackBaseUrl;
         private Integer callbackPort;
+        private long usedSize;
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
@@ -49,6 +52,7 @@ public class AgentModel {
         private String title;
         private String storageRoot;
         private long capacity;
+        private long usedSize;
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)

@@ -37,7 +37,7 @@ public class Gstorage extends AbstractStorage {
     @Getter
 	@Setter
 	private RetentionPolicy retentionPolicy;
-
+	
 	@Override
 	public boolean isReady() {
 		return googleDrive.isConnected();
@@ -66,10 +66,11 @@ public class Gstorage extends AbstractStorage {
 				log.error(e.getDetails().getErrorDescription());
 				googleDrive.clearConnection();
 				googleDrive.setError(StringUtils.stackTraceOf(e));
-				// googleDriveService.connectToDrives();
+				throw Exceptions.auth("token-error").onEntity("storage", name).withCause(e).get();
 			} catch (IOException e) {
 				log.error("error initializing gstorage", e);
 				googleDrive.setError(StringUtils.stackTraceOf(e));
+				throw Exceptions.auth("io-exception-error").onEntity("storage", name).withCause(e).get();
 			}
 		});
     }

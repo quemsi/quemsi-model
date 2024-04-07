@@ -8,16 +8,15 @@ import lombok.Data;
 
 @Data
 public class LocalDrive {
-    //TODO: how agent should know about the capacity
-    // @JsonIgnore
-    // @Autowired
-    // private LocalDriveServiceImpl serviceImpl;
     @JsonView(Views.OnlyIdName.class)
 	private String name;
     @JsonView(Views.BasicInfo.class)
 	private String storageRoot;
     @JsonView(Views.BasicInfo.class)
 	private long capacity;
+    @JsonView(Views.BasicInfo.class)
+	private long usedSize;
+    
     
     public void checkForCapacity(long size){
         if((getUsedSize() + size) > capacity){
@@ -25,10 +24,5 @@ public class LocalDrive {
                 .withExtra("freeSpace", capacity - getUsedSize())
                 .withExtra("fileSize", size).get();
         }
-    }
-
-    @JsonView(Views.BasicInfo.class)
-	public long getUsedSize(){
-        return 0L; //serviceImpl.findUsedSizeForDrive(name);
     }
 }
