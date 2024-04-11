@@ -14,7 +14,6 @@ import com.biddflux.model.dto.DataType;
 import com.biddflux.model.flow.DataPackage;
 import com.biddflux.model.flow.DataPackageFileResource;
 import com.biddflux.model.flow.Flow;
-import com.biddflux.model.flow.retention.RetentionPolicy;
 import com.google.api.client.auth.oauth2.TokenResponseException;
 import com.google.api.services.drive.model.File;
 
@@ -34,7 +33,7 @@ public class Gstorage extends AbstractStorage {
 	private FileNameUtil util;
     @Getter
 	@Setter
-	private RetentionPolicy retentionPolicy;
+	private String retentionPolicy;
 	
 	@Override
 	public boolean isReady() {
@@ -102,7 +101,6 @@ public class Gstorage extends AbstractStorage {
 		} catch (IOException e) {
 			throw Exceptions.server("error-in-storing-google-drive").withCause(e).get();
 		}
-		retentionPolicy.clear();
 	}
 	
 	@Override

@@ -1,6 +1,7 @@
 package com.biddflux.model.dto.agent;
 
 import com.biddflux.model.dto.agent.onapi.NotifyError;
+import com.biddflux.model.dto.agent.onapi.RetentionCompleted;
 import com.biddflux.model.dto.agent.onapi.UpdateGoogleDrive;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
@@ -20,9 +21,11 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = DelayAgentCommand.class, name = "DelayAgentCommand"),
     @JsonSubTypes.Type(value = GoogleDriveConnect.class, name = "GoogleDriveConnect"),
     @JsonSubTypes.Type(value = UpdateAgentModel.class, name = "UpdateAgentModel"),
+    @JsonSubTypes.Type(value = RetentionExecute.class, name = "RetentionExecute"),
 
     @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
-    @JsonSubTypes.Type(value = UpdateGoogleDrive.class, name = "UpdateGoogleDrive")
+    @JsonSubTypes.Type(value = UpdateGoogleDrive.class, name = "UpdateGoogleDrive"),
+    @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted")
 })
 @Data
 @NoArgsConstructor

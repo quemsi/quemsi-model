@@ -18,7 +18,6 @@ import com.biddflux.model.dto.DataType;
 import com.biddflux.model.flow.DataPackage;
 import com.biddflux.model.flow.DataPackageFile;
 import com.biddflux.model.flow.Flow;
-import com.biddflux.model.flow.retention.RetentionPolicy;
 import com.fasterxml.jackson.annotation.JsonView;
 
 import lombok.Getter;
@@ -43,7 +42,7 @@ public class LStorage extends  AbstractStorage{
 	private long usedSize;
     @Setter
 	@Getter
-	private RetentionPolicy retentionPolicy;
+	private String retentionPolicy;
 	
 	@Override
 	public void init(Flow f) {
@@ -85,7 +84,6 @@ public class LStorage extends  AbstractStorage{
 				throw Exceptions.server("error-in-storing-folder").withExtra("destPath", destPath).withCause(e).get();
 			}
 		});
-		retentionPolicy.clear();
 	}
 
 	@Override
