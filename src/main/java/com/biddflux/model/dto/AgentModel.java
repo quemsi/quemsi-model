@@ -72,5 +72,6 @@ public class AgentModel {
         private String url;
         private String username;
         private String password;
+        private boolean useEnvVar;
     }
 }
