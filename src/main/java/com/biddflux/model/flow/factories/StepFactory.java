@@ -18,6 +18,7 @@ import com.biddflux.model.flow.db.mysql.MySqlScript;
 import com.biddflux.model.flow.db.mysql.StartReplica;
 import com.biddflux.model.flow.db.mysql.StopReplica;
 import com.biddflux.model.flow.file.Unzip;
+import com.biddflux.model.flow.file.Zip;
 import com.biddflux.model.flow.out.Storage;
 import com.fasterxml.jackson.databind.JsonNode;
 
@@ -67,6 +68,11 @@ public class StepFactory extends AbstractFactory<Step>{
 				}
 				s.setTargets(targets);
 				return s;
+			},
+			"Zip", node -> {
+				Zip zip = new Zip();
+				setCommonBeans(zip);
+				return zip;
 			},
 			"Unzip", node -> {
 				Unzip unzip = new Unzip();

@@ -1,7 +1,7 @@
 package com.biddflux.model.dto;
 
 public enum DataType {
-	DB("zip"), FILE("*");
+	DB("sql"), FILE("*");
 	private final String ext;
 	private DataType(String ext){
 		this.ext = ext;
