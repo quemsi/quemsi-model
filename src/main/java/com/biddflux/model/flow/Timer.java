@@ -5,9 +5,6 @@ import static org.quartz.TriggerBuilder.newTrigger;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import javax.annotation.PostConstruct;
 
 import org.quartz.JobDetail;
 import org.quartz.Scheduler;
@@ -25,8 +22,6 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class Timer{
-	private static AtomicInteger indexer = new AtomicInteger(1);
-	private int index;
 	@Setter
 	@Autowired
 	private Scheduler scheduler;
@@ -45,9 +40,11 @@ public class Timer{
 	public void add(NamedRunnable r) {
 		runnables.put(r.getName(), r);
 	}
-	
+	public void remove(String name){
+		runnables.remove(name);
+	}
 	public void tick() {
-		log.debug("{} {} timer tick", this.name, this.index);
+		log.info("{} timer ticks", this.name);
 		if(!runnables.isEmpty()) {
 			runnables.values().forEach(Runnable::run);
 		}
@@ -62,20 +59,17 @@ public class Timer{
 		}
 	}
 	
-	@PostConstruct
 	public void init() {
 		try {
-			this.index = indexer.getAndIncrement();
 			MethodInvokingJobDetailFactoryBean factory = new MethodInvokingJobDetailFactoryBean();
 			factory.setTargetObject(this);
 			factory.setTargetMethod("tick");
 			factory.afterPropertiesSet();
-			String indexedName = this.name + index;
 			String groupName = "timersgroup";
-			triggerKey = TriggerKey.triggerKey(indexedName , groupName);
+			triggerKey = TriggerKey.triggerKey(name , groupName);
         	JobDetail job = factory.getObject();
 			Trigger trigger = newTrigger()
-				.withIdentity(indexedName, groupName)
+				.withIdentity(name, groupName)
             	.withSchedule(
             			cronSchedule(this.schedule)
             			.withMisfireHandlingInstructionFireAndProceed()
@@ -83,7 +77,7 @@ public class Timer{
             	.build();
             scheduler.scheduleJob(job, trigger);
             this.initialized = true;
-            log.debug("timer {} {} scheduled", this.name, index);
+            log.debug("{} timer scheduled", this.name);
         } catch (Throwable se) {
             log.error("error creating timer " + this.name, se);
         }

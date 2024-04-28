@@ -36,6 +36,7 @@ public class Flow {
 	private boolean active;
 	private boolean back;
 	private DataGroup data;
+	private String timerName;
 	
 	@JsonIgnore
 	protected ReentrantLock lock = new ReentrantLock();
