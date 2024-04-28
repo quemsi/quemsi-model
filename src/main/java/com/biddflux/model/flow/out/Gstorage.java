@@ -10,6 +10,7 @@ import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileNameUtil;
 import com.biddflux.commons.util.FileResource;
 import com.biddflux.commons.util.StringUtils;
+import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.dto.DataType;
 import com.biddflux.model.flow.DataPackage;
 import com.biddflux.model.flow.DataPackageFileResource;
@@ -116,6 +117,20 @@ public class Gstorage extends AbstractStorage {
 		FileResource fr = googleDrive.directDownload(file);
 		DataPackage dpf = new DataPackageFileResource(fr);
 		return List.of(dpf);
+	}
+
+	@Override
+	public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
+		return files.stream().map(Exceptions.wrapFunction(f -> {
+			String targetFile = new StringBuilder(rootPath).append( "/").append(f.getDir()).append("/").append(f.getName()).toString();
+			log.info("targetFile : {}", targetFile);
+			File file = googleDrive.getFile(targetFile);
+			if(file == null){
+				throw Exceptions.notFound("file-not-found").withExtra("targetFile", targetFile).withExtra("driveName", googleDrive.getName()).get();
+			}
+			FileResource fr = googleDrive.directDownload(file);
+			return (DataPackage)new DataPackageFileResource(fr);
+		})).toList();
 	}
 
 	@Override

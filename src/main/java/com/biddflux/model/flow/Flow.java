@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.biddflux.commons.util.BaseRuntimeException;
 import com.biddflux.commons.util.DateUtils;
+import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.dto.DataGroup;
 import com.biddflux.model.dto.DataVersion;
 import com.biddflux.model.dto.FlowDetail;
@@ -80,10 +81,10 @@ public class Flow {
 		}
 	}
 
-	public FlowHistory execute(Long versionId, Map<String, String> tags) {
+	public FlowHistory execute(Long versionId, Map<String, String> tags, List<DataFile> files) {
 		FlowContext fc = new FlowContext(this);
 		fc.setTags(tags);
-		fc.setDataVersion(DataVersion.builder().id(versionId).data(NamedEntityReference.builder().id(data.getId()).name(data.getName()).build()).build());
+		fc.setDataVersion(DataVersion.builder().id(versionId).files(files).data(NamedEntityReference.builder().id(data.getId()).name(data.getName()).build()).build());
 		return execute(fc);
 	}
 

@@ -42,6 +42,7 @@ public class FlowDetail extends BaseDto<Long>{
 	@NotEmpty
 	private String model;
 	@NotNull
+	@JsonView({Views.BasicInfo.class, FlowViews.WithSteps.class, Views.Agent.AgentModel.class})
 	private ObjectReference agent;
 	@JsonView(Views.BasicInfo.class)
 	private int displayOrder;

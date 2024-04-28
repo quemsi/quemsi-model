@@ -36,7 +36,8 @@ public class InputFolder implements Source {
 	@Override
 	public void execute(FlowContext context) {
 		try (Stream<Path> paths = Files.walk(Paths.get(path))) {
-		    context.getDataPackages().addAll(paths
+		    
+			context.setDataPackages(paths
 		        .filter(Files::isRegularFile)
 		        .map(Path::toFile)
 				.filter(f -> {

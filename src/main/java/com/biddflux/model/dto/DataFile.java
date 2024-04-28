@@ -8,7 +8,7 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataFile extends BaseDto<Long>{
-    private DataVersionSummary version;
+    private Long version;
     private String storage;
     private String dir;
     private String name;

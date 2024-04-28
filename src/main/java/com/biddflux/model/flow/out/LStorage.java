@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import com.biddflux.commons.persistence.Views;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileNameUtil;
+import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.dto.DataType;
 import com.biddflux.model.flow.DataPackage;
 import com.biddflux.model.flow.DataPackageFile;
@@ -89,7 +90,12 @@ public class LStorage extends  AbstractStorage{
 	@Override
 	public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
 		File dataFile = new File(dirPath +  File.separator + dataName + File.separator + dataName + "-" + version + "." + type.getExt());
-		return List.of(new DataPackageFile(dataFile, dataFile.length(), util.getFileType(dataFile.getName())));
+		return List.of((DataPackage)new DataPackageFile(dataFile, dataFile.length(), util.getFileType(dataFile.getName())));
+	}
+
+	@Override
+	public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
+		return files.stream().peek(f -> log.info("adding {}", dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion()))).map(f -> (DataPackage)new DataPackageFile(new File(dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())), f.getSize(), f.getContentType())).toList();
 	}
 
 	@Override

@@ -30,8 +30,7 @@ public class StoredData implements Source{
 			if(dataVersion == null){
 				throw Exceptions.notFound("version-not-found").withExtra("data", data.getName()).withExtra("version", version).withExtra("tags", tags).get();
 			}
-			context.setDataVersion(dataVersion);
-			context.setDataPackages(storage.getDataPackage(data.getName(), data.getType(), dataVersion.getId()));
+			context.setDataPackages(storage.getFiles(dataVersion.getFiles()));
 		} catch (IOException e) {
 			throw Exceptions.server("io-exception").withCause(e).get();
 		}

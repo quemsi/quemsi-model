@@ -14,10 +14,11 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode(callSuper = true)
 public class DataVersion extends BaseDto<Long>{
 	@Builder
-	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags){
+	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files){
 		super(id, true);
 		this.data = data;
 		this.tags = tags;
+		this.files = files;
 	}
     private NamedEntityReference data;
 	private List<Tag> tags;

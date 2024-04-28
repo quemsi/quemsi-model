@@ -11,6 +11,7 @@ import java.util.stream.Collectors;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.biddflux.commons.util.Exceptions;
+import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.dto.DataType;
 import com.biddflux.model.flow.DataPackage;
 import com.biddflux.model.flow.Flow;
@@ -64,6 +65,11 @@ public class MySqlDb extends AbstractStorage{
         throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getDataPackage'");
     }
     
+    @Override
+    public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
+        throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getFiles'");
+    }
+
     @Override
     public void deleteFile(String dir, String fileName) throws IOException {
         throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.deleteFile'");
