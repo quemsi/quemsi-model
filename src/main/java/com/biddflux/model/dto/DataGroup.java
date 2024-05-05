@@ -26,6 +26,7 @@ public class DataGroup extends BaseDto<Long>{
 	@NotEmpty
 	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String retentionPolicy;
+	private boolean active;
 	private List<DataVersion> versions;
 	private Long companyId;
 }

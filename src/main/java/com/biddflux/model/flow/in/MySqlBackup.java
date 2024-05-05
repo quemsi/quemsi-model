@@ -23,8 +23,8 @@ public class MySqlBackup implements Source{
 	
 	@Override
 	public void execute(FlowContext context) {
-		MysqlExportService mysqlExportService = new MysqlExportService(toMysqlProperties());
 		try {
+			MysqlExportService mysqlExportService = new MysqlExportService(toMysqlProperties());
 			mysqlExportService.export();
 			log.debug("db backup file created {}", mysqlExportService.getGeneratedZipFile());
 			String sql = mysqlExportService.getGeneratedSql();
