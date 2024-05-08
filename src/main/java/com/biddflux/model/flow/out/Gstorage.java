@@ -122,7 +122,7 @@ public class Gstorage extends AbstractStorage {
 	@Override
 	public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
 		return files.stream().map(Exceptions.wrapFunction(f -> {
-			String targetFile = new StringBuilder(rootPath).append( "/").append(f.getDir()).append("/").append(f.getName()).toString();
+			String targetFile = new StringBuilder(rootPath).append( "/").append(f.getDir()).append("/").append(util.versionedFileName(f.getName(), f.getVersion())).toString();
 			log.info("targetFile : {}", targetFile);
 			File file = googleDrive.getFile(targetFile);
 			if(file == null){
