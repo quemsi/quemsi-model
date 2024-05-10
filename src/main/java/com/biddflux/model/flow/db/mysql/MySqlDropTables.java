@@ -8,8 +8,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Autowired;
-
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.model.flow.AbstractStep;
 import com.biddflux.model.flow.Flow;
@@ -33,7 +31,7 @@ public class MySqlDropTables extends AbstractStep{
     private boolean all;
 	@Setter
 	private Set<String> tables;
-	@Autowired
+	@Setter
     private SqlParser sqlParser;
 
 

@@ -8,6 +8,7 @@ import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.biddflux.commons.util.FileNameUtil;
 import com.biddflux.commons.util.JsonUtils;
 import com.biddflux.model.flow.From;
 import com.biddflux.model.flow.Step;
@@ -17,6 +18,7 @@ import com.biddflux.model.flow.db.mysql.MySqlDropTables;
 import com.biddflux.model.flow.db.mysql.MySqlScript;
 import com.biddflux.model.flow.db.mysql.StartReplica;
 import com.biddflux.model.flow.db.mysql.StopReplica;
+import com.biddflux.model.flow.db.sql.SqlParser;
 import com.biddflux.model.flow.file.Unzip;
 import com.biddflux.model.flow.file.Zip;
 import com.biddflux.model.flow.out.Storage;
@@ -38,26 +40,22 @@ public class StepFactory extends AbstractFactory<Step>{
 				String datasource = node.findValue("datasource").asText(null);
 				StopReplica s = new StopReplica();
 				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
-				setCommonBeans(s);
 				return s;
 			},
 			"StartReplica", node -> {
 				String datasource = node.findValue("datasource").asText(null);
 				StartReplica s = new StartReplica();
 				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
-				setCommonBeans(s);
 				return s;
 			},
 			"From", node -> {
 				From s = new From();
-				setCommonBeans(s);
 				JsonNode sourceNode = node.get("source");
 				s.setSource(sourceFactory.from(sourceNode));
 				return s;
 			},
 			"To", node -> {
 				To s = new To();
-				setCommonBeans(s);
 				JsonNode targetsNode = node.get("targets");
 				List<Storage> targets = new LinkedList<>();
 				if(targetsNode != null && targetsNode.isArray()) {
@@ -71,12 +69,11 @@ public class StepFactory extends AbstractFactory<Step>{
 			},
 			"Zip", node -> {
 				Zip zip = new Zip();
-				setCommonBeans(zip);
 				return zip;
 			},
 			"Unzip", node -> {
 				Unzip unzip = new Unzip();
-				setCommonBeans(unzip);
+				unzip.setUtil(context.getBean(FileNameUtil.class));
 				return unzip;
 			},
 			"MySqlScript", node ->  {
@@ -85,7 +82,7 @@ public class StepFactory extends AbstractFactory<Step>{
 				mScript.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
 				String script = node.findValue("script").asText();
 				mScript.setScript(script);
-				setCommonBeans(mScript);
+				mScript.setSqlParser(context.getBean(SqlParser.class));
 				return mScript;
 			},
 			"MySqlDropTables", node ->  {
@@ -96,12 +93,8 @@ public class StepFactory extends AbstractFactory<Step>{
 				dropTables.setAll(all);
 				Set<String> tables = jsonUtils.asSet(node.get("tables"));
 				dropTables.setTables(tables);
-				setCommonBeans(dropTables);
+				dropTables.setSqlParser(context.getBean(SqlParser.class));
 				return dropTables;
 			}
 			);
-	@Override
-	protected void setCommonBeans(Step s) {
-		context.getAutowireCapableBeanFactory().autowireBean(s);
-	}
 }

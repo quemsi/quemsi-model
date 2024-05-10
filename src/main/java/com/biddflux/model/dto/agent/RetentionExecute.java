@@ -1,5 +1,6 @@
 package com.biddflux.model.dto.agent;
 
+import java.io.Serializable;
 import java.util.List;
 
 import lombok.AllArgsConstructor;
@@ -26,7 +27,7 @@ public class RetentionExecute extends AgentCommand{
     @Data
     @NoArgsConstructor
     @AllArgsConstructor
-    public static class FileInfo {
+    public static class FileInfo implements Serializable {
         private Long id;
         private String dir;
         private String name;

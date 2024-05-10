@@ -32,6 +32,7 @@ public class LStorage extends  AbstractStorage{
 	@Setter
 	@Getter
 	private LocalDrive localDrive;
+	@Setter
 	@Autowired
 	private FileNameUtil util;
 	private Path dirPath;

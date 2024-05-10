@@ -13,7 +13,6 @@ import org.apache.commons.compress.archivers.zip.ZipArchiveEntry;
 import org.apache.commons.compress.archivers.zip.ZipFile;
 import org.apache.commons.compress.utils.SeekableInMemoryByteChannel;
 import org.apache.commons.io.IOUtils;
-import org.springframework.beans.factory.annotation.Autowired;
 
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileNameUtil;
@@ -24,11 +23,12 @@ import com.biddflux.model.flow.DataPackageFileResource;
 import com.biddflux.model.flow.Flow;
 import com.biddflux.model.flow.FlowContext;
 
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class Unzip extends AbstractStep {
-    @Autowired
+    @Setter
     private FileNameUtil util;
 
     @Override

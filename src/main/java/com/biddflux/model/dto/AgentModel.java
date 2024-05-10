@@ -1,5 +1,6 @@
 package com.biddflux.model.dto;
 
+import java.io.Serializable;
 import java.util.List;
 
 import com.biddflux.commons.persistence.Views;
@@ -9,7 +10,7 @@ import lombok.Data;
 
 @Data
 @JsonView(Views.Agent.AgentModel.class)
-public class AgentModel {
+public class AgentModel implements Serializable{
     public Long agentId;
     private List<Datasource> datasources;
     private List<Timer> timers;
@@ -20,7 +21,7 @@ public class AgentModel {
 
     @Data
     @JsonView(Views.Agent.AgentModel.class)
-    public static class Storage {
+    public static class Storage implements Serializable{
         private Long id;
         private String name;
         private String title;
@@ -36,7 +37,7 @@ public class AgentModel {
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
-    public static class GoogleDrive{
+    public static class GoogleDrive implements Serializable {
         private Long id;
         private String name;
         private String title;
@@ -46,7 +47,7 @@ public class AgentModel {
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
-    public static class LocalDrive{
+    public static class LocalDrive implements Serializable {
         private Long id;
         private String name;
         private String title;
@@ -56,7 +57,7 @@ public class AgentModel {
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
-    public static class Timer{
+    public static class Timer implements Serializable{
         private Long id;
         private String name;
         private String title;
@@ -64,7 +65,7 @@ public class AgentModel {
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
-    public static class Datasource{
+    public static class Datasource implements Serializable{
         private Long id;
         private DatasourceType type;
         private String name;

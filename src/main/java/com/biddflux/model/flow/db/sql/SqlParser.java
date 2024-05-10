@@ -24,16 +24,14 @@ public class SqlParser {
             if(!StringUtils.isEmptyOrNull(line)){
                 if(line.charAt(line.length() -1) == ';' || (line.length()>=2 && "*/".equals(line.substring(line.length() -2)))){
                     if(sb.length() > 0){
-                        sb.append(" ");
+                        sb.append(System.lineSeparator());
                     }
                     sb.append(line);
                     tokens.addLast(new SqlToken(sb.toString()));
                     sb = new StringBuilder();
-                } else if(line.startsWith("--") || line.startsWith("#")){
-                    tokens.addLast(new SqlToken(line));
                 } else {
                     if(sb.length() > 0){
-                        sb.append(" ");
+                        sb.append(System.lineSeparator());
                     }
                     sb.append(line);
                 }

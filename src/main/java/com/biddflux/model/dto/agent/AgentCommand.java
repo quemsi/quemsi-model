@@ -1,5 +1,7 @@
 package com.biddflux.model.dto.agent;
 
+import java.io.Serializable;
+
 import com.biddflux.model.dto.agent.onapi.NotifyError;
 import com.biddflux.model.dto.agent.onapi.RetentionCompleted;
 import com.biddflux.model.dto.agent.onapi.UpdateGoogleDrive;
@@ -30,7 +32,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class AgentCommand {
+public class AgentCommand implements Serializable {
     private String name;
     private Long agentId;
 }

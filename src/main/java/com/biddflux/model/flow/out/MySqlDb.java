@@ -8,8 +8,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import org.springframework.beans.factory.annotation.Autowired;
-
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.dto.DataType;
@@ -26,7 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 public class MySqlDb extends AbstractStorage{
     @Setter
     private DataSourceFactory datasourceFactory;
-    @Autowired
+    @Setter
     private SqlParser sqlParser;
 
     @Override

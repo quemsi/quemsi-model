@@ -15,8 +15,6 @@ public abstract class AbstractFactory<T> {
 	
 	public abstract Map<String, Function<JsonNode, T>> getBuilders();
 	
-	protected abstract void setCommonBeans(T s);
-	
 	public String type(JsonNode step){
 		return step.get("type").asText(null);
 	}

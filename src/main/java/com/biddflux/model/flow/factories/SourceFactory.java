@@ -27,7 +27,6 @@ public class SourceFactory extends AbstractFactory<Source>{
 				MySqlBackup s = new MySqlBackup();
 				s.setDatasource(context.getBean(datasource, DataSourceFactoryMySql.class));
 				s.setDbProperties(context.getBean(MySqlBackupProperties.class));
-				setCommonBeans(s);
 				return s;
 			},
 			"StoredData", node -> {
@@ -39,12 +38,7 @@ public class SourceFactory extends AbstractFactory<Source>{
 				@SuppressWarnings("unchecked")
 				Map<String, String> tags = objectMapper.convertValue(tagsNode, Map.class);
 				sd.setTags(tags);
-				setCommonBeans(sd);
 				return sd;
 			}
 			);
-	@Override
-	protected void setCommonBeans(Source s) {	
-		context.getAutowireCapableBeanFactory().autowireBean(s);
-	}
 }

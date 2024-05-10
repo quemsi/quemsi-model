@@ -1,5 +1,6 @@
 package com.biddflux.model.dto;
 
+import java.io.Serializable;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -26,7 +27,7 @@ public class DataFlows extends BaseDto<Long>{
     private Long companyId;
 
     @Data
-    public static class FlowSummary {
+    public static class FlowSummary implements Serializable {
         private Long id;
         private String name;
         private String title;
