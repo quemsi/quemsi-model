@@ -14,7 +14,9 @@ import lombok.EqualsAndHashCode;
 @Data
 @EqualsAndHashCode(callSuper = true)
 public class DataGroup extends BaseDto<Long>{
-    @NotEmpty
+    @JsonView({Views.BasicInfo.class,})
+	private boolean active;
+	@NotEmpty
 	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String name;
 	@NotEmpty
@@ -26,7 +28,6 @@ public class DataGroup extends BaseDto<Long>{
 	@NotEmpty
 	@JsonView({Views.BasicInfo.class, Views.Agent.AgentModel.class})
 	private String retentionPolicy;
-	private boolean active;
 	private List<DataVersion> versions;
 	private Long companyId;
 }
