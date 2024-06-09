@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.biddflux</groupId>
 	<artifactId>biddflux-model</artifactId>
-	<version>2.0.0</version>
+	<version>2.0.1-SNAPSHOT</version>
 	<name>biddflux-model</name>
 	<description>biddflux model</description>
 	<properties>
@@ -15,7 +15,7 @@
 	</properties>
 	<scm>
 		<developerConnection>scm:git:https://github.com/biddflux/biddflux-model.git</developerConnection>
-		<tag>version-2.0.0</tag>
+		<tag>HEAD</tag>
 	</scm>
 	<distributionManagement>
 		<repository>
