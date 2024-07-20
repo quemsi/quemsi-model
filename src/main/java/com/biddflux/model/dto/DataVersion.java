@@ -21,6 +21,7 @@ public class DataVersion extends BaseDto<Long>{
 		this.files = files;
 	}
     private NamedEntityReference data;
+	private NamedEntityReference storage;
 	private List<Tag> tags;
 	private List<DataFile> files;
 }

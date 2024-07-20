@@ -5,6 +5,7 @@ import java.io.Serializable;
 import com.biddflux.model.dto.agent.onapi.NotifyError;
 import com.biddflux.model.dto.agent.onapi.RetentionCompleted;
 import com.biddflux.model.dto.agent.onapi.UpdateGoogleDrive;
+import com.biddflux.model.dto.agent.onapi.VersionDeleted;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 
@@ -24,10 +25,12 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = GoogleDriveConnect.class, name = "GoogleDriveConnect"),
     @JsonSubTypes.Type(value = UpdateAgentModel.class, name = "UpdateAgentModel"),
     @JsonSubTypes.Type(value = RetentionExecute.class, name = "RetentionExecute"),
+    @JsonSubTypes.Type(value = VersionDeleteRequest.class, name = "VersionDeleteRequest"),
 
     @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
     @JsonSubTypes.Type(value = UpdateGoogleDrive.class, name = "UpdateGoogleDrive"),
-    @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted")
+    @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted"),
+    @JsonSubTypes.Type(value = VersionDeleted.class, name = "VersionDeleted")
 })
 @Data
 @NoArgsConstructor
