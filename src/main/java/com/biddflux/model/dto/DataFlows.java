@@ -31,6 +31,8 @@ public class DataFlows extends BaseDto<Long>{
         private Long id;
         private String name;
         private String title;
+        private String dataName;
+        private String timer;
         private Long lastExecutionId;
         private LocalDateTime lastExecutionTime;
         private FlowHistoryStatus status;
