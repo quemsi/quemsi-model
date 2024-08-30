@@ -5,6 +5,7 @@ import java.util.Map;
 
 import com.biddflux.commons.persistence.BaseDto;
 import com.biddflux.commons.persistence.Views;
+import com.biddflux.model.dto.agent.AgentReference;
 import com.fasterxml.jackson.annotation.JsonView;
 
 import jakarta.validation.constraints.NotEmpty;
@@ -43,7 +44,7 @@ public class FlowDetail extends BaseDto<Long>{
 	private String model;
 	@NotNull
 	@JsonView({Views.BasicInfo.class, FlowViews.WithSteps.class, Views.Agent.AgentModel.class})
-	private ObjectReference agent;
+	private AgentReference agent;
 	@JsonView(Views.BasicInfo.class)
 	private int displayOrder;
 
