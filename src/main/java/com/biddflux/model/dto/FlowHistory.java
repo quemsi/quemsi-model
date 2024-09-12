@@ -15,7 +15,7 @@ public class FlowHistory extends BaseDto<Long>{
 	private String flowName;
 	private Date startedAt;
 	private Date finishedAt;
-	private FlowHistoryStatus status;
+	private FlowExecutionStatus status;
 	private DataVersion version;
 	private String logs;
 	

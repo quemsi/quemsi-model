@@ -1,11 +1,11 @@
 package com.biddflux.model.dto;
 
 
-public enum FlowHistoryStatus implements KeyValuePair{
-	INITIALIZED("Initialized"), SKIPPED("Skipped"), SUCCESS("Completed"), ERROR("In Error");
+public enum FlowExecutionStatus implements KeyValuePair{
+	SCHEDULED("Scheduled"), RUNNING("Running"), SKIPPED("Skipped"), SUCCESS("Completed"), FAILED("In Error");
 	
 	private String title;
-	private FlowHistoryStatus(String title) {
+	private FlowExecutionStatus(String title) {
 		this.title = title;
 	}
 	@Override

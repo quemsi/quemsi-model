@@ -16,7 +16,7 @@ import com.biddflux.model.dto.DataGroup;
 import com.biddflux.model.dto.DataVersion;
 import com.biddflux.model.dto.FlowDetail;
 import com.biddflux.model.dto.FlowHistory;
-import com.biddflux.model.dto.FlowHistoryStatus;
+import com.biddflux.model.dto.FlowExecutionStatus;
 import com.biddflux.model.dto.NamedEntityReference;
 import com.biddflux.model.dto.Tag;
 import com.fasterxml.jackson.annotation.JsonIgnore;
@@ -59,11 +59,11 @@ public class Flow {
 				}
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
-					fc.getFlowHistory().setStatus(FlowHistoryStatus.SKIPPED);
+					fc.getFlowHistory().setStatus(FlowExecutionStatus.SKIPPED);
 				} else {
 					try {
 						first.execute(fc);
-						fc.getFlowHistory().setStatus(FlowHistoryStatus.SUCCESS);
+						fc.getFlowHistory().setStatus(FlowExecutionStatus.SUCCESS);
 					}catch(BaseRuntimeException bre) {
 						fc.logError("execution error", bre);
 					}catch(Exception e) {

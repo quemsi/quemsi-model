@@ -10,7 +10,7 @@ import java.util.Map;
 
 import com.biddflux.model.dto.DataVersion;
 import com.biddflux.model.dto.FlowHistory;
-import com.biddflux.model.dto.FlowHistoryStatus;
+import com.biddflux.model.dto.FlowExecutionStatus;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -42,14 +42,14 @@ public class FlowContext {
 	}
 	
 	public boolean inError() {
-		return FlowHistoryStatus.ERROR.equals(flowHistory.getStatus());
+		return FlowExecutionStatus.FAILED.equals(flowHistory.getStatus());
 	}
 	public Long executionVersion(){
 		return this.dataVersion.getId();
 	}
 	public void logError(String tag, Exception e) {
 		log.error(tag, e);
-		flowHistory.setStatus(FlowHistoryStatus.ERROR);
+		flowHistory.setStatus(FlowExecutionStatus.FAILED);
 		StringWriter sw = flowHistory.logWriter();
 		e.printStackTrace(new PrintWriter(sw));
 		flowHistory.setLogs(sw.toString());

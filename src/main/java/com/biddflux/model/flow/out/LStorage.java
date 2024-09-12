@@ -55,7 +55,7 @@ public class LStorage extends  AbstractStorage{
 				log.info("creating folders {}", dirPath);
 				Files.createDirectories(dirPath);
 			} catch (IOException e) {
-				throw Exceptions.server("cannot-initialize-output-folder").withExtra("dirPath", dirPath).get();
+				throw Exceptions.server("cannot-initialize-output-folder").withExtra("dirPath", dirPath).withCause(e).get();
 			}
 		}
 		ready = true;

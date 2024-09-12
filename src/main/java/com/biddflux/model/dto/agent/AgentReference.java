@@ -13,5 +13,7 @@ public class AgentReference implements Serializable{
     @JsonView(Views.OnlyIdName.class)
     private Long id;
     @JsonView(Views.OnlyIdName.class)
+    private String name;
+    @JsonView(Views.OnlyIdName.class)
     private AgentStatus status;
 }
