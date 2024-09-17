@@ -2,6 +2,7 @@ package com.biddflux.model.flow.file;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,6 +16,8 @@ import org.apache.commons.io.IOUtils;
 import com.biddflux.commons.util.BaseRuntimeException;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.commons.util.FileResource;
+import com.biddflux.model.dto.FlowExecution.FlowExecutionStep;
+import com.biddflux.model.dto.FlowExecutionStatus;
 import com.biddflux.model.flow.AbstractStep;
 import com.biddflux.model.flow.DataPackageFileResource;
 import com.biddflux.model.flow.Flow;
@@ -23,7 +26,8 @@ import com.biddflux.model.flow.FlowContext;
 public class Zip extends AbstractStep {
     @Override
     public void execute(FlowContext context) {
-        try (ByteArrayOutputStream output = new ByteArrayOutputStream();
+        FlowExecutionStep fes = flow.sendStepStarted(context.getExecution().getId(), "From", this.ord , LocalDateTime.now());
+		try (ByteArrayOutputStream output = new ByteArrayOutputStream();
             ZipArchiveOutputStream archive = new ZipArchiveOutputStream(output);) {
             archive.setMethod(ZipEntry.DEFLATED);
             archive.setLevel(Deflater.BEST_COMPRESSION);
@@ -38,8 +42,10 @@ public class Zip extends AbstractStep {
 
             FileResource fileResource = new FileResource(null, fileName, fileName, "application/zip", false, output.size(), new ByteArrayInputStream(output.toByteArray()));
             context.setDataPackages(List.of(new DataPackageFileResource(fileResource)));
+            flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch(Exception ex){
-            Throwable cause = ex;
+            flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
+			Throwable cause = ex;
             if(ex instanceof BaseRuntimeException bre){
                 cause = bre.getCause();
             }

@@ -12,4 +12,5 @@ public interface Step {
 	void execute(FlowContext content);
 	boolean isReady();
 	void fillDetails(List<Map<String, Object>> steps);
+	void setOrd(Integer ord);
 }

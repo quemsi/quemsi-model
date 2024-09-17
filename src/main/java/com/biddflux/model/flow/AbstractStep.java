@@ -10,6 +10,8 @@ import lombok.extern.slf4j.Slf4j;
 public abstract class AbstractStep implements Step {
 	@Setter
 	protected Step nextStep;
+	@Setter
+	protected Integer ord;
 	protected boolean initialized;
 	@Setter
 	protected Flow flow;

@@ -30,7 +30,7 @@ public class StartReplica extends AbstractStep{
 				ps.executeUpdate();
 				executeNext(context);
 			} catch(Exception e) {
-				context.logError("unable to start replica", e);
+				// context.logError("unable to start replica", e);
 			}
 		}
 	}

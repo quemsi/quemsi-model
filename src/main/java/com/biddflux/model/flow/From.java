@@ -1,10 +1,13 @@
 package com.biddflux.model.flow;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
 import com.biddflux.commons.util.BaseRuntimeException;
+import com.biddflux.model.dto.FlowExecutionStatus;
+import com.biddflux.model.dto.FlowExecution.FlowExecutionStep;
 import com.biddflux.model.flow.in.Source;
 
 import lombok.Data;
@@ -17,14 +20,19 @@ public class From extends AbstractStep {
 	
 	@Override
 	public void execute(FlowContext context) {
+		FlowExecutionStep fes = null;
 		try {
+			fes = flow.sendStepStarted(context.getExecution().getId(), "From", this.ord , LocalDateTime.now());
 			source.execute(context);
-			executeNext(context);
+			flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 		}catch(BaseRuntimeException bre) {
+			context.logError(fes, "Erro in From step", bre);
+			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw bre;
 		}catch(Exception e) {
-			context.logError("eror in from", e);
+			context.logError(fes, "Unexpected expection in From step", e);
 		}
+		executeNext(context);
 	}
 	
 	@Override

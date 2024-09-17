@@ -1,5 +1,6 @@
 package com.biddflux.model.flow;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -8,6 +9,8 @@ import java.util.stream.Collectors;
 import com.biddflux.commons.util.BaseRuntimeException;
 import com.biddflux.commons.util.Exceptions;
 import com.biddflux.model.dto.DataFile;
+import com.biddflux.model.dto.FlowExecution.FlowExecutionStep;
+import com.biddflux.model.dto.FlowExecutionStatus;
 import com.biddflux.model.flow.out.Storage;
 
 import lombok.Data;
@@ -20,11 +23,14 @@ public class To extends AbstractStep {
 
 	@Override
 	public void execute(FlowContext context) {
+		FlowExecutionStep fes = null;
 		try {
+			fes = flow.sendStepStarted(context.getExecution().getId(), "From", this.ord , LocalDateTime.now());
 			targets.stream().forEach(t -> {
 				t.store(context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
 				if(t.recordFiles()){
-					context.getFlowHistory().getVersion().setFiles(context.getDataPackages().stream().map(dp -> {
+					//TODO: make sure files are persisted for version through flow execution
+					context.getExecution().getVersion().setFiles(context.getDataPackages().stream().map(dp -> {
 						DataFile df = new DataFile();
 						df.setActive(true);
 						df.setContentType(dp.getContentType());
@@ -39,10 +45,13 @@ public class To extends AbstractStep {
 			if(context.isDeleteAfterwards()) {
 				context.getDataPackages().stream().forEach(dp-> dp.clear());
 			}
+			flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 		}catch(BaseRuntimeException bre) {
+			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw bre;
 		}catch(Exception e) {
-			context.logError("error storing file", e);
+			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
+			context.logError(fes, "error in To step", e);
 			throw Exceptions.server("error-storing-file").withCause(e).get();
 		}
 		executeNext(context);

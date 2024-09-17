@@ -2,14 +2,14 @@ package com.biddflux.model.flow;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
-import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
 import com.biddflux.model.dto.DataVersion;
-import com.biddflux.model.dto.FlowHistory;
+import com.biddflux.model.dto.FlowExecution;
+import com.biddflux.model.dto.FlowExecution.FlowExecutionStep;
 import com.biddflux.model.dto.FlowExecutionStatus;
 
 import lombok.Data;
@@ -19,18 +19,20 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class FlowContext {
 	private boolean deleteAfterwards;
-	private FlowHistory flowHistory;
+	private FlowExecution execution;
 	private DataVersion dataVersion;
 	private List<DataPackage> dataPackages;
 	private Flow flow;
 	private Map<String, String> tags;
 	
-	public FlowContext(Flow flow) {
-		flowHistory = new FlowHistory();
-		flowHistory.setActive(true);
-		flowHistory.setFlowName(flow.getName());
-		flowHistory.setFlowId(flow.getId());
-		flowHistory.setStartedAt(new Date(System.currentTimeMillis()));
+	public FlowContext(Flow flow, Long flowExecutionId) {
+		execution = new FlowExecution();
+		execution.setId(flowExecutionId);
+		execution.setActive(true);
+		execution.setFlowId(flow.getId());
+		execution.setFlowName(flow.getName());
+		execution.setNumberOfSteps(flow.getNumberOfSteps());
+		execution.setStatus(FlowExecutionStatus.SCHEDULED);
 		this.tags = new HashMap<>();
 		this.flow = flow;
 		dataPackages = new LinkedList<>();
@@ -38,20 +40,29 @@ public class FlowContext {
 
 	public void setDataVersion(DataVersion dataVersion){
 		this.dataVersion = dataVersion;
-		flowHistory.setVersion(dataVersion);
+		execution.setVersion(dataVersion);
 	}
 	
 	public boolean inError() {
-		return FlowExecutionStatus.FAILED.equals(flowHistory.getStatus());
+		return FlowExecutionStatus.FAILED.equals(execution.getStatus());
 	}
 	public Long executionVersion(){
 		return this.dataVersion.getId();
 	}
+	public void logError(FlowExecutionStep step, String tag, Exception e) {
+		log.error(tag, e);
+		if(step != null){
+			step.setStatus(FlowExecutionStatus.FAILED);
+			StringWriter sw = step.logWriter();
+			e.printStackTrace(new PrintWriter(sw));
+			step.setLogs(sw.toString());
+		}
+	}
 	public void logError(String tag, Exception e) {
 		log.error(tag, e);
-		flowHistory.setStatus(FlowExecutionStatus.FAILED);
-		StringWriter sw = flowHistory.logWriter();
+		execution.setStatus(FlowExecutionStatus.FAILED);
+		StringWriter sw = execution.logWriter();
 		e.printStackTrace(new PrintWriter(sw));
-		flowHistory.setLogs(sw.toString());
+		execution.setLogs(sw.toString());
 	}
 }

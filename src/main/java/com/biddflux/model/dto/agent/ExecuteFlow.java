@@ -18,13 +18,15 @@ public class ExecuteFlow extends AgentCommand{
     private Long versionId;
     private Map<String, String> tags;
     private List<DataFile> files;
+    private Long flowExecutionId;
     
     @Builder
-    public ExecuteFlow(Long agentId, String flowName, Long versionId, Map<String, String> tags, List<DataFile> files){
+    public ExecuteFlow(Long agentId, String flowName, Long versionId, Map<String, String> tags, List<DataFile> files, Long flowExecutionId){
         super(ExecuteFlow.class.getSimpleName(), agentId);
         this.flowName = flowName;
         this.versionId = versionId;
         this.tags = tags;
         this.files = files;
+        this.flowExecutionId = flowExecutionId;
     }
 }

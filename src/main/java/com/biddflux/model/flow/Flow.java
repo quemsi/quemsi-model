@@ -2,7 +2,6 @@ package com.biddflux.model.flow;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
@@ -11,11 +10,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.biddflux.commons.util.BaseRuntimeException;
 import com.biddflux.commons.util.DateUtils;
+import com.biddflux.model.api.ApiClient;
 import com.biddflux.model.dto.DataFile;
 import com.biddflux.model.dto.DataGroup;
 import com.biddflux.model.dto.DataVersion;
 import com.biddflux.model.dto.FlowDetail;
-import com.biddflux.model.dto.FlowHistory;
+import com.biddflux.model.dto.FlowExecution;
+import com.biddflux.model.dto.FlowExecution.FlowExecutionStep;
 import com.biddflux.model.dto.FlowExecutionStatus;
 import com.biddflux.model.dto.NamedEntityReference;
 import com.biddflux.model.dto.Tag;
@@ -28,6 +29,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class Flow {
 	@Autowired
+	private ApiClient apiClient;
+	@Autowired
 	private DateUtils dateUtils;
 	private Step first;
 	private Long id;
@@ -37,6 +40,7 @@ public class Flow {
 	private boolean back;
 	private DataGroup data;
 	private String timerName;
+	private int numberOfSteps;
 	
 	@JsonIgnore
 	protected ReentrantLock lock = new ReentrantLock();
@@ -45,9 +49,32 @@ public class Flow {
 		first.init(this);
 	}
 	
-	public FlowHistory execute(FlowContext fc){
+	public FlowExecutionStep sendStepStarted(Long flowExecutionId, String type, Integer ord, LocalDateTime started){
+		FlowExecutionStep step = FlowExecutionStep.builder()
+			.active(true)
+			.flowExecutionId(flowExecutionId)
+			.status(FlowExecutionStatus.RUNNING)
+			.startedAt(started)
+			.ord(ord)
+			.type(type)
+			.build()
+		;
+		return apiClient.saveFlowExecutionStep(step);
+	}
+
+	public void sendStepFinished(FlowExecutionStep step, FlowExecutionStatus status){
+		step.setFinishedAt(LocalDateTime.now());
+		step.setStatus(status);
+		apiClient.saveFlowExecutionStep(step);
+	}
+
+	public FlowExecution execute(FlowContext fc){
 		try{
 			if(lock.tryLock()) {
+				FlowExecution execution = fc.getExecution();
+				execution.setStartedAt(LocalDateTime.now());
+				execution.setStatus(FlowExecutionStatus.RUNNING);
+				apiClient.saveFlowExecution(execution);
 				if(!this.back){
 					if(!fc.getTags().containsKey("date")){
 						fc.getTags().put("date", dateUtils.getDateString(LocalDateTime.now()));
@@ -59,20 +86,20 @@ public class Flow {
 				}
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
-					fc.getFlowHistory().setStatus(FlowExecutionStatus.SKIPPED);
+					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
 				} else {
 					try {
 						first.execute(fc);
-						fc.getFlowHistory().setStatus(FlowExecutionStatus.SUCCESS);
+						fc.getExecution().setStatus(FlowExecutionStatus.SUCCESS);
 					}catch(BaseRuntimeException bre) {
-						fc.logError("execution error", bre);
+						// fc.logError("execution error", bre);
 					}catch(Exception e) {
-						fc.logError("general error", e);
+						// fc.logError("general error", e);
 					}
 				}
-				fc.getFlowHistory().setFinishedAt(new Date(System.currentTimeMillis()));
-				fc.getFlowHistory().setVersion(fc.getDataVersion());
-				return fc.getFlowHistory();
+				fc.getExecution().setFinishedAt(LocalDateTime.now());
+				fc.getExecution().setVersion(fc.getDataVersion());
+				return fc.getExecution();
 			}else {
 				log.info("{} flow is already running", this.getName());
 				return null;
@@ -82,14 +109,15 @@ public class Flow {
 		}
 	}
 
-	public FlowHistory execute(Long versionId, Map<String, String> tags, List<DataFile> files) {
-		FlowContext fc = new FlowContext(this);
+	public FlowExecution execute(Long versionId, Map<String, String> tags, List<DataFile> files, Long executionId) {
+		FlowContext fc = new FlowContext(this, executionId);
 		fc.setTags(tags);
 		fc.setDataVersion(DataVersion.builder().id(versionId).files(files).data(NamedEntityReference.builder().id(data.getId()).name(data.getName()).build()).build());
 		return execute(fc);
 	}
 
 	public void setSteps(List<Step> steps) {
+		numberOfSteps = steps.size();
 		Step pre = null;
 		for (int i = 0; i < steps.size(); i++) {
 			Step s = steps.get(i);

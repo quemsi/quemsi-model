@@ -30,7 +30,7 @@ public class StopReplica extends AbstractStep{
 				ps.executeUpdate();
 				executeNext(context);
 			} catch(Exception e) {
-				context.logError("unable to stop replica", e);
+				// context.logError("unable to stop replica", e);
 			}
 		}
 	}
