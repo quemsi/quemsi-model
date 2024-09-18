@@ -25,7 +25,7 @@ public class To extends AbstractStep {
 	public void execute(FlowContext context) {
 		FlowExecutionStep fes = null;
 		try {
-			fes = flow.sendStepStarted(context.getExecution().getId(), "From", this.ord , LocalDateTime.now());
+			fes = flow.sendStepStarted(context.getExecution().getId(), "To", this.ord , LocalDateTime.now());
 			targets.stream().forEach(t -> {
 				t.store(context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
 				if(t.recordFiles()){

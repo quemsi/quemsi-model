@@ -26,7 +26,7 @@ import com.biddflux.model.flow.FlowContext;
 public class Zip extends AbstractStep {
     @Override
     public void execute(FlowContext context) {
-        FlowExecutionStep fes = flow.sendStepStarted(context.getExecution().getId(), "From", this.ord , LocalDateTime.now());
+        FlowExecutionStep fes = flow.sendStepStarted(context.getExecution().getId(), "Zip", this.ord , LocalDateTime.now());
 		try (ByteArrayOutputStream output = new ByteArrayOutputStream();
             ZipArchiveOutputStream archive = new ZipArchiveOutputStream(output);) {
             archive.setMethod(ZipEntry.DEFLATED);
