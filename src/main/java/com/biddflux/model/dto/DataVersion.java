@@ -1,5 +1,6 @@
 package com.biddflux.model.dto;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import com.biddflux.commons.persistence.BaseDto;
@@ -14,14 +15,16 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode(callSuper = true)
 public class DataVersion extends BaseDto<Long>{
 	@Builder
-	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files){
+	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files, LocalDateTime createdAt){
 		super(id, true);
 		this.data = data;
 		this.tags = tags;
 		this.files = files;
+		this.createdAt = createdAt;
 	}
     private NamedEntityReference data;
 	private NamedEntityReference storage;
+	private LocalDateTime createdAt;
 	private List<Tag> tags;
 	private List<DataFile> files;
 }
