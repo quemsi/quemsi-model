@@ -29,7 +29,6 @@ public class To extends AbstractStep {
 			targets.stream().forEach(t -> {
 				t.store(context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
 				if(t.recordFiles()){
-					//TODO: make sure files are persisted for version through flow execution
 					context.getExecution().getVersion().setFiles(context.getDataPackages().stream().map(dp -> {
 						DataFile df = new DataFile();
 						df.setActive(true);
