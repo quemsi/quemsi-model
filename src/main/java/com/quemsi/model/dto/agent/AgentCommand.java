@@ -1,0 +1,41 @@
+package com.quemsi.model.dto.agent;
+
+import java.io.Serializable;
+
+import com.quemsi.model.dto.agent.onapi.NotifyError;
+import com.quemsi.model.dto.agent.onapi.RetentionCompleted;
+import com.quemsi.model.dto.agent.onapi.UpdateGoogleDrive;
+import com.quemsi.model.dto.agent.onapi.VersionDeleted;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@JsonTypeInfo(
+    include = JsonTypeInfo.As.EXISTING_PROPERTY,
+    property = "name",
+    use = JsonTypeInfo.Id.NAME,
+    visible = true
+)
+@JsonSubTypes({
+    @JsonSubTypes.Type(value = ExecuteFlow.class, name = "ExecuteFlow"),
+    @JsonSubTypes.Type(value = DelayAgentCommand.class, name = "DelayAgentCommand"),
+    @JsonSubTypes.Type(value = GoogleDriveConnect.class, name = "GoogleDriveConnect"),
+    @JsonSubTypes.Type(value = UpdateAgentModel.class, name = "UpdateAgentModel"),
+    @JsonSubTypes.Type(value = RetentionExecute.class, name = "RetentionExecute"),
+    @JsonSubTypes.Type(value = VersionDeleteRequest.class, name = "VersionDeleteRequest"),
+
+    @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
+    @JsonSubTypes.Type(value = UpdateGoogleDrive.class, name = "UpdateGoogleDrive"),
+    @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted"),
+    @JsonSubTypes.Type(value = VersionDeleted.class, name = "VersionDeleted")
+})
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class AgentCommand implements Serializable {
+    private String name;
+    private Long agentId;
+}
