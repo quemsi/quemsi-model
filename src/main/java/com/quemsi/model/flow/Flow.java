@@ -92,9 +92,9 @@ public class Flow {
 						first.execute(fc);
 						fc.getExecution().setStatus(FlowExecutionStatus.SUCCESS);
 					}catch(BaseRuntimeException bre) {
-						// fc.logError("execution error", bre);
+						fc.logError("execution error", bre);
 					}catch(Exception e) {
-						// fc.logError("general error", e);
+						fc.logError("general error", e);
 					}
 				}
 				fc.getExecution().setFinishedAt(LocalDateTime.now());
