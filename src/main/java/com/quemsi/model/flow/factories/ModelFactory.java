@@ -2,14 +2,16 @@ package com.quemsi.model.flow.factories;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.quemsi.commons.util.Exceptions;
-import com.quemsi.model.flow.in.StoredData;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.flow.in.StoredData;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -35,9 +37,17 @@ public class ModelFactory {
                                 String version = source.get("version").asText();
                                 sd.setVersion(version);
                                 JsonNode tagsNode = source.get("tags");
-                                @SuppressWarnings("unchecked")
-                                Map<String, String> tags = objectMapper.convertValue(tagsNode, Map.class);
-                                sd.setTags(tags);
+                                if(tagsNode.isArray()){
+                                    Map<String, String> tags = new HashMap<>();
+                                    Iterator<JsonNode> it = tagsNode.iterator();
+                                    while(it.hasNext()){
+                                        JsonNode t = it.next();
+                                        String name = t.get("name").asText();
+                                        String value = t.get("value").asText();
+                                        tags.put(name, value);
+                                    }
+                                    sd.setTags(tags);   
+                                }
                                 return sd;
                             }
                         }
