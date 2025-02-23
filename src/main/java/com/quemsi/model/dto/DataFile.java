@@ -1,5 +1,9 @@
 package com.quemsi.model.dto;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import com.fasterxml.jackson.databind.annotation.JsonSerialize;
+import com.quemsi.commons.dto.HumanReadableSizeDeserializer;
+import com.quemsi.commons.dto.HumanReadableSizeSerializer;
 import com.quemsi.commons.persistence.BaseDto;
 
 import lombok.Data;
@@ -13,5 +17,7 @@ public class DataFile extends BaseDto<Long>{
     private String dir;
     private String name;
     private String contentType;
-    private Long size;
+    @JsonDeserialize( using = HumanReadableSizeDeserializer.class)
+	@JsonSerialize(using = HumanReadableSizeSerializer.class)
+	private Long size;
 }
