@@ -46,6 +46,7 @@ public class To extends AbstractStep {
 			}
 			flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 		}catch(BaseRuntimeException bre) {
+			context.logError(fes, "error in To step", bre);
 			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw bre;
 		}catch(Exception e) {

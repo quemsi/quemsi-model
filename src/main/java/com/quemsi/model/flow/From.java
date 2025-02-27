@@ -31,6 +31,7 @@ public class From extends AbstractStep {
 			throw bre;
 		}catch(Exception e) {
 			context.logError(fes, "Unexpected expection in From step", e);
+			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 		}
 		executeNext(context);
 	}

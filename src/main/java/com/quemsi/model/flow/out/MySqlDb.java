@@ -1,6 +1,7 @@
 package com.quemsi.model.flow.out;
 
 import java.io.IOException;
+import java.sql.BatchUpdateException;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.Arrays;
@@ -8,6 +9,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DataType;
@@ -52,7 +54,10 @@ public class MySqlDb extends AbstractStorage{
                 int[] results = statement.executeBatch();
                 String resultsStr = Arrays.stream(results).mapToObj(Integer::toString).collect(Collectors.joining(", "));
                 log.info("executeUpdate results {}", resultsStr);
-            } catch (Exception e) {
+            } catch(BatchUpdateException bue){
+                throw Exceptions.server("data-import-error").withExtra("datapackagename", dp.getName()).withCause(bue).get();
+            }
+            catch (Exception e) {
                 throw Exceptions.server("io-exception").withExtra("datapackageName", dp.getName()).withCause(e).get();
             }
         });
