@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.quemsi.commons.persistence.BaseDto;
+import com.quemsi.model.dto.agent.AgentReference;
 
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
@@ -36,5 +37,6 @@ public class DataFlows extends BaseDto<Long>{
         private Long lastExecutionId;
         private LocalDateTime lastExecutionTime;
         private FlowExecutionStatus status;
+        private AgentReference agent;
     }
 }
