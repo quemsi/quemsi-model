@@ -20,6 +20,8 @@ public interface ApiClient {
     FlowExecution saveFlowExecution(FlowExecution execution);
     @PostMapping("/api/agent/flow-execution-step")
     FlowExecutionStep saveFlowExecutionStep(FlowExecutionStep executionStep);
+    @PostMapping("/api/agent/initate/{flowName}")
+    FlowExecution initiate(String flowName, Map<String, String> tags);
     @GetMapping("/api/agent/gdrive-credentials")
     String googleCredential();
     @PostMapping("/api/agent/agent-command")

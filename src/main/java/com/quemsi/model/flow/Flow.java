@@ -105,7 +105,9 @@ public class Flow {
 				return null;
 			}
 		}finally{
-			lock.unlock();
+			if(lock != null && lock.isLocked()){
+				lock.unlock();
+			}
 		}
 	}
 
