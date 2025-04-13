@@ -23,11 +23,18 @@
 			<url>${local.dist.repository}</url>
 		</repository>
 	</distributionManagement>
+	<repositories>
+    <repository>
+      <id>local-repo</id>
+      <name>Local Repository</name>
+      <url>${local.dist.repository}</url>
+    </repository>
+  </repositories>
 	<dependencies>
 		<dependency>
 			<groupId>com.quemsi</groupId>
 			<artifactId>quemsi-commons</artifactId>
-			<version>${project.version}</version>
+			<version>2.2.0</version>
 		</dependency>
 		
 		<dependency>
