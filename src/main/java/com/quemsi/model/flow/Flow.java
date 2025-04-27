@@ -74,7 +74,6 @@ public class Flow {
 				FlowExecution execution = fc.getExecution();
 				execution.setStartedAt(LocalDateTime.now());
 				execution.setStatus(FlowExecutionStatus.RUNNING);
-				apiClient.saveFlowExecution(execution);
 				if(!this.back){
 					if(!fc.getTags().containsKey("date")){
 						fc.getTags().put("date", dateUtils.getDateString(LocalDateTime.now()));
@@ -84,6 +83,7 @@ public class Flow {
 					}
 					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
 				}
+				apiClient.saveFlowExecution(execution);
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
 					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
