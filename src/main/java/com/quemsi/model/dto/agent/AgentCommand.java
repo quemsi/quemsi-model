@@ -4,6 +4,7 @@ import java.io.Serializable;
 
 import com.quemsi.model.dto.agent.onapi.NotifyError;
 import com.quemsi.model.dto.agent.onapi.RetentionCompleted;
+import com.quemsi.model.dto.agent.onapi.TestDatasourceResult;
 import com.quemsi.model.dto.agent.onapi.UpdateGoogleDrive;
 import com.quemsi.model.dto.agent.onapi.VersionDeleted;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
@@ -26,11 +27,13 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = UpdateAgentModel.class, name = "UpdateAgentModel"),
     @JsonSubTypes.Type(value = RetentionExecute.class, name = "RetentionExecute"),
     @JsonSubTypes.Type(value = VersionDeleteRequest.class, name = "VersionDeleteRequest"),
+    @JsonSubTypes.Type(value = TestDatasource.class, name = "TestDatasource"),
 
     @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
     @JsonSubTypes.Type(value = UpdateGoogleDrive.class, name = "UpdateGoogleDrive"),
     @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted"),
-    @JsonSubTypes.Type(value = VersionDeleted.class, name = "VersionDeleted")
+    @JsonSubTypes.Type(value = VersionDeleted.class, name = "VersionDeleted"),
+    @JsonSubTypes.Type(value = TestDatasourceResult.class, name = "TestDatasourceResult")
 })
 @Data
 @NoArgsConstructor

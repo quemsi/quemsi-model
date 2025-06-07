@@ -34,6 +34,7 @@ public class AgentModel implements Serializable{
         private long sizeLimit;
         private long capacity;
         private long usedSize;
+        private String fullPath;
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
