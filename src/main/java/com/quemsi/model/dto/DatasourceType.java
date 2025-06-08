@@ -1,11 +1,19 @@
 package com.quemsi.model.dto;
 
-public enum DatasourceType implements KeyValuePair{
-	MYSQL("MySql");
-	private String val;
+import lombok.Getter;
 
-	private DatasourceType(String val){
+public enum DatasourceType implements KeyValuePair{
+	MYSQL("MySql", "mysql", 3306);
+	private String val;
+	@Getter
+	private String jdbcName;
+	@Getter
+	private int defaultPort;
+
+	private DatasourceType(String val, String jdbcName, int defaultPort){
 		this.val = val;
+		this.jdbcName = jdbcName;
+		this.defaultPort = defaultPort;
 	}
 
 	@Override
