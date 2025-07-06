@@ -20,7 +20,7 @@ public abstract class AbstractFactory<T> {
 	}
 
 	public T from(JsonNode step) {
-		String type = type(step);
+ 		String type = type(step);
 		if(!getBuilders().containsKey(type)) {
 			throw Exceptions.badRequest("not-supported-object-type").withExtra("type", type).get();
 		}

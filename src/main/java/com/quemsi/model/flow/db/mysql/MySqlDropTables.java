@@ -42,7 +42,7 @@ public class MySqlDropTables extends AbstractStep{
 			
             if(all){
 				DbModel dbModel = datasourceFactory.getDbModel();
-				tables = dbModel.getOrderedTableNames();
+				tables = dbModel.orderedTableNames();
 			}
 			String dropTablesSql = "DROP TABLE IF EXISTS " + tables.stream().collect(Collectors.joining(", "));
             int result = statement.executeUpdate(dropTablesSql);

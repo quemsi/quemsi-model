@@ -1,62 +1,102 @@
 package com.quemsi.model.flow.db.sql;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
-import com.quemsi.commons.util.Exceptions;
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.quemsi.commons.util.CommonOps;
 
+import java.util.List;
+
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
 
+@Data
 public class DbModel {
-    protected Map<String, Table> tables;
+    private String format;
+    protected Map<String, DbTable> tables;
     
     public DbModel(){
         tables = new HashMap<>();
     }
 
-    public Table addTable(String tableName){
-        Table table = new Table();
+    public DbTable addTable(String tableName){
+        DbTable table = new DbTable();
         table.name = tableName;
         tables.put(tableName, table);
         return table;
     }
 
-    public Optional<Table> getTable(String tableName){
+    public Optional<DbTable> findTable(String tableName){
         return Optional.ofNullable(tables.get(tableName));
     }
 
-    public Table crateIfAbsent(String tableName){
+    public DbTable crateIfAbsent(String tableName){
         if(tables.containsKey(tableName)){
             return tables.get(tableName);
         }
         return addTable(tableName);
     }
 
-    public void controlCircularReference(LinkedList<String> chain, Table t){
-        if(chain.contains(t.getName())){
-            chain.addLast(t.getName());
-            throw Exceptions.server("circular-reference").withExtra("chain", chain).get();
-        }else{
-            chain.addLast(t.getName());
-            if(!t.getReferencedBy().isEmpty()){
-                t.getReferencedBy().forEach(n -> controlCircularReference(new LinkedList<>(chain), n));
-            }
-        }
+    // public void controlCircgetularReference(LinkedList<String> chain, DbTable t){
+    //     if(chain.contains(t.getName())){
+    //         chain.addLast(t.getName());
+    //         throw Exceptions.server("circular-reference").withExtra("chain", chain).get();
+    //     }else{
+    //         chain.addLast(t.getName());
+    //         if(!t.getReferencedBy().isEmpty()){
+    //             t.getReferencedBy().forEach(n -> controlCircularReference(new LinkedList<>(chain), n));
+    //         }
+    //     }
+    // }
+
+    public List<DbTable> sortedTableList(){
+        List<DbTable> sorted = new ArrayList<>(tables.values());
+        Collections.sort(sorted, (t1, t2) -> Integer.valueOf(t1.getReferences().size()).compareTo(Integer.valueOf(t2.getReferences().size())));
+        return sorted;
     }
 
-    public Set<String> getOrderedTableNames(){
-        tables.values().forEach(t -> controlCircularReference(new LinkedList<>(), t));;
+    public List<DbTable> referencesOrderedTables(){
+        LinkedList<DbTable> list = new LinkedList<>();
+        Set<DbTable> processedIndex = new HashSet<>();
+        Deque<DbTable> queue = new LinkedList<>();
+        tables.values().stream().filter(t -> t.references.size() == 0).forEach(t -> {
+            queue.add(t);
+        });
+        while(!queue.isEmpty()){
+            DbTable t = queue.pop();
+            if(!processedIndex.contains(t)){
+                if(t.referencedBy.size() > 0){
+                    t.referencedBy.forEach(refTable -> queue.add(refTable));
+                }
+                list.add(t);
+                processedIndex.add(t);
+            }
+        }
+        return list;
+    }
+
+    public Set<String> orderedTableNames(){
+        // tables.values().forEach(t -> controlCircularReference(new LinkedList<>(), t));;
         Set<String> s = new LinkedHashSet<>();
-        Deque<Table> queue = new LinkedList<>();
+        Deque<DbTable> queue = new LinkedList<>();
         queue.addAll(tables.values());
         while(!queue.isEmpty()){
-            Table t = queue.poll();
+            DbTable t = queue.poll();
             if(t.referencedBy.isEmpty()){
                 s.add(t.getName());
             } else {
@@ -71,46 +111,111 @@ public class DbModel {
         return s;
     }
 
-    public static class Table{
+    public static class  DbTable{
         @Getter
         private String name;
         @Getter
-        private Map<String, Column> columns;
+        @Setter
+        private Set<String> pkColumnNames;
         @Getter
-        private Set<Table> referencedBy;
-        public Table(){
+        private Map<String, Column> columns;
+        @JsonIgnore
+        @Getter
+        private Set<DbTable> referencedBy;
+        @JsonIgnore
+        @Getter
+        private Set<DbTable> references;
+
+        public DbTable(){
             this.columns = new LinkedHashMap<>();
             this.referencedBy = new LinkedHashSet<>();
+            this.references = new LinkedHashSet<>();
+            pkColumnNames = new HashSet<>();
         }
-        public void addColumn(String name, String dataType, Column references, String constraintName){
+        public String joinedPkColumnNames(){
+            return this.getPkColumnNames().stream().collect(Collectors.joining(", "));
+        }
+        public Column addColumn(String name, String dataType, Column referencedColumn, String constraintName, Integer ordinalPosition, String columnType, Integer maxLength, Integer numPrecision, Integer numScale, String columnKey, String columnDefault, String nullable){
             Column c = new Column();
             c.table = this;
             c.name = name;
             c.dataType = dataType;
-            c.references = references;
             c.constraintName = constraintName;
-            if(references != null){
-                references.getTable().addReferencedBy(this);
-            }
+            c.ordinalPosition = ordinalPosition;
+            c.columnType = columnType;
+            c.maxLength = maxLength;
+            c.numPrecision = numPrecision;
+            c.numScale = numScale;
+            c.columnKey = columnKey;
+            c.columnDefault = columnDefault;
+            c.nullable = CommonOps.isTrue(nullable);
             columns.put(name, c);
+            return c;
         }
-        public Optional<Column> getColumn(String name){
+        public Column addReference(Column column, Column referencedColumn, String contraintName){
+            if(referencedColumn != null){
+                column.references = new ReferencedColumn(referencedColumn.getTable().getName(), referencedColumn.getName());
+                references.add(referencedColumn.getTable());
+                referencedColumn.getTable().addReferencedBy(this);
+            }
+            return column;
+        }
+        public Optional<Column> findColumn(String name){
             return Optional.ofNullable(columns.get(name));
         }
-        public void addReferencedBy(Table referencer){
+        public Set<String> columnNames(){
+            return columns.keySet();
+        }
+        public void addReferencedBy(DbTable referencer){
             referencedBy.add(referencer);
         }
     }
     public static class Column {
+        @JsonIgnore
         @Getter
-        private Table table;
+        private DbTable table;
         @Getter
         private String name;
         @Getter
         private String dataType;
         @Getter
-        private Column references;
+        private ReferencedColumn references;
         @Getter
+        private String constraintName;
+        @Getter
+        private Integer ordinalPosition;
+        @Getter
+        private Integer maxLength;
+        @Getter
+        private String columnType;
+        @Getter
+        private Integer numPrecision;
+        @Getter
+        private Integer numScale;
+        @Getter
+        private String columnKey;
+        @Getter
+        private String columnDefault;
+        @Getter
+        private boolean nullable;
+    }
+    
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class ReferencedColumn {
+        private String on;
+        private String column;
+    }
+
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    @Data
+    public static class ReferenceInfo {
+        private Column column;
+        private String refTableName;
+        private String refColumnName;
         private String constraintName;
     }
 }

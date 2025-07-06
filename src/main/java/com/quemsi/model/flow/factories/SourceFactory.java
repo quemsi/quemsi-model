@@ -6,9 +6,11 @@ import java.util.HashMap;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.flow.db.mysql.DataSourceFactoryMySql;
 import com.quemsi.model.flow.in.MySqlBackup;
 import com.quemsi.model.flow.in.MySqlBackupProperties;
+import com.quemsi.model.flow.in.RdbmsBackup;
 import com.quemsi.model.flow.in.Source;
 import com.quemsi.model.flow.in.StoredData;
 import com.quemsi.model.flow.out.Storage;
@@ -21,10 +23,23 @@ import lombok.Getter;
 public class SourceFactory extends AbstractFactory<Source>{
 	@Autowired
 	private ObjectMapper objectMapper;
-	
+	@Autowired
+	private JsonUtils jsonUtils;
+
 	@SuppressWarnings("unchecked")
 	@Getter
 	private Map<String, Function<JsonNode, Source>> builders = Map.of(
+			"RdbmsBackup", node -> {
+				String datasource = node.findValue("datasource").asText(null);
+				int batchSize = jsonUtils.asInteger(node.findValue("batchSize"), 100);
+				int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 1);
+				RdbmsBackup s = new RdbmsBackup();
+				s.setBatchSize(batchSize);
+				s.setParallelism(parallelism);
+				s.setDatasource(context.getBean(datasource, DataSourceFactoryMySql.class));
+				s.setObjectMapper(context.getBean(ObjectMapper.class));
+				return s;
+			},
 			"MySqlBackup", node -> {
 				String datasource = node.findValue("datasource").asText(null);
 				MySqlBackup s = new MySqlBackup();
