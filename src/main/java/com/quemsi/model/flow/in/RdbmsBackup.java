@@ -121,7 +121,7 @@ public class RdbmsBackup implements Source{
             }
             log.info("{} pages are completed for {}", counter.get(), table.getName());
             future.complete(table);
-            return false;
+            return true;
         }
     }
 }

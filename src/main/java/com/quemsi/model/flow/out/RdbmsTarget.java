@@ -2,8 +2,13 @@ package com.quemsi.model.flow.out;
 
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
 import java.util.stream.Collectors;
 
 import org.apache.commons.io.IOUtils;
@@ -16,8 +21,10 @@ import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.DbTable;
 import com.quemsi.model.flow.in.TableData;
 
+import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
@@ -28,6 +35,9 @@ public class RdbmsTarget extends AbstractStorage{
     private DataSourceFactory datasourceFactory;
     @Setter
     private ObjectMapper objectMapper;
+    @Setter
+    private int parallelism;
+    private Map<String, CompletableFuture<Object>> taskRegistry = new HashMap<>();
 
     @Override
     public boolean recordFiles() {
@@ -49,25 +59,24 @@ public class RdbmsTarget extends AbstractStorage{
                 throw Exceptions.badRequest("unsupported-content-type-for-db-model").withExtra("contentType", namedPackages.get(DB_MODEL_FILE_NAME).getContentType())
                     .withExtra("supported", "application/json").get();
             }
-            try{
+            try(ForkJoinPool pool = new ForkJoinPool(parallelism)){
                 String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
                 log.info("dbModel {}", dbModel);
 
-                for(String tableName : dbModel.orderedTableNames()){
-                    String fileName = "data-" + tableName + ".json";
-                    if(!namedPackages.containsKey(fileName)){
-                        log.error("unable to find data file {}", fileName);
-                    }else{
-                        String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
-                        TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
-                        log.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName());
-                        tableData.getDataPages().forEach(dataPage -> {
-                            datasourceFactory.writePageData(dbModel.findTable(tableName).orElseThrow(Exceptions.notFound("invalid-table-name-in-restore").withExtra("tableName", tableName).supplier()), dataPage);
-                        });
-                    }
+                List<ForkJoinTask<Boolean>> taskList = dbModel.sortedTableList().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool))
+                    .map(t -> {
+                        taskRegistry.put(t.getTable().getName(), new CompletableFuture<>());
+                        ForkJoinTask<Boolean> task = pool.submit(t);
+                        return task;
+                    }).toList();
+                boolean result = taskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (a, n) -> a && n);
+                if(result){
+                    log.info("all data is restored");
+                } else {
+                    log.error("some errors");
                 }
-            }catch(IOException e){
+            } catch(IOException e){
                 throw Exceptions.server("io-exception-in-rdbms-restore").withCause(e).get();
             }
         }
@@ -98,5 +107,62 @@ public class RdbmsTarget extends AbstractStorage{
     public void fillDetails(Map<String, Object> props) {
         props.put("type", RdbmsTarget.class.getSimpleName());
 		props.put("datasource", datasourceFactory.getName());
+    }
+
+
+    public class RdmsRestoreTask implements Callable<Boolean>{
+        @Getter
+        private DbTable table;
+        private Map<String, DataPackage> namedPackages;
+        private ForkJoinPool forkJoinPool;
+
+        public RdmsRestoreTask(DbTable table, Map<String, DataPackage> namedPackages, ForkJoinPool forkJoinPool){
+            this.table = table;
+            this.namedPackages = namedPackages;
+            this.forkJoinPool = forkJoinPool;
+        }
+
+        @Override
+        public Boolean call() throws Exception {
+            CompletableFuture<Object> future = taskRegistry.get(table.getName());
+            log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
+            String fileName = "data-" + table.getName() + ".json";
+            if(!namedPackages.containsKey(fileName)){
+                log.error("unable to find data file {}", fileName);
+                return false;
+            }
+            table.getReferences().stream().forEach(tr -> {
+                log.info("{} waiting for {}", table.getName(), tr.getName());
+                taskRegistry.get(tr.getName()).join();
+                log.info("future of {} completed for {}", tr.getName(), table.getName());
+            });
+            log.info("{} done waiting", table.getName());
+            String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
+            TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
+            log.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName());
+            
+            List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage))
+                .map(t -> forkJoinPool.submit(t)).toList();
+            boolean allSucceded = pageTaskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (b, n) -> b && n);
+            future.complete(allSucceded);
+            return allSucceded;
+        }
+    }
+    public class PageRestoreTask implements Callable<Boolean>{
+        @Getter
+        private DbTable table;
+        @Getter
+        private TableData.DataPage dataPage;
+        
+        public PageRestoreTask(DbTable table, TableData.DataPage dataPage){
+            this.table = table;
+            this.dataPage = dataPage;
+        }
+
+        @Override
+        public Boolean call() throws Exception {
+            datasourceFactory.writePageData(table, dataPage);
+            return true;
+        }
     }
 }
