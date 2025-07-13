@@ -10,6 +10,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.quemsi.model.flow.db.sql.DbModel.Column;
 import com.quemsi.model.flow.db.sql.DbModel.DbTable;
 
 public class DbModelTest {
@@ -36,12 +37,13 @@ public class DbModelTest {
         DbModel dbModel = new DbModel();
         DbTable t1 =  dbModel.crateIfAbsent("T1");
         t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null, null, null);
-        t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, null, null);
+        Column t1c2 = t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, null, null);
 
         DbTable t2 = dbModel.crateIfAbsent("T2");
         t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null, null, null);
         t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null, null, null);
-        t2.addColumn("ac3", "bigint", t1.findColumn("c2").get(), "fk_t2_t1_c2", null, null, null, null, null, null, null, null);
+        Column t2ac3 = t2.addColumn("ac3", "bigint", t1.findColumn("c2").get(), "fk_t2_t1_c2", null, null, null, null, null, null, null, null);
+        t2.addReference(t2ac3, t1c2, "fk_t2_t1_c2");
 
         assertThat(t1.getColumns().size(), equalTo(2));
         assertThat(t2.getColumns().size(), equalTo(3));
@@ -56,16 +58,18 @@ public class DbModelTest {
         DbModel dbModel = new DbModel();
         DbTable t1 =  dbModel.crateIfAbsent("T1");
         t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null, null, null);
-        t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, null, null);
+        Column t1c2 = t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, null, null);
 
         DbTable t2 = dbModel.crateIfAbsent("T2");
         t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null, null, null);
-        t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null, null, null);
-        t2.addColumn("ac3", "bigint", t1.findColumn("c2").get(), "fk_t2_t1_c2", null, null, null, null, null, null, null, null);
-
+        Column t2ac2 = t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null, null, null);
+        Column t2ac3 = t2.addColumn("ac3", "bigint", t1.findColumn("c2").get(), "fk_t2_t1_c2", null, null, null, null, null, null, null, null);
+        t2.addReference(t2ac3, t1c2, "fk_t2_t1_c2");
+        
         DbTable t3 = dbModel.crateIfAbsent("T3");
         t3.addColumn("bc1", "int", null, null, null, null, null, null, null, null, null, null);
-        t3.addColumn("bc2", "tinyint", t2.findColumn("ac2").get(), "fk_t3_t2_ac2", null, null, null, null, null, null, null, null);
+        Column t3bc2 = t3.addColumn("bc2", "tinyint", t2.findColumn("ac2").get(), "fk_t3_t2_ac2", null, null, null, null, null, null, null, null);
+        t3.addReference(t3bc2, t2ac2, "fk_t3_t2_ac2");
         t3.addColumn("bc3", "bigint", null, null, null, null, null, null, null, null, null, null);
 
         assertThat(dbModel.referencesOrderedTables(), contains(

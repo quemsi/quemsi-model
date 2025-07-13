@@ -43,7 +43,7 @@ public class RdbmsBackup implements Source{
     private int batchSize = 100;
     @Setter
     private int parallelism;
-    private Map<DbTable, CompletableFuture<Object>> taskRegistry = new HashMap<>();
+    private Map<String, CompletableFuture<Object>> taskRegistry = new HashMap<>();
 	
     @Override
     public void execute(FlowContext context) {
@@ -65,7 +65,7 @@ public class RdbmsBackup implements Source{
 
             List<DbTable> tables = dbModel.sortedTableList();
             tables.stream().map(table -> new RdmsBackupTask(table, tableDataPersister)).map(t -> {
-                taskRegistry.put(t.getTable(), new CompletableFuture<>());
+                taskRegistry.put(t.getTable().getName(), new CompletableFuture<>());
                 ForkJoinTask<Boolean> task = pool.submit(t);
                 return task;
             })
@@ -99,11 +99,11 @@ public class RdbmsBackup implements Source{
         
         @Override
         public Boolean call() throws Exception {
-            CompletableFuture<Object> future = taskRegistry.get(table);
+            CompletableFuture<Object> future = taskRegistry.get(table.getName());
             log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
             table.getReferences().stream().forEach(tr -> {
                 log.info("{} waiting     for {}", table.getName(), tr.getName());
-                taskRegistry.get(tr).join();
+                taskRegistry.get(tr.getName()).join();
                 log.info("future of {} completed for {}", tr.getName(), table.getName());
             });
             log.info("{} done waiting", table.getName());
@@ -117,7 +117,7 @@ public class RdbmsBackup implements Source{
                 dataPage = datasource.getTableDataPage(request);
                 counter.incrementAndGet();
                 tableDataPersister.persist(dataPage);
-                request.setPageNum(request.getPageNum() + 1);
+                request = request.toBuilder().pageNum(request.getPageNum() + 1).build();
             }
             log.info("{} pages are completed for {}", counter.get(), table.getName());
             future.complete(table);

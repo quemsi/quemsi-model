@@ -13,6 +13,7 @@ import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.flow.From;
 import com.quemsi.model.flow.Step;
 import com.quemsi.model.flow.To;
+import com.quemsi.model.flow.db.ClearTables;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.mysql.MySqlDropTables;
 import com.quemsi.model.flow.db.mysql.MySqlScript;
@@ -75,6 +76,13 @@ public class StepFactory extends AbstractFactory<Step>{
 				Unzip unzip = new Unzip();
 				unzip.setUtil(context.getBean(FileNameUtil.class));
 				return unzip;
+			},
+			"ClearTables", node -> {
+				String datasource = node.findValue("datasource").asText(null);
+				ClearTables s = new ClearTables();
+				s.setAll(true);
+				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				return s;
 			},
 			"MySqlScript", node ->  {
 				MySqlScript mScript = new MySqlScript();

@@ -9,7 +9,7 @@ public interface Step {
 	void initNext(Flow f);
 	void setNextStep(Step next);
 	void executeNext(FlowContext context);
-	void execute(FlowContext content);
+	void execute(FlowContext context);
 	boolean isReady();
 	void fillDetails(List<Map<String, Object>> steps);
 	void setOrd(Integer ord);

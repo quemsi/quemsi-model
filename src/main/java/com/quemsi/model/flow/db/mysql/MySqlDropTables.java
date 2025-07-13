@@ -3,6 +3,7 @@ package com.quemsi.model.flow.db.mysql;
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -42,7 +43,7 @@ public class MySqlDropTables extends AbstractStep{
 			
             if(all){
 				DbModel dbModel = datasourceFactory.getDbModel();
-				tables = dbModel.orderedTableNames();
+				tables = new HashSet<>(dbModel.orderedTableNames());
 			}
 			String dropTablesSql = "DROP TABLE IF EXISTS " + tables.stream().collect(Collectors.joining(", "));
             int result = statement.executeUpdate(dropTablesSql);

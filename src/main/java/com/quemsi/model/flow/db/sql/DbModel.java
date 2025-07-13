@@ -81,7 +81,7 @@ public class DbModel {
             DbTable t = queue.pop();
             if(!processedIndex.contains(t)){
                 if(t.referencedBy.size() > 0){
-                    t.referencedBy.forEach(refTable -> queue.add(refTable));
+                    t.referencedBy.forEach(refTable -> queue.add(tables.get(refTable.getName())));
                 }
                 list.add(t);
                 processedIndex.add(t);
@@ -90,25 +90,28 @@ public class DbModel {
         return list;
     }
 
-    public Set<String> orderedTableNames(){
+    public LinkedList<String> orderedTableNames(){
         // tables.values().forEach(t -> controlCircularReference(new LinkedList<>(), t));;
-        Set<String> s = new LinkedHashSet<>();
+        LinkedList<String> result = new LinkedList<>();
+        Set<String> index = new LinkedHashSet<>();
         Deque<DbTable> queue = new LinkedList<>();
         queue.addAll(tables.values());
         while(!queue.isEmpty()){
             DbTable t = queue.poll();
-            if(t.referencedBy.isEmpty()){
-                s.add(t.getName());
+            if(t.references.isEmpty()){
+                index.add(t.getName());
+                result.add(t.getName());
             } else {
-                boolean allProcessed = t.getReferencedBy().stream().map(r -> s.contains(r.getName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
+                boolean allProcessed = t.getReferences().stream().map(r -> index.contains(r.getName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
                 if(allProcessed){
-                    s.add(t.getName());
+                    index.add(t.getName());
+                    result.add(t.getName());
                 }else{
                     queue.add(t);
                 }
             }
         }
-        return s;
+        return result;
     }
 
     public static class  DbTable{
@@ -119,12 +122,10 @@ public class DbModel {
         private Set<String> pkColumnNames;
         @Getter
         private Map<String, Column> columns;
-        @JsonIgnore
         @Getter
-        private Set<DbTable> referencedBy;
-        @JsonIgnore
+        private Set<TableReference> referencedBy;
         @Getter
-        private Set<DbTable> references;
+        private Set<TableReference> references;
 
         public DbTable(){
             this.columns = new LinkedHashMap<>();
@@ -134,6 +135,11 @@ public class DbModel {
         }
         public String joinedPkColumnNames(){
             return this.getPkColumnNames().stream().collect(Collectors.joining(", "));
+        }
+        public Column[] orderedColumns(){
+            ArrayList<Column> list = new ArrayList<>(columns.values());
+            Collections.sort(list, (c1, c2) -> c1.getOrdinalPosition().compareTo(c2.getOrdinalPosition()));
+            return list.toArray(new Column[list.size()]);
         }
         public Column addColumn(String name, String dataType, Column referencedColumn, String constraintName, Integer ordinalPosition, String columnType, Integer maxLength, Integer numPrecision, Integer numScale, String columnKey, String columnDefault, String nullable){
             Column c = new Column();
@@ -155,7 +161,7 @@ public class DbModel {
         public Column addReference(Column column, Column referencedColumn, String contraintName){
             if(referencedColumn != null){
                 column.references = new ReferencedColumn(referencedColumn.getTable().getName(), referencedColumn.getName());
-                references.add(referencedColumn.getTable());
+                references.add(new TableReference(referencedColumn.getTable().getName()));
                 referencedColumn.getTable().addReferencedBy(this);
             }
             return column;
@@ -167,7 +173,7 @@ public class DbModel {
             return columns.keySet();
         }
         public void addReferencedBy(DbTable referencer){
-            referencedBy.add(referencer);
+            referencedBy.add(new TableReference(referencer.getName()));
         }
     }
     public static class Column {
@@ -206,6 +212,13 @@ public class DbModel {
     public static class ReferencedColumn {
         private String on;
         private String column;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TableReference {
+        private String name;
     }
 
     @NoArgsConstructor

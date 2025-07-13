@@ -50,8 +50,8 @@ public class To extends AbstractStep {
 			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw bre;
 		}catch(Exception e) {
-			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			context.logError(fes, "error in To step", e);
+			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw Exceptions.server("error-storing-file").withCause(e).get();
 		}
 		executeNext(context);

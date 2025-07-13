@@ -22,7 +22,7 @@ public class ShellCommand extends AbstractStep{
 	private String supass;
 	
 	@Override
-	public void execute(FlowContext content) {
+	public void execute(FlowContext context) {
         try {
         	StringBuilder sb = new StringBuilder();
         	if(supass != null && !"".equals(supass.trim())) {
@@ -40,7 +40,7 @@ public class ShellCommand extends AbstractStep{
             while ((line = bufferedReader.readLine()) != null) {
                 log.debug(line);
             }
-            this.executeNext(content);
+            this.executeNext(context);
         } catch(Exception ex) {
             log.error("error in script : " + script + ex);
         }

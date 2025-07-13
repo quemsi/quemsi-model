@@ -3,6 +3,7 @@ package com.quemsi.model.flow.db.mysql;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Statement;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
@@ -17,6 +18,7 @@ import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.Column;
 import com.quemsi.model.flow.db.sql.DbModel.DbTable;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
+import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 
 import lombok.Data;
@@ -111,11 +113,11 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 	public TableDataPage getTableDataPage(TableDataPage.Request request){
 		try(Connection conn = getDataSource().getConnection()){
 			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), request.getTable().joinedPkColumnNames());
-			log.info("sql for {} :{}", request.getTable().getName(), sql);
+			log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageNum() * request.getPageSize());
-			ps.setInt(2, (request.getPageNum() + 1)* request.getPageSize());
-
+			ps.setInt(2, request.getPageSize());
+			
 			TableDataPage page = new TableDataPage();
 			page.setRequest(request);
 			
@@ -161,6 +163,57 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 		}catch(Exception e){
 			e.printStackTrace();
 			throw Exceptions.server("unable-to-read-data").withExtra("request", request).withCause(e).get();
+		}
+	}
+
+	public int writePageData(DbTable table, DataPage dataPage){
+		try(Connection conn = getDataSource().getConnection()){
+			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.getName()).append("(");
+			StringBuilder paramsBuilder = new StringBuilder("(");
+			int counter = 0;
+ 			for(String columnName : table.columnNames()){
+				sqlBuilder.append(columnName);
+				paramsBuilder.append("?");
+				counter++;
+				if(counter < table.columnNames().size()){
+					sqlBuilder.append(", ");
+					paramsBuilder.append(", ");
+				}
+			}
+			paramsBuilder.append(");");
+			sqlBuilder.append(") values ").append(paramsBuilder.toString());
+			String insertSql = sqlBuilder.toString();
+			log.info("for {} insert sql :{}", table.getName(), insertSql);
+			Column[] orderedColumns = table.orderedColumns();
+			PreparedStatement ps = conn.prepareStatement(insertSql);
+			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
+				for(int i=0; i < orderedColumns.length; i++){
+					Column c = orderedColumns[i];	
+					ps.setObject(c.getOrdinalPosition(), e.getValue()[i]);
+				}
+				ps.addBatch();
+			}));
+			int[] results = ps.executeBatch();
+			log.info("for {} page {} batch result {}", table.getName(), dataPage.getPageNum(), results);
+		}catch(Exception e){
+			e.printStackTrace();
+			throw Exceptions.server("unable-to-write-data").withExtra("table", table.getName()) .withExtra("pageNum", dataPage.getPageNum()).withCause(e).get();
+		}
+		return 0;		
+	}
+
+	@Override
+	public boolean clearTables(String... tableNames) {
+		try(Connection conn = getDataSource().getConnection()){
+			Statement s = conn.createStatement();
+			for(String tableName : tableNames){
+				s.addBatch("delete from " + tableName);
+			}
+			s.executeBatch();
+			return true;
+		}catch(Exception e){
+			e.printStackTrace();
+			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
 	}
 }

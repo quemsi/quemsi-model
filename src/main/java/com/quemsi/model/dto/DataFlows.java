@@ -33,6 +33,7 @@ public class DataFlows extends BaseDto<Long>{
         private String name;
         private String title;
         private String dataName;
+        private boolean back;
         private String timer;
         private Long lastExecutionId;
         private LocalDateTime lastExecutionTime;

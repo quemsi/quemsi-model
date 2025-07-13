@@ -3,6 +3,8 @@ package com.quemsi.model.flow.db;
 import javax.sql.DataSource;
 
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.DbTable;
+import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 
 public interface DataSourceFactory {
@@ -13,4 +15,6 @@ public interface DataSourceFactory {
 	DbModel getDbModel();
 
 	TableDataPage getTableDataPage(TableDataPage.Request request);
+	int writePageData(DbTable table, DataPage dataPage);
+	boolean clearTables(String... tableNames);
 }

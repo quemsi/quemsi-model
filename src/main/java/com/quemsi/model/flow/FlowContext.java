@@ -49,7 +49,7 @@ public class FlowContext {
 	public Long executionVersion(){
 		return this.dataVersion.getId();
 	}
-	public void logError(FlowExecutionStep step, String tag, Exception e) {
+	public void logError(FlowExecutionStep step, String tag, Throwable e) {
 		log.error(tag, e);
 		if(step != null){
 			step.setStatus(FlowExecutionStatus.FAILED);
@@ -58,7 +58,7 @@ public class FlowContext {
 			step.setLogs(sw.toString());
 		}
 	}
-	public void logError(String tag, Exception e) {
+	public void logError(String tag, Throwable e) {
 		log.error(tag, e);
 		execution.setStatus(FlowExecutionStatus.FAILED);
 		StringWriter sw = execution.logWriter();

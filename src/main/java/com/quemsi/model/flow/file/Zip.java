@@ -44,12 +44,13 @@ public class Zip extends AbstractStep {
             context.setDataPackages(List.of(new DataPackageFileResource(fileResource)));
             flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch(Exception ex){
-            flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
-			Throwable cause = ex;
+            Throwable cause = ex;
             if(ex instanceof BaseRuntimeException bre){
                 cause = bre.getCause();
             }
-            throw Exceptions.server("unable-zip-data-package").withExtra("dataName", context.getFlow().getData().getName()).withCause(cause).get();
+            context.logError(fes, "error in Zip", cause);
+            flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
+			throw Exceptions.server("unable-zip-data-package").withExtra("dataName", context.getFlow().getData().getName()).withCause(cause).get();
         }
         executeNext(context);
     }
