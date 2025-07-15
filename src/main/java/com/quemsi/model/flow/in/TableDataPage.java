@@ -1,7 +1,8 @@
 package com.quemsi.model.flow.in;
 
-import com.quemsi.model.flow.db.sql.DbModel.DbTable;
 import java.util.Map;
+
+import com.quemsi.model.flow.db.sql.DbTable;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

@@ -26,7 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class DropTables extends AbstractStep{
 	@Setter
-	private DataSourceFactory datasourceFactory;
+	private DataSourceFactory datasource;
 	@Setter
     private boolean all;
 	@Setter
@@ -38,23 +38,23 @@ public class DropTables extends AbstractStep{
     @Override
 	public void execute(FlowContext context) {
 		FlowExecutionStep fes = null;
-        try {
+        try (DDLService ddlService = datasource.ddlService()){
             fes = flow.sendStepStarted(context.getExecution().getId(), DropTables.class.getSimpleName(), this.ord , LocalDateTime.now());
-            DbModel dbModel = datasourceFactory.getDbModel();
+            DbModel dbModel = datasource.getDbModel();
 			if(all){
 				tables = CommonOps.reverse(dbModel.orderedTableNames());
 			}
 			if(tables != null && !tables.isEmpty()){
                 if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
-					datasourceFactory.disableConstraints(dbModel.getCircularIgnore());
+					ddlService.disableConstraints(dbModel.getCircularIgnore());
 				}
-				datasourceFactory.dropTables(tables.toArray(new String[tables.size()]));
+				ddlService.dropTables(tables.toArray(new String[tables.size()]));
             }
             flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch (Exception e) {
             context.logError(fes, "error in ClearTables step", e);
 			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
-			throw Exceptions.server("script-exception").withExtra("datasource", datasourceFactory.getName()).withCause(e).get();
+			throw Exceptions.server("script-exception").withExtra("datasource", datasource.getName()).withCause(e).get();
         }
 		executeNext(context);
 	}
@@ -68,7 +68,7 @@ public class DropTables extends AbstractStep{
 	@Override
 	public void fillDetails(List<Map<String, Object>> steps) {
 		Map<String, Object> props = new HashMap<>();
-		props.put("datasource", datasourceFactory.getName());
+		props.put("datasource", datasource.getName());
         props.put("all", all);
 		props.put("type", DropTables.class.getSimpleName());
 		steps.add(props);

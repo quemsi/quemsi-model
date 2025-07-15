@@ -1,5 +1,6 @@
 package com.quemsi.model.flow.db;
 
+import java.sql.Connection;
 import java.time.LocalDateTime;
 import java.util.LinkedList;
 
@@ -27,7 +28,11 @@ public class ClearTables extends AbstractStep {
     @Override
     public void execute(FlowContext context) {
         FlowExecutionStep fes = null;
-        try{
+        try(
+            Connection conn = datasource.getDataSource().getConnection();
+            DMLService dmlService = datasource.dmlService(conn);
+            DDLService ddlService = datasource.ddlService(conn);
+            ){
             fes = flow.sendStepStarted(context.getExecution().getId(), ClearTables.class.getSimpleName(), this.ord , LocalDateTime.now());
             DbModel dbModel = datasource.getDbModel();
             if(all){
@@ -35,9 +40,9 @@ public class ClearTables extends AbstractStep {
             }
             if(tables != null && !tables.isEmpty()){
                 if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
-					datasource.disableConstraints(dbModel.getCircularIgnore());
+					ddlService.disableConstraints(dbModel.getCircularIgnore());
 				}
-				datasource.clearTables(tables.toArray(new String[tables.size()]));   
+				dmlService.clearTables(tables.toArray(new String[tables.size()]));   
             }
             flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         }catch(Exception e) {

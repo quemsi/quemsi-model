@@ -98,7 +98,7 @@ public class StepFactory extends AbstractFactory<Step>{
 			"DropTables", node ->  {
 				DropTables dropTables = new DropTables();
 				String datasource = node.findValue("datasource").asText(null);
-				dropTables.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
+				dropTables.setDatasource(context.getBean(datasource, DataSourceFactory.class));
 				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
 				dropTables.setAll(all);
 				LinkedList<String> tables = jsonUtils.asLinkedList(node.get("tables"));

@@ -20,9 +20,10 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileResource;
 import com.quemsi.model.flow.DataPackageFileResource;
 import com.quemsi.model.flow.FlowContext;
+import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbModel.DbTable;
+import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableDataPage.Request;
 import com.quemsi.model.service.TableDataPersister;
 
@@ -107,6 +108,7 @@ public class RdbmsBackup implements Source{
                 log.info("future of {} completed for {}", tr.getName(), table.getName());
             });
             log.info("{} done waiting", table.getName());
+            DMLService dmlService = datasource.dmlService();
             Request request = new Request();
             request.setPageNum(0);
             request.setPageSize(batchSize);
@@ -114,7 +116,7 @@ public class RdbmsBackup implements Source{
             TableDataPage dataPage = null;
             AtomicInteger counter = new AtomicInteger(0);
             while(dataPage == null || dataPage.isHasMorePage()){
-                dataPage = datasource.getTableDataPage(request);
+                dataPage = dmlService.getTableDataPage(request);
                 counter.incrementAndGet();
                 tableDataPersister.persist(dataPage);
                 request = request.toBuilder().pageNum(request.getPageNum() + 1).build();

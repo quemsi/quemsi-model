@@ -19,9 +19,11 @@ import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DataType;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
+import com.quemsi.model.flow.db.DDLService;
+import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbModel.DbTable;
+import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData;
 
 import lombok.Getter;
@@ -59,13 +61,16 @@ public class RdbmsTarget extends AbstractStorage{
                 throw Exceptions.badRequest("unsupported-content-type-for-db-model").withExtra("contentType", namedPackages.get(DB_MODEL_FILE_NAME).getContentType())
                     .withExtra("supported", "application/json").get();
             }
-            try(ForkJoinPool pool = new ForkJoinPool(parallelism)){
+            try(
+                ForkJoinPool pool = new ForkJoinPool(parallelism);
+                DDLService ddlService = datasourceFactory.ddlService();
+                ){
                 String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
                 
-                datasourceFactory.createTables(dbModel);
+                ddlService.createTables(dbModel);
 
-                datasourceFactory.disableConstraints(dbModel.getCircularIgnore());
+                ddlService.disableConstraints(dbModel.getCircularIgnore());
                 List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool))
                     .map(t -> {
                         taskRegistry.put(t.getTable().getName(), new CompletableFuture<>());
@@ -73,7 +78,7 @@ public class RdbmsTarget extends AbstractStorage{
                         return task;
                     }).toList();
                 boolean result = taskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (a, n) -> a && n);
-                datasourceFactory.enableContraints(dbModel.getCircularIgnore());
+                ddlService.enableContraints(dbModel.getCircularIgnore());
 
                 if(result){
                     log.info("all data is restored");
@@ -82,6 +87,8 @@ public class RdbmsTarget extends AbstractStorage{
                 }
             } catch(IOException e){
                 throw Exceptions.server("io-exception-in-rdbms-restore").withCause(e).get();
+            } catch(Exception e){
+                throw Exceptions.server("exception-in-rdbms-restore").withCause(e).get();
             }
         }
         
@@ -165,7 +172,9 @@ public class RdbmsTarget extends AbstractStorage{
 
         @Override
         public Boolean call() throws Exception {
-            datasourceFactory.writePageData(table, dataPage);
+            try(DMLService dmlService = datasourceFactory.dmlService()){
+                dmlService.writePageData(table, dataPage);
+            }
             return true;
         }
     }

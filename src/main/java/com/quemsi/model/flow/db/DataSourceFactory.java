@@ -1,14 +1,11 @@
 package com.quemsi.model.flow.db;
 
-import java.util.Set;
+import java.sql.Connection;
+import java.sql.SQLException;
 
 import javax.sql.DataSource;
 
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbModel.DbTable;
-import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
-import com.quemsi.model.flow.in.TableData.DataPage;
-import com.quemsi.model.flow.in.TableDataPage;
 
 public interface DataSourceFactory {
 	String PK_VALUES_SEPERATOR = "|-|";
@@ -16,12 +13,16 @@ public interface DataSourceFactory {
 	String getName();
 	DataSource getDataSource();
 	DbModel getDbModel();
+	DDLService ddlService() throws SQLException;
+	DDLService ddlService(Connection conn);
+	DMLService dmlService() throws SQLException;
+	DMLService dmlService(Connection conn);
 
-	TableDataPage getTableDataPage(TableDataPage.Request request);
+	/*TableDataPage getTableDataPage(TableDataPage.Request request);
 	int writePageData(DbTable table, DataPage dataPage);
 	boolean clearTables(String... tableNames);
 	boolean dropTables(String...  tableNames);
 	void disableConstraints(Set<ReferenceInfo> constraints);
 	void enableContraints(Set<ReferenceInfo> constraints);
-	void createTables(DbModel dbModel);
+	void createTables(DbModel dbModel);*/
 }

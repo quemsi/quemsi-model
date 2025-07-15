@@ -4,30 +4,23 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.HashMap;
-import java.util.Iterator;
-import java.util.LinkedList;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-import java.util.List;
 
 import javax.sql.DataSource;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DatasourceType;
+import com.quemsi.model.flow.db.DDLService;
+import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
+import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbModel.Column;
-import com.quemsi.model.flow.db.sql.DbModel.DbTable;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
-import com.quemsi.model.flow.in.TableData.DataPage;
+import com.quemsi.model.flow.db.sql.DbTable;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
-import com.quemsi.model.flow.in.TableDataPage;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +54,7 @@ FROM INFORMATION_SCHEMA.STATISTICS st
 WHERE TABLE_SCHEMA = ?
 order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			""";
+
 	private String name;
 	private String dbName;
 	private String url;
@@ -78,6 +72,26 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			instance = ds;
 		}
 		return instance;
+	}
+
+	@Override
+	public DDLService ddlService() throws SQLException {
+		return new DDLServiceMysql(getDataSource().getConnection());
+	}
+
+	@Override
+	public DDLService ddlService(Connection conn){
+		return new DDLServiceMysql(conn);
+	}
+
+	@Override
+	public DMLService dmlService() throws SQLException {
+	  return new DMLServiceMysql(getDataSource().getConnection());
+	}
+
+	@Override
+	public DMLService dmlService(Connection conn){
+	  return new DMLServiceMysql(conn);
 	}
 
 	@Override
@@ -107,7 +121,7 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 				String refTable = rs.getString("REFERENCED_TABLE_NAME");
 				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
 				DbTable table = dbModel.crateIfAbsent(tableName);
-				Column column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable);
+				DbColumn column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable);
 				if(refColumn != null){
 					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcTable(tableName).srcColumnName(column.getName()).constraintName(constName).refTableName(refTable).refColumnName(refColumn).build());
 				}
@@ -140,7 +154,7 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 		}
 		return dbModel;
 	}
-
+/*
 	private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ?, ?";
 	public TableDataPage getTableDataPage(TableDataPage.Request request){
 		try(Connection conn = getDataSource().getConnection()){
@@ -216,11 +230,11 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			sqlBuilder.append(") values ").append(paramsBuilder.toString());
 			String insertSql = sqlBuilder.toString();
 			log.info("for {} insert sql :{}", table.getName(), insertSql);
-			Column[] orderedColumns = table.orderedColumns();
+			DbColumn[] orderedColumns = table.orderedColumns();
 			PreparedStatement ps = conn.prepareStatement(insertSql);
 			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
 				for(int i=0; i < orderedColumns.length; i++){
-					Column c = orderedColumns[i];	
+					DbColumn c = orderedColumns[i];	
 					ps.setObject(c.getOrdinalPosition(), e.getValue()[i]);
 				}
 				ps.addBatch();
@@ -313,8 +327,8 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
-			Column[] columns = table.orderedColumns();
-			for(Column c : columns){
+			DbColumn[] columns = table.orderedColumns();
+			for(DbColumn c : columns){
 				sb.append("  ").append(c.getName()).append(" ").append(c.getColumnType());
 				if(!c.isNullable()){
 					sb.append(" NOT NULL");
@@ -384,4 +398,5 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			log.info("create tables sql", ignore);
 		}
 	}
+*/
 }
