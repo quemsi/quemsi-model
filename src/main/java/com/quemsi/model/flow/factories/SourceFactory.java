@@ -8,8 +8,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.flow.db.mysql.DataSourceFactoryMySql;
-import com.quemsi.model.flow.in.MySqlBackup;
-import com.quemsi.model.flow.in.MySqlBackupProperties;
 import com.quemsi.model.flow.in.RdbmsBackup;
 import com.quemsi.model.flow.in.Source;
 import com.quemsi.model.flow.in.StoredData;
@@ -38,13 +36,6 @@ public class SourceFactory extends AbstractFactory<Source>{
 				s.setParallelism(parallelism);
 				s.setDatasource(context.getBean(datasource, DataSourceFactoryMySql.class));
 				s.setObjectMapper(context.getBean(ObjectMapper.class));
-				return s;
-			},
-			"MySqlBackup", node -> {
-				String datasource = node.findValue("datasource").asText(null);
-				MySqlBackup s = new MySqlBackup();
-				s.setDatasource(context.getBean(datasource, DataSourceFactoryMySql.class));
-				s.setDbProperties(context.getBean(MySqlBackupProperties.class));
 				return s;
 			},
 			"StoredData", node -> {

@@ -29,12 +29,15 @@ public class ClearTables extends AbstractStep {
         FlowExecutionStep fes = null;
         try{
             fes = flow.sendStepStarted(context.getExecution().getId(), ClearTables.class.getSimpleName(), this.ord , LocalDateTime.now());
+            DbModel dbModel = datasource.getDbModel();
             if(all){
-                DbModel dbModel = datasource.getDbModel();
                 tables = CommonOps.reverse(dbModel.orderedTableNames());
             }
             if(tables != null && !tables.isEmpty()){
-                datasource.clearTables(tables.toArray(new String[tables.size()]));   
+                if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
+					datasource.disableConstraints(dbModel.getCircularIgnore());
+				}
+				datasource.clearTables(tables.toArray(new String[tables.size()]));   
             }
             flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         }catch(Exception e) {

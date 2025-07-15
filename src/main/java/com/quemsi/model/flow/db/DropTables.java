@@ -2,10 +2,9 @@ package com.quemsi.model.flow.db;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
@@ -31,7 +30,7 @@ public class DropTables extends AbstractStep{
 	@Setter
     private boolean all;
 	@Setter
-	private Set<String> tables;
+	private LinkedList<String> tables;
 	@Setter
     private SqlParser sqlParser;
 
@@ -43,7 +42,7 @@ public class DropTables extends AbstractStep{
             fes = flow.sendStepStarted(context.getExecution().getId(), DropTables.class.getSimpleName(), this.ord , LocalDateTime.now());
             DbModel dbModel = datasourceFactory.getDbModel();
 			if(all){
-				tables = new HashSet<>(CommonOps.reverse(dbModel.orderedTableNames()));
+				tables = CommonOps.reverse(dbModel.orderedTableNames());
 			}
 			if(tables != null && !tables.isEmpty()){
                 if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){

@@ -3,7 +3,6 @@ package com.quemsi.model.flow.factories;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -102,7 +101,7 @@ public class StepFactory extends AbstractFactory<Step>{
 				dropTables.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
 				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
 				dropTables.setAll(all);
-				Set<String> tables = jsonUtils.asSet(node.get("tables"));
+				LinkedList<String> tables = jsonUtils.asLinkedList(node.get("tables"));
 				dropTables.setTables(tables);
 				dropTables.setSqlParser(context.getBean(SqlParser.class));
 				return dropTables;

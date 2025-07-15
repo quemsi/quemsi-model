@@ -15,7 +15,6 @@ import java.util.List;
 
 import javax.sql.DataSource;
 
-import com.mysql.cj.jdbc.MysqlDataSource;
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DatasourceType;
@@ -26,6 +25,8 @@ import com.quemsi.model.flow.db.sql.DbModel.DbTable;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.in.TableData.DataPage;
+import com.zaxxer.hikari.HikariConfig;
+import com.zaxxer.hikari.HikariDataSource;
 import com.quemsi.model.flow.in.TableDataPage;
 
 import lombok.Data;
@@ -66,14 +67,14 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 	private String username;
 	private String password;
 	private DataSource instance;
-	
 	@Override
 	public synchronized DataSource getDataSource() {
 		if(instance == null) {
-			MysqlDataSource ds =new MysqlDataSource();
-			ds.setUrl(this.url);
-			ds.setPassword(password);
-			ds.setUser(username);
+			HikariConfig config = new HikariConfig();
+			config.setJdbcUrl(this.url);
+			config.setPassword(password);
+			config.setUsername(username);
+			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}
 		return instance;
