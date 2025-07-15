@@ -81,6 +81,7 @@ public class Flow {
 					if(!fc.getTags().containsKey("time")){
 						fc.getTags().put("time", dateUtils.getTimeString(LocalDateTime.now()));
 					}
+					fc.getTags().put("flow", this.name);
 					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
 				}
 				apiClient.saveFlowExecution(execution);

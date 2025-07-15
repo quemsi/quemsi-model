@@ -3,20 +3,27 @@ package com.quemsi.model.flow.db.mysql;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.Map;
-import java.util.Queue;
+import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.List;
 
 import javax.sql.DataSource;
 
 import com.mysql.cj.jdbc.MysqlDataSource;
+import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.Column;
 import com.quemsi.model.flow.db.sql.DbModel.DbTable;
+import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
@@ -42,6 +49,17 @@ where cols.TABLE_SCHEMA = ?
 order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 ;
 			""";
+	private static final String SQL_FOR_INDEXES = """
+SELECT
+    st.TABLE_NAME,
+    st.INDEX_NAME,
+    st.COLUMN_NAME,
+    st.SEQ_IN_INDEX,
+    st.NON_UNIQUE
+FROM INFORMATION_SCHEMA.STATISTICS st
+WHERE TABLE_SCHEMA = ?
+order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
+			""";
 	private String name;
 	private String dbName;
 	private String url;
@@ -64,10 +82,11 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 	@Override
 	public DbModel getDbModel() {
 		DbModel dbModel = new DbModel();
-		Queue<ReferenceInfo> referenceInfos = new LinkedList<>();
+		dbModel.setSourceType(DatasourceType.MYSQL.name());
 		try(
 			Connection con = getDataSource().getConnection();
 			PreparedStatement ps = con.prepareStatement(SQL_FOR_COLUMNS);
+			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES); 
 		){
 			ps.setString(1, dbName);
 			ResultSet rs = ps.executeQuery();
@@ -87,22 +106,34 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 				String refTable = rs.getString("REFERENCED_TABLE_NAME");
 				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
 				DbTable table = dbModel.crateIfAbsent(tableName);
-				Column column = table.addColumn(columnName, dataType, null, null, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable);
+				Column column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable);
 				if(refColumn != null){
-					referenceInfos.add(ReferenceInfo.builder().column(column).constraintName(constName).refTableName(refTable).refColumnName(refColumn).build());
+					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcTable(tableName).srcColumnName(column.getName()).constraintName(constName).refTableName(refTable).refColumnName(refColumn).build());
 				}
 				if("PRI".equals(columnKey)){
 					table.getPkColumnNames().add(columnName);
 				}
 			}
-			while(!referenceInfos.isEmpty()){
-				ReferenceInfo refInfo = referenceInfos.poll();
-				DbTable rTable = dbModel.findTable(refInfo.getRefTableName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
-						.withExtra("tableName", refInfo.getColumn().getTable().getName()).withExtra("columnName", refInfo.getColumn().getName()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
-				Column rColumn = rTable.findColumn(refInfo.getRefColumnName()).orElseThrow(Exceptions.server("unknow-column-in-fk")
-					.withExtra("tableName", refInfo.getColumn().getTable().getName()).withExtra("columnName", refInfo.getColumn().getName()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
-				refInfo.getColumn().getTable().addReference(refInfo.getColumn(), rColumn, refInfo.getConstraintName());
+			ist.setString(1, dbName);
+			ResultSet irs = ist.executeQuery();
+			IndexInfo cur = null;
+			while (irs.next()) {
+				String tableName = irs.getString("TABLE_NAME");
+				String indexName = irs.getString("INDEX_NAME");
+				String columnName = irs.getString("COLUMN_NAME");
+				boolean nonUnique = irs.getBoolean("NON_UNIQUE");
+				if(cur == null || !tableName.equals(cur.getTableName()) || !indexName.equals(cur.getIndexName())){
+					if(cur != null){
+						CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
+					}
+					cur = new IndexInfo(tableName, indexName, !nonUnique);
+				}
+				cur.getColumns().add(columnName);
 			}
+			if(cur != null){
+				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
+			}
+			dbModel.build();
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
@@ -202,6 +233,48 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 		return 0;		
 	}
 
+	public void disableConstraints(Set<ReferenceInfo> constraints){
+		try(Connection conn = getDataSource().getConnection()){
+			for(ReferenceInfo refInfo : constraints) {
+				StringBuilder sb = new StringBuilder("ALTER TABLE ");
+				sb.append(refInfo.getSrcTable()).append(" DROP FOREIGN KEY ")
+				.append(refInfo.getConstraintName()).append(";");
+				try{
+					String dropConstraintSql = sb.toString();
+					log.info("drop constraint sql :{}", dropConstraintSql);
+					Statement s = conn.createStatement();
+					s.executeUpdate(dropConstraintSql);
+				}catch(SQLException ignore){
+					log.info("ignored ignored disable constraint " + refInfo.getConstraintName(), ignore);
+				}
+			}
+		}catch(SQLException ignore){
+			log.error("ignored disable constraints", ignore);
+		}
+	}
+
+	public void enableContraints(Set<ReferenceInfo> constraints){
+		try(Connection conn = getDataSource().getConnection()){
+			for(ReferenceInfo refInfo : constraints) {
+				StringBuilder sb = new StringBuilder("ALTER TABLE ");
+				sb.append(refInfo.getSrcTable()).append(" ADD CONSTRAINT ")
+				.append(refInfo.getConstraintName())
+				.append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
+				.append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");");
+				try{
+					String dropConstraintSql = sb.toString();
+					log.info("drop constraint sql :{}", dropConstraintSql);
+					Statement s = conn.createStatement();
+					s.executeUpdate(dropConstraintSql);
+				}catch(SQLException ignore){
+					log.info("ignored enable constraint : " + refInfo.getConstraintName(), ignore);
+				}
+			}
+		}catch(SQLException ignore){
+			log.error("ignored disable constraints", ignore);
+		}
+	}
+
 	@Override
 	public boolean clearTables(String... tableNames) {
 		try(Connection conn = getDataSource().getConnection()){
@@ -214,6 +287,100 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 		}catch(Exception e){
 			e.printStackTrace();
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropTables(String... tableNames) {
+		try(Connection conn = getDataSource().getConnection()){
+			Statement s = conn.createStatement();
+			for(String tableName : tableNames){
+				s.addBatch("DROP TABLE IF EXISTS " + tableName + ";");
+			}
+			s.executeBatch();
+			return true;
+		}catch(Exception e){
+			e.printStackTrace();
+			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
+		}
+	}
+
+	@Override
+	public void createTables(DbModel dbModel) {
+		LinkedList<StringBuilder> scripts = new LinkedList<>();
+		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTable()));
+		for(String tableName : dbModel.orderedTableNames()){
+			DbTable table = dbModel.findTable(tableName).orElseThrow();
+			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
+			Column[] columns = table.orderedColumns();
+			for(Column c : columns){
+				sb.append("  ").append(c.getName()).append(" ").append(c.getColumnType());
+				if(!c.isNullable()){
+					sb.append(" NOT NULL");
+				}
+				if(c.getColumnDefault() == null){
+					if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())){
+						sb.append(" DEFAULT NULL");
+					}
+				}else{
+					sb.append(" DEFAULT " + c.getColumnDefault());
+				}
+				sb.append(",").append(System.lineSeparator());
+			}
+			if(table.getPkColumnNames().size() > 0){
+				sb.append("  ").append("PRIMARY KEY (");
+				Iterator<String> cIt = table.getPkColumnNames().iterator();
+				while(cIt.hasNext()){
+					String cName = cIt.next();
+					sb.append(cName);
+					if(cIt.hasNext()){
+						sb.append(", ");
+					}
+				}
+				sb.append(")");
+			}
+			if(dbModel.getIndexes().containsKey(tableName)){
+				Map<String, IndexInfo> indexes = dbModel.getIndexes().get(tableName);
+				Iterator<String> indNameIt = indexes.keySet().iterator();
+				while(indNameIt.hasNext()){
+					String indName = indNameIt.next();
+					if(!"PRIMARY".equals(indName)){
+						sb.append(",").append(System.lineSeparator());
+						sb.append("  KEY ").append(indName).append(" (");
+						IndexInfo indCols = indexes.get(indName);
+						Iterator<String> icIt = indCols.getColumns().iterator();
+						while(icIt.hasNext()){
+							String ic = icIt.next();
+							sb.append(ic);
+							if(icIt.hasNext()){
+								sb.append(" ,");
+							}
+						}
+						sb.append(")");
+					}
+
+				};
+			}
+			if(tableReferences.containsKey(tableName)){
+				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
+				while(refIt.hasNext()){
+					ReferenceInfo ref = refIt.next();
+					sb.append(",").append(System.lineSeparator())
+						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
+						.append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
+				}
+			}
+			sb.append(System.lineSeparator()).append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
+			log.info("create script for {} : {}", tableName, sb.toString());
+			scripts.add(sb);
+		}
+		try(Connection conn = getDataSource().getConnection()){
+			Statement s = conn.createStatement();
+			for(StringBuilder sb : scripts){
+				s.executeUpdate(sb.toString());
+			}
+		}catch(SQLException ignore){
+			log.info("create tables sql", ignore);
 		}
 	}
 }

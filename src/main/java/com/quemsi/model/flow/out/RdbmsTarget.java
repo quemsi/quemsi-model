@@ -62,15 +62,19 @@ public class RdbmsTarget extends AbstractStorage{
             try(ForkJoinPool pool = new ForkJoinPool(parallelism)){
                 String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
-                log.info("dbModel {}", dbModel);
+                
+                datasourceFactory.createTables(dbModel);
 
-                List<ForkJoinTask<Boolean>> taskList = dbModel.sortedTableList().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool))
+                datasourceFactory.disableConstraints(dbModel.getCircularIgnore());
+                List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool))
                     .map(t -> {
                         taskRegistry.put(t.getTable().getName(), new CompletableFuture<>());
                         ForkJoinTask<Boolean> task = pool.submit(t);
                         return task;
                     }).toList();
                 boolean result = taskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (a, n) -> a && n);
+                datasourceFactory.enableContraints(dbModel.getCircularIgnore());
+
                 if(result){
                     log.info("all data is restored");
                 } else {
@@ -131,7 +135,7 @@ public class RdbmsTarget extends AbstractStorage{
                 log.error("unable to find data file {}", fileName);
                 return false;
             }
-            table.getReferences().stream().forEach(tr -> {
+            table.getReferences().stream().filter(r -> !table.getName().equals(r.getName())).forEach(tr -> {
                 log.info("{} waiting for {}", table.getName(), tr.getName());
                 taskRegistry.get(tr.getName()).join();
                 log.info("future of {} completed for {}", tr.getName(), table.getName());

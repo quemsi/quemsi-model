@@ -8,6 +8,7 @@ import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.flow.From;
@@ -15,7 +16,7 @@ import com.quemsi.model.flow.Step;
 import com.quemsi.model.flow.To;
 import com.quemsi.model.flow.db.ClearTables;
 import com.quemsi.model.flow.db.DataSourceFactory;
-import com.quemsi.model.flow.db.mysql.MySqlDropTables;
+import com.quemsi.model.flow.db.DropTables;
 import com.quemsi.model.flow.db.mysql.MySqlScript;
 import com.quemsi.model.flow.db.mysql.StartReplica;
 import com.quemsi.model.flow.db.mysql.StopReplica;
@@ -23,7 +24,6 @@ import com.quemsi.model.flow.db.sql.SqlParser;
 import com.quemsi.model.flow.file.Unzip;
 import com.quemsi.model.flow.file.Zip;
 import com.quemsi.model.flow.out.Storage;
-import com.fasterxml.jackson.databind.JsonNode;
 
 import lombok.Getter;
 
@@ -79,10 +79,13 @@ public class StepFactory extends AbstractFactory<Step>{
 			},
 			"ClearTables", node -> {
 				String datasource = node.findValue("datasource").asText(null);
-				ClearTables s = new ClearTables();
-				s.setAll(true);
-				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
-				return s;
+				ClearTables clearTables = new ClearTables();
+				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
+				clearTables.setAll(all);
+				LinkedList<String> tables = jsonUtils.asLinkedList(node.get("tables"));
+				clearTables.setTables(tables);
+				clearTables.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				return clearTables;
 			},
 			"MySqlScript", node ->  {
 				MySqlScript mScript = new MySqlScript();
@@ -93,11 +96,11 @@ public class StepFactory extends AbstractFactory<Step>{
 				mScript.setSqlParser(context.getBean(SqlParser.class));
 				return mScript;
 			},
-			"MySqlDropTables", node ->  {
-				MySqlDropTables dropTables = new MySqlDropTables();
+			"DropTables", node ->  {
+				DropTables dropTables = new DropTables();
 				String datasource = node.findValue("datasource").asText(null);
 				dropTables.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
-				boolean all = jsonUtils.asBoolean(node.findValue("all"), false);
+				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
 				dropTables.setAll(all);
 				Set<String> tables = jsonUtils.asSet(node.get("tables"));
 				dropTables.setTables(tables);

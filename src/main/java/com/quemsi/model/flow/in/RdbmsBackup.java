@@ -63,7 +63,7 @@ public class RdbmsBackup implements Source{
             TableDataPersister tableDataPersister = new TableDataPersister();
             tableDataPersister.setObjectMapper(objectMapper);
 
-            List<DbTable> tables = dbModel.sortedTableList();
+            List<DbTable> tables = dbModel.orderedTables();
             tables.stream().map(table -> new RdmsBackupTask(table, tableDataPersister)).map(t -> {
                 taskRegistry.put(t.getTable().getName(), new CompletableFuture<>());
                 ForkJoinTask<Boolean> task = pool.submit(t);
@@ -101,8 +101,8 @@ public class RdbmsBackup implements Source{
         public Boolean call() throws Exception {
             CompletableFuture<Object> future = taskRegistry.get(table.getName());
             log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
-            table.getReferences().stream().forEach(tr -> {
-                log.info("{} waiting     for {}", table.getName(), tr.getName());
+            table.getReferences().stream().filter(tr -> !table.getName().equals(tr.getName())).forEach(tr -> {
+                log.info("{} waiting for {}", table.getName(), tr.getName());
                 taskRegistry.get(tr.getName()).join();
                 log.info("future of {} completed for {}", tr.getName(), table.getName());
             });
