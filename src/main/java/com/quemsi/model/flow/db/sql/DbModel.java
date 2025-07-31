@@ -23,16 +23,19 @@ import lombok.NoArgsConstructor;
 public class DbModel {
     private String format;
     private String sourceType;
+    private String schema;
     protected Map<String, DbTable> tables;
     private List<ReferenceInfo> referenceInfos;
     protected Set<ReferenceInfo> circularIgnore;
     protected Map<String, Map<String, IndexInfo>> indexes;
+    protected List<DbSequence> sequences;
     
     public DbModel(){
         tables = new HashMap<>();
         referenceInfos = new LinkedList<>();
         circularIgnore = new HashSet<>();
         indexes = new HashMap<>();
+        sequences = new LinkedList<>();
     }
 
     public DbTable addTable(String tableName){
@@ -177,11 +180,13 @@ public class DbModel {
         private String tableName;
         private String indexName;
         private boolean unique;
+        private String indexType;
         private LinkedList<String> columns;
-        public IndexInfo(String tableName, String indexName, boolean unique){
+        public IndexInfo(String tableName, String indexName, boolean unique, String indexType){
             this.tableName = tableName;
             this.indexName = indexName;
             this.unique = unique;
+            this.indexType = indexType;
             this.columns = new LinkedList<>();
         }
     }

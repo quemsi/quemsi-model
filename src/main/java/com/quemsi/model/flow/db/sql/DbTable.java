@@ -2,9 +2,9 @@ package com.quemsi.model.flow.db.sql;
 
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.LinkedList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -22,7 +22,7 @@ public class DbTable {
     private String name;
     @Getter
     @Setter
-    private Set<String> pkColumnNames;
+    private LinkedList<String> pkColumnNames;
     @Getter
     private Map<String, DbColumn> columns;
     @Getter
@@ -35,7 +35,7 @@ public class DbTable {
         this.columns = new LinkedHashMap<>();
         this.referencedBy = new LinkedHashSet<>();
         this.references = new LinkedHashSet<>();
-        pkColumnNames = new HashSet<>();
+        pkColumnNames = new LinkedList<>();
     }
     public DbTable(String name){
         this();

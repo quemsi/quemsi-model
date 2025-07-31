@@ -3,7 +3,9 @@ package com.quemsi.model.dto;
 import lombok.Getter;
 
 public enum DatasourceType implements KeyValuePair{
-	MYSQL("MySql", "mysql", 3306);
+	MYSQL("MySql", "mysql", 3306),
+	POSTGRES("Postgres", "postgresql", 5432)
+	;
 	private String val;
 	@Getter
 	private String jdbcName;
