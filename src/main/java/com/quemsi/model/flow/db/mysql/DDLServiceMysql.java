@@ -46,7 +46,7 @@ public class DDLServiceMysql implements DDLService{
     public void disableConstraints(Set<ReferenceInfo> constraints){
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTable()).append(" DROP FOREIGN KEY ")
+            sb.append(refInfo.getSrcTableName()).append(" DROP FOREIGN KEY ")
             .append(refInfo.getConstraintName()).append(";");
             try{
                 String dropConstraintSql = sb.toString();
@@ -63,7 +63,7 @@ public class DDLServiceMysql implements DDLService{
     public void enableContraints(Set<ReferenceInfo> constraints){
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTable()).append(" ADD CONSTRAINT ")
+            sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ")
             .append(refInfo.getConstraintName())
             .append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
             .append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");");
@@ -81,7 +81,7 @@ public class DDLServiceMysql implements DDLService{
     @Override
 	public void createTables(DbModel dbModel) {
 		LinkedList<StringBuilder> scripts = new LinkedList<>();
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTable()));
+		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTableName()));
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());

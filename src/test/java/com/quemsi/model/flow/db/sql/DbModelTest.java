@@ -18,13 +18,13 @@ public class DbModelTest {
     public void testGivenTwoDistinctTablesWhenBuildThenShouldReflectStructure(){
         DbModel dbModel = new DbModel();
         DbTable t1 =  dbModel.crateIfAbsent("T1");
-        t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null);
-        t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null);
+        t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null, "FALSE");
+        t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable t2 = dbModel.crateIfAbsent("T2");
-        t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null);
-        t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null);
-        t2.addColumn("ac3", "text", null, null, null, null, null, null, null, null);
+        t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null, "FALSE");
+        t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null, "FALSE");
+        t2.addColumn("ac3", "text", null, null, null, null, null, null, null, null, "FALSE");
 
         assertThat(t1.getColumns().size(), equalTo(2));
         assertThat(t2.getColumns().size(), equalTo(3));
@@ -36,13 +36,13 @@ public class DbModelTest {
     public void testGivenTwoTablesWithSingleForeignKeyWhenBuildThenShouldReflectStructure(){
         DbModel dbModel = new DbModel();
         DbTable t1 =  dbModel.crateIfAbsent("T1");
-        t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null);
-        DbColumn t1c2 = t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null);
+        t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn t1c2 = t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable t2 = dbModel.crateIfAbsent("T2");
-        t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null);
-        t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null);
-        DbColumn t2ac3 = t2.addColumn("ac3", "bigint", null, null, null, null, null, null, null, null);
+        t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null, "FALSE");
+        t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn t2ac3 = t2.addColumn("ac3", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         t2.addReference(t2ac3, t1c2, "fk_t2_t1_c2");
 
         assertThat(t1.getColumns().size(), equalTo(2));
@@ -57,20 +57,20 @@ public class DbModelTest {
     public void testGivenTreeTablesWithSingleForeignKeysWhenGetOrderedThenShouldReturnNotReferencedTablesFirst(){
         DbModel dbModel = new DbModel();
         DbTable t1 =  dbModel.crateIfAbsent("T1");
-        t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null);
-        DbColumn t1c2 = t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null);
+        t1.addColumn("c1", "varchar2(255)", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn t1c2 = t1.addColumn("c2", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable t2 = dbModel.crateIfAbsent("T2");
-        t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null);
-        DbColumn t2ac2 = t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null);
-        DbColumn t2ac3 = t2.addColumn("ac3", "bigint", null, null, null, null, null, null, null, null);
+        t2.addColumn("ac1", "int", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn t2ac2 = t2.addColumn("ac2", "tinyint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn t2ac3 = t2.addColumn("ac3", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         t2.addReference(t2ac3, t1c2, "fk_t2_t1_c2");
         
         DbTable t3 = dbModel.crateIfAbsent("T3");
-        t3.addColumn("bc1", "int", null, null, null, null, null, null, null, null);
-        DbColumn t3bc2 = t3.addColumn("bc2", "tinyint", null, null, null, null, null, null, null, null);
+        t3.addColumn("bc1", "int", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn t3bc2 = t3.addColumn("bc2", "tinyint", null, null, null, null, null, null, null, null, "FALSE");
         t3.addReference(t3bc2, t2ac2, "fk_t3_t2_ac2");
-        t3.addColumn("bc3", "bigint", null, null, null, null, null, null, null, null);
+        t3.addColumn("bc3", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         assertThat(dbModel.referencesOrderedTables(), contains(
             hasProperty("name", equalTo("T1"))
@@ -83,47 +83,47 @@ public class DbModelTest {
     public void testGivenMultipTablesWithManyNonCyclicRelationsWhenGetSortedTableListThenShouldReturnNotReferencedTablesFirst(){
         DbModel dbModel = new DbModel();
         DbTable r1 =  dbModel.crateIfAbsent("R1");
-        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r2 =  dbModel.crateIfAbsent("R2");
-        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r3 =  dbModel.crateIfAbsent("R3");
-        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r3r1Id = r3.addColumn("r1_id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r3r1Id = r3.addColumn("r1_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         r3.addReference(r3r1Id, r1Id, "fk_r3_r1");
 
         DbTable r4 =  dbModel.crateIfAbsent("R4");
-        DbColumn r4Id = r4.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r4Id = r4.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable f1 = dbModel.crateIfAbsent("F1");
-        DbColumn f1Id = f1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f1r1Id = f1.addColumn("r1_id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f1Id = f1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f1r1Id = f1.addColumn("r1_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f1.addReference(f1r1Id, r1Id, "fk_f1_r1");
-        DbColumn f1r2Id = f1.addColumn("r2_id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f1r2Id = f1.addColumn("r2_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f1.addReference(f1r2Id, r2Id, "fk_f1_r2");
 
         DbTable f2 = dbModel.crateIfAbsent("F2");
-        f2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f2f1Id = f2.addColumn("f1_id", "bigint", null, null, null, null, null, null, null, null);
+        f2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f2f1Id = f2.addColumn("f1_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f2.addReference(f2f1Id, f1Id, "fk_f2_f1");
-        DbColumn f2r3Id = f2.addColumn("r3_id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f2r3Id = f2.addColumn("r3_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f2.addReference(f2r3Id, r3Id, "fk_f2_r3");
 
         DbTable f3 = dbModel.crateIfAbsent("F3");
-        f3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f3r1Id = f3.addColumn("r1_id", "bigint", null, null, null, null, null, null, null, null);
+        f3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f3r1Id = f3.addColumn("r1_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f3.addReference(f3r1Id, r1Id, "fk_f3_r1");
-        DbColumn f3r2Id = f3.addColumn("r2_id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f3r2Id = f3.addColumn("r2_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f3.addReference(f3r2Id, r2Id, "fk_f3_r2");
-        DbColumn f3r3Id = f3.addColumn("r3_id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f3r3Id = f3.addColumn("r3_id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         f3.addReference(f3r3Id, r3Id, "fk_f3_r3");
-        DbColumn f3r4Id = f3.addColumn("r4_id", "bingint", null, null, null, null, null, null, null, null);
+        DbColumn f3r4Id = f3.addColumn("r4_id", "bingint", null, null, null, null, null, null, null, null, "FALSE");
         f3.addReference(f3r4Id, r4Id, "fk_f3_r4");
 
         DbTable f4 =  dbModel.crateIfAbsent("F4");
-        f4.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
+        f4.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         List<DbTable> sorted = dbModel.orderedTables();
         assertThat(sorted.size(), equalTo(8));
@@ -141,13 +141,13 @@ public class DbModelTest {
     public void givenTwoTablesOneRefWithoutCircleReferenceWhenBuildThenShouldReturnEmptyIgnoreList(){
         DbModel dbModel = new DbModel();
         DbTable r1 =  dbModel.crateIfAbsent("R1");
-        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r2 =  dbModel.crateIfAbsent("R2");
-        r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r2r1Id = r2.addColumn("r2r1Id", "bigint", null, null, null, null, null, null, null, null);
+        r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r2r1Id = r2.addColumn("r2r1Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
-        ReferenceInfo refInfo = ReferenceInfo.builder().srcTable(r2.getName()).srcColumnName(r2r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build();
+        ReferenceInfo refInfo = ReferenceInfo.builder().srcTableName(r2.getName()).srcColumnName(r2r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build();
         dbModel.getReferenceInfos().add(refInfo);
 
         dbModel.build();
@@ -163,22 +163,22 @@ public class DbModelTest {
     public void givenTreeTablesTreeRefsWithoutCircleReferenceWhenBuildThenShouldReturnEmptyIgnoreList(){
         DbModel dbModel = new DbModel();
         DbTable r1 =  dbModel.crateIfAbsent("R1");
-        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r1r2Id = r1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r1r2Id = r1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r2 =  dbModel.crateIfAbsent("R2");
-        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r3 =  dbModel.crateIfAbsent("R3");
-        r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r3r1Id = r3.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r3r2Id = r3.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null);
+        r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r3r1Id = r3.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r3r2Id = r3.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
 
         dbModel.getReferenceInfos().addAll(List.of(
-            ReferenceInfo.builder().srcTable(r1.getName()).srcColumnName(r1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r3.getName()).srcColumnName(r3r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r3.getName()).srcColumnName(r3r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build()
+            ReferenceInfo.builder().srcTableName(r1.getName()).srcColumnName(r1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r3.getName()).srcColumnName(r3r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r3.getName()).srcColumnName(r3r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build()
         ));
 
         dbModel.build();
@@ -192,22 +192,22 @@ public class DbModelTest {
     public void givenTreeTablesTreeRefsWithCircleReferenceWhenBuildThenShouldReturnEmptyIgnoreList(){
         DbModel dbModel = new DbModel();
         DbTable r1 =  dbModel.crateIfAbsent("R1");
-        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r1r2Id = r1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r1r2Id = r1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r2 =  dbModel.crateIfAbsent("R2");
-        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r2r3Id = r2.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r2r3Id = r2.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r3 =  dbModel.crateIfAbsent("R3");
-        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r3r1Id = r3.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r3r1Id = r3.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
 
         dbModel.getReferenceInfos().addAll(List.of(
-            ReferenceInfo.builder().srcTable(r1.getName()).srcColumnName(r1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r2.getName()).srcColumnName(r2r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r3.getName()).srcColumnName(r3r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build()
+            ReferenceInfo.builder().srcTableName(r1.getName()).srcColumnName(r1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r2.getName()).srcColumnName(r2r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r3.getName()).srcColumnName(r3r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build()
         ));
 
         dbModel.build();
@@ -222,22 +222,22 @@ public class DbModelTest {
     public void givenTreeTablesTreeRefsWithSelfReferenceWhenBuildThenShouldReturnIgnoreList(){
         DbModel dbModel = new DbModel();
         DbTable r1 =  dbModel.crateIfAbsent("R1");
-        r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r1r2Id = r1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null);
+        r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r1r2Id = r1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r2 =  dbModel.crateIfAbsent("R2");
-        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r2r3Id = r2.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r2r3Id = r2.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r3 =  dbModel.crateIfAbsent("R3");
-        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r3r3Id = r3.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r3r3Id = r3.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
 
         dbModel.getReferenceInfos().addAll(List.of(
-            ReferenceInfo.builder().srcTable(r1.getName()).srcColumnName(r1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r2.getName()).srcColumnName(r2r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r3.getName()).srcColumnName(r3r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build()
+            ReferenceInfo.builder().srcTableName(r1.getName()).srcColumnName(r1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r2.getName()).srcColumnName(r2r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r3.getName()).srcColumnName(r3r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build()
         ));
 
         dbModel.build();
@@ -253,51 +253,51 @@ public class DbModelTest {
     public void givenComplexModelWithTwoCyclesWhenBuildThenShouldReturnIgnoreList(){
         DbModel dbModel = new DbModel();
         DbTable r1 =  dbModel.crateIfAbsent("R1");
-        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r1f3Id = r1.addColumn("f3Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r1Id = r1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r1f3Id = r1.addColumn("f3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable f1 =  dbModel.crateIfAbsent("F1");
-        DbColumn f1Id = f1.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f1r1Id = f1.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f1r2Id = f1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f1Id = f1.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f1r1Id = f1.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f1r2Id = f1.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
         
         DbTable r2 =  dbModel.crateIfAbsent("R2");
-        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r2r4Id = r2.addColumn("r4Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r2Id = r2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r2r4Id = r2.addColumn("r4Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable f2 =  dbModel.crateIfAbsent("F2");
-        f2.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f2f1Id = f2.addColumn("f1Id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f2r3Id = f2.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null);
+        f2.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f2f1Id = f2.addColumn("f1Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f2r3Id = f2.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable r3 =  dbModel.crateIfAbsent("R3");
-        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r3r1Id = r3.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r3Id = r3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r3r1Id = r3.addColumn("r1Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable f3 =  dbModel.crateIfAbsent("F3");
-        DbColumn f3Id = f3.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f3r3Id = f3.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn f3r2Id = f3.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn f3Id = f3.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f3r3Id = f3.addColumn("r3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn f3r2Id = f3.addColumn("r2Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         DbTable r4 =  dbModel.crateIfAbsent("R4");
-        DbColumn r4Id = r4.addColumn("id", "bigint", null, null, null, null, null, null, null, null);
-        DbColumn r4f3Id = r4.addColumn("f3Id", "bigint", null, null, null, null, null, null, null, null);
+        DbColumn r4Id = r4.addColumn("id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
+        DbColumn r4f3Id = r4.addColumn("f3Id", "bigint", null, null, null, null, null, null, null, null, "FALSE");
 
         dbModel.crateIfAbsent("f4");
         
         
 
         dbModel.getReferenceInfos().addAll(List.of(
-            ReferenceInfo.builder().srcTable(r1.getName()).srcColumnName(r1f3Id.getName()).refTableName(f3.getName()).refColumnName(f3Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(f1.getName()).srcColumnName(f1r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(f1.getName()).srcColumnName(f1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(f2.getName()).srcColumnName(f2f1Id.getName()).refTableName(f1.getName()).refColumnName(f1Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(f2.getName()).srcColumnName(f2r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r2.getName()).srcColumnName(r2r4Id.getName()).refTableName(r4.getName()).refColumnName(r4Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r3.getName()).srcColumnName(r3r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(f3.getName()).srcColumnName(f3r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(f3.getName()).srcColumnName(f3r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
-            ReferenceInfo.builder().srcTable(r4.getName()).srcColumnName(r4f3Id.getName()).refTableName(f3.getName()).refColumnName(f3Id.getName()).build()
+            ReferenceInfo.builder().srcTableName(r1.getName()).srcColumnName(r1f3Id.getName()).refTableName(f3.getName()).refColumnName(f3Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(f1.getName()).srcColumnName(f1r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(f1.getName()).srcColumnName(f1r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(f2.getName()).srcColumnName(f2f1Id.getName()).refTableName(f1.getName()).refColumnName(f1Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(f2.getName()).srcColumnName(f2r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r2.getName()).srcColumnName(r2r4Id.getName()).refTableName(r4.getName()).refColumnName(r4Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r3.getName()).srcColumnName(r3r1Id.getName()).refTableName(r1.getName()).refColumnName(r1Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(f3.getName()).srcColumnName(f3r3Id.getName()).refTableName(r3.getName()).refColumnName(r3Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(f3.getName()).srcColumnName(f3r2Id.getName()).refTableName(r2.getName()).refColumnName(r2Id.getName()).build(),
+            ReferenceInfo.builder().srcTableName(r4.getName()).srcColumnName(r4f3Id.getName()).refTableName(f3.getName()).refColumnName(f3Id.getName()).build()
         ));
 
         dbModel.build();

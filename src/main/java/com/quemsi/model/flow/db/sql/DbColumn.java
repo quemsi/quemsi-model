@@ -41,4 +41,6 @@ public class DbColumn {
     private String columnDefault;
     @Getter
     private boolean nullable;
+    @Getter
+    private boolean identity;
 }

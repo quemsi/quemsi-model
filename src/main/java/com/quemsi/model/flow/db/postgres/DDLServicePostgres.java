@@ -48,7 +48,7 @@ public class DDLServicePostgres implements DDLService{
     public void disableConstraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTable()).append(" DROP FOREIGN KEY ")
+            sb.append(refInfo.getSrcTableName()).append(" DROP FOREIGN KEY ")
             .append(refInfo.getConstraintName()).append(";");
             try{
                 String dropConstraintSql = sb.toString();
@@ -56,7 +56,7 @@ public class DDLServicePostgres implements DDLService{
                 Statement s = conn.createStatement();
                 s.executeUpdate(dropConstraintSql);
             }catch(SQLException ignore){
-                log.info("ignored ignored disable constraint " + refInfo.getConstraintName(), ignore);
+                log.info("ignored disable constraint " + refInfo.getConstraintName(), ignore);
             }
         }
     }
@@ -65,7 +65,7 @@ public class DDLServicePostgres implements DDLService{
     public void enableContraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTable()).append(" ADD CONSTRAINT ")
+            sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ")
             .append(refInfo.getConstraintName())
             .append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
             .append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");");
@@ -115,7 +115,7 @@ public class DDLServicePostgres implements DDLService{
             seqStringBuilder.append(" CYCLE;");
             scripts.add(seqStringBuilder);
         }
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTable()));
+		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTableName()));
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(dbModel.getSchema()).append(".").append(tableName).append(" (").append(System.lineSeparator());

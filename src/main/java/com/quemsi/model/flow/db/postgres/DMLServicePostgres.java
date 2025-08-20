@@ -118,7 +118,6 @@ public class DMLServicePostgres implements DMLService{
 			PreparedStatement ps = conn.prepareStatement(insertSql);
 			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
 				for(int i=0; i < orderedColumns.length; i++){
-					DbColumn c = orderedColumns[i];	
 					if(e.getValue()[i] instanceof List listVal){
 						Array arrVal = conn.createArrayOf("varchar", listVal.toArray());
 						ps.setArray(i + 1, arrVal);

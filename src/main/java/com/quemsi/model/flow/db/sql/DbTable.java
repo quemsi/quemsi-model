@@ -13,16 +13,22 @@ import java.util.stream.Collectors;
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.model.flow.db.sql.DbModel.ReferencedColumn;
 import com.quemsi.model.flow.db.sql.DbModel.TableReference;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.Getter;
 import lombok.Setter;
 
 public class DbTable {
     @Getter
+    private String schema;
+    @Getter
     private String name;
     @Getter
     @Setter
     private LinkedList<String> pkColumnNames;
+    @Getter
+    @Setter
+    private String pkConstraintName;
     @Getter
     private Map<String, DbColumn> columns;
     @Getter
@@ -37,20 +43,24 @@ public class DbTable {
         this.references = new LinkedHashSet<>();
         pkColumnNames = new LinkedList<>();
     }
-    public DbTable(String name){
+    public DbTable(String schema, String name){
         this();
+        this.schema = schema;
         this.name = name;
     }
 
     public String joinedPkColumnNames(){
         return this.getPkColumnNames().stream().collect(Collectors.joining(", "));
     }
+    public String qualifiedName(){
+        return CommonHelpers.qualifiedName(schema, name);
+    }
     public DbColumn[] orderedColumns(){
         ArrayList<DbColumn> list = new ArrayList<>(columns.values());
         Collections.sort(list, (c1, c2) -> c1.getOrdinalPosition().compareTo(c2.getOrdinalPosition()));
         return list.toArray(new DbColumn[list.size()]);
     }
-    public DbColumn addColumn(String name, String dataType, Integer ordinalPosition, String columnType, Integer maxLength, Integer numPrecision, Integer numScale, String columnKey, String columnDefault, String nullable){
+    public DbColumn addColumn(String name, String dataType, Integer ordinalPosition, String columnType, Integer maxLength, Integer numPrecision, Integer numScale, String columnKey, String columnDefault, String nullable, String isIdentity){
         DbColumn c = DbColumn.builder()
             .table(this)
             .name(name)
@@ -63,6 +73,7 @@ public class DbTable {
             .columnKey(columnKey)
             .columnDefault(columnDefault)
             .nullable(CommonOps.isTrue(nullable))
+            .identity(CommonOps.isTrue(isIdentity))
         .build();
         columns.put(name, c);
         return c;
@@ -70,7 +81,7 @@ public class DbTable {
     public DbColumn addReference(DbColumn column, DbColumn referencedColumn, String contraintName){
         if(referencedColumn != null){
             column.setReferences(new ReferencedColumn(referencedColumn.getTable().getName(), referencedColumn.getName()));
-            references.add(new TableReference(referencedColumn.getTable().getName()));
+            references.add(new TableReference(referencedColumn.getTable().getSchema(), referencedColumn.getTable().getName()));
             referencedColumn.getTable().addReferencedBy(this);
         }
         return column;
@@ -85,6 +96,6 @@ public class DbTable {
         return columns.keySet();
     }
     public void addReferencedBy(DbTable referencer){
-        referencedBy.add(new TableReference(referencer.getName()));
+        referencedBy.add(new TableReference(referencer.getSchema(), referencer.getName()));
     }
 }

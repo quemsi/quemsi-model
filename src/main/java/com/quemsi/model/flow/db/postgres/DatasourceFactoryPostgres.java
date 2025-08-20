@@ -162,13 +162,14 @@ where s.schemaname = ?;
 				String columnKey = rs.getString("COLUMN_KEY");
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
+				String isIdentity = "FALSE";
 				String constName = rs.getString("CONSTRAINT_NAME");
 				String refTable = rs.getString("REFERENCED_TABLE_NAME");
 				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
 				DbTable table = dbModel.crateIfAbsent(tableName);
-				DbColumn column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable);
+				DbColumn column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable, isIdentity);
 				if(refColumn != null){
-					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcTable(tableName).srcColumnName(column.getName()).constraintName(constName).refTableName(refTable).refColumnName(refColumn).build());
+					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcTableName(tableName).srcColumnName(column.getName()).constraintName(constName).refTableName(refTable).refColumnName(refColumn).build());
 				}else{
 					column.setConstraintName(constName);
 				}

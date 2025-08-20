@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.StringUtils;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -37,22 +39,26 @@ public class DbModel {
         indexes = new HashMap<>();
         sequences = new LinkedList<>();
     }
-
     public DbTable addTable(String tableName){
-        DbTable table = new DbTable(tableName);
-        tables.put(tableName, table);
+        return addTable(tableName, this.schema);
+    }
+    public DbTable addTable(String tableName, String schema){
+        DbTable table = new DbTable(schema, tableName);
+        tables.put(table.qualifiedName(), table);
         return table;
     }
-
-    public Optional<DbTable> findTable(String tableName){
-        return Optional.ofNullable(tables.get(tableName));
+    public Optional<DbTable> findTable(String qualifiedName){
+        return Optional.ofNullable(tables.get(qualifiedName));
     }
-
     public DbTable crateIfAbsent(String tableName){
-        if(tables.containsKey(tableName)){
-            return tables.get(tableName);
+        return crateIfAbsent(tableName, this.schema);
+    }
+    public DbTable crateIfAbsent(String tableName, String schema){
+        Object qualifiedName = CommonHelpers.qualifiedName(schema, tableName);
+        if(tables.containsKey(qualifiedName)){
+            return tables.get(qualifiedName);
         }
-        return addTable(tableName);
+        return addTable(tableName, schema);
     }
 
     public void build(){
@@ -62,11 +68,11 @@ public class DbModel {
 
     public void addReferenceInfosToColumns(){
         for(ReferenceInfo refInfo : this.referenceInfos){
-            DbTable sTable = this.findTable(refInfo.getSrcTable()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTable()).supplier());
-            DbTable rTable = this.findTable(refInfo.getRefTableName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
-                    .withExtra("tableName", refInfo.getSrcTable()).withExtra("columnName", refInfo.getSrcColumnName()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
+            DbTable sTable = this.findTable(refInfo.srcQualifiedName()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTableName()).supplier());
+            DbTable rTable = this.findTable(refInfo.refQualifiedName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
+                    .withExtra("schema", refInfo.getSrcSchema()).withExtra("tableName", refInfo.getSrcTableName()).withExtra("columnName", refInfo.getSrcColumnName()).withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
             DbColumn rColumn = rTable.findColumn(refInfo.getRefColumnName()).orElseThrow(Exceptions.server("unknow-column-in-fk")
-                .withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
+                .withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
             sTable.addReference(sTable.column(refInfo.getSrcColumnName()), rColumn, refInfo.getConstraintName());
         }
     }
@@ -75,8 +81,8 @@ public class DbModel {
         Map<String, Set<String>> reachablity = new HashMap<>();
         for(ReferenceInfo refInfo : referenceInfos){
             Queue<String> checkReachability = new LinkedList<>();
-            checkReachability.add(refInfo.getSrcTable());
-            boolean reachableFrom = refInfo.getRefTableName().equals(refInfo.getSrcTable());
+            checkReachability.add(refInfo.getSrcTableName());
+            boolean reachableFrom = refInfo.getRefTableName().equals(refInfo.getSrcTableName());
             while(!reachableFrom && !checkReachability.isEmpty()){
                 String target = checkReachability.poll();
                 if(reachablity.containsKey(target)){
@@ -94,7 +100,7 @@ public class DbModel {
                     if(val == null){
                         val = new HashSet<>();
                     }
-                    val.add(refInfo.getSrcTable());
+                    val.add(refInfo.getSrcTableName());
                     return val;
                 });
             }
@@ -112,7 +118,7 @@ public class DbModel {
             DbTable t = queue.pop();
             if(!processedIndex.contains(t)){
                 if(t.getReferencedBy().size() > 0){
-                    t.getReferencedBy().forEach(refTable -> queue.add(tables.get(refTable.getName())));
+                    t.getReferencedBy().forEach(refTable -> queue.add(tables.get(refTable.qualifiedName())));
                 }
                 list.add(t);
                 processedIndex.add(t);
@@ -120,7 +126,6 @@ public class DbModel {
         }
         return list;
     }
-
     public LinkedList<String> orderedTableNames(){
         LinkedList<String> result = new LinkedList<>();
         Set<String> index = new LinkedHashSet<>();
@@ -129,13 +134,13 @@ public class DbModel {
         while(!queue.isEmpty()){
             DbTable t = queue.poll();
             if(t.getReferences().isEmpty()){
-                index.add(t.getName());
-                result.add(t.getName());
+                index.add(t.qualifiedName());
+                result.add(t.qualifiedName());
             } else {
-                boolean allProcessed = t.getReferences().stream().filter(r -> !t.getName().equals(r.getName())).map(r -> index.contains(r.getName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
+                boolean allProcessed = t.getReferences().stream().filter(r -> !t.qualifiedName().equals(r.qualifiedName())).map(r -> index.contains(r.qualifiedName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
                 if(allProcessed){
-                    index.add(t.getName());
-                    result.add(t.getName());
+                    index.add(t.qualifiedName());
+                    result.add(t.qualifiedName());
                 }else{
                     queue.add(t);
                 }
@@ -159,7 +164,14 @@ public class DbModel {
     @NoArgsConstructor
     @AllArgsConstructor
     public static class TableReference {
+        private String schema;
         private String name;
+        public String qualifiedName(){
+            if(schema != null && !StringUtils.isEmptyOrNull(schema)){
+                return new StringBuilder(schema).append(".").append(name).toString();
+            }
+            return name;
+        }
     }
 
     @NoArgsConstructor
@@ -167,11 +179,20 @@ public class DbModel {
     @Builder
     @Data
     public static class ReferenceInfo {
-        private String srcTable;
+        private String srcSchema;
+        private String srcTableName;
         private String srcColumnName;
+        private String refSchema;
         private String refTableName;
         private String refColumnName;
         private String constraintName;
+        public String srcQualifiedName(){
+            return CommonHelpers.qualifiedName(srcSchema, srcTableName);
+        }
+        public String refQualifiedName(){
+            return CommonHelpers.qualifiedName(refSchema, refTableName);
+        }
+
     }
 
     @NoArgsConstructor
@@ -182,12 +203,14 @@ public class DbModel {
         private boolean unique;
         private String indexType;
         private LinkedList<String> columns;
+        private LinkedList<String> extraColumns;
         public IndexInfo(String tableName, String indexName, boolean unique, String indexType){
             this.tableName = tableName;
             this.indexName = indexName;
             this.unique = unique;
             this.indexType = indexType;
             this.columns = new LinkedList<>();
+            this.extraColumns = new LinkedList<>();
         }
     }
 }
