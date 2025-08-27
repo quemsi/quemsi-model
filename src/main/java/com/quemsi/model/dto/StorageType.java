@@ -1,7 +1,7 @@
 package com.quemsi.model.dto;
 
 public enum StorageType implements KeyValuePair{
-	GDRIVE("Google Drive"), LOCAL("Local Disk");
+	AZUREBLOB("Azure Blob Storage"), LOCAL("Local Disk");
 	private String val;
 
 	private StorageType(String val){

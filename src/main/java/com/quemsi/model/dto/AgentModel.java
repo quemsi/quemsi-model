@@ -14,8 +14,8 @@ public class AgentModel implements Serializable{
     public Long agentId;
     private List<Datasource> datasources;
     private List<Timer> timers;
+    private List<AzureBlobDrive> azureBlobDrives;
     private List<LocalDrive> localDrives;
-    private List<GoogleDrive> googleDrives;
     private List<Storage> storages;
     private List<FlowDetail> flows;
 
@@ -35,16 +35,6 @@ public class AgentModel implements Serializable{
         private long capacity;
         private long usedSize;
         private String fullPath;
-    }
-    @Data
-    @JsonView(Views.Agent.AgentModel.class)
-    public static class GoogleDrive implements Serializable {
-        private Long id;
-        private String name;
-        private String title;
-        private String callbackBaseUrl;
-        private Integer callbackPort;
-        private long usedSize;
     }
     @Data
     @JsonView(Views.Agent.AgentModel.class)
@@ -74,6 +64,18 @@ public class AgentModel implements Serializable{
         private String url;
         private String username;
         private String password;
+        private boolean useEnvVar;
+    }
+
+    @Data
+    @JsonView(Views.Agent.AgentModel.class)
+    public static class AzureBlobDrive implements Serializable{
+        private String name;
+        private String accountName;
+        private String accountKey;
+        private String storageRoot;
+	    private Long capacity;
+        private Long usedSize;
         private boolean useEnvVar;
     }
 }
