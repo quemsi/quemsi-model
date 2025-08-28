@@ -49,8 +49,7 @@ public class ABStorage extends AbstractStorage{
 
     @Override
     public boolean isReady() {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'isReady'");
+        throw new UnsupportedOperationException("unimplemented ye");
     }
 
     @Override
