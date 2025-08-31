@@ -86,7 +86,7 @@ order by t.schema_id, t.name, c.column_id
 
     private static final String SQL_FOR_INDEXES = """
 SELECT 
-	 schema_name(t.schema_id),
+	 schema_name(t.schema_id) as schema_name,
      t.name as TABLE_NAME,
      ind.name AS INDEX_NAME,
      col.name AS COLUMN_NAME,
@@ -196,17 +196,19 @@ where schema_name(s.schema_id) = ?
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
 			while (irs.next()) {
+				String schemaName = irs.getString("SCHEMA_NAME");
 				String tableName = irs.getString("TABLE_NAME");
 				String indexName = irs.getString("INDEX_NAME");
 				String columnName = irs.getString("COLUMN_NAME");
 				boolean isUnique = irs.getBoolean("IS_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
 				boolean isIncluded = irs.getBoolean("IS_INCLUDED_COLUMN");
-				if(cur == null || !tableName.equals(cur.getTableName()) || !indexName.equals(cur.getIndexName())){
+				String qualifiedTableName = new StringBuilder(schemaName).append(".").append(tableName).toString();
+				if(cur == null || !qualifiedTableName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
-						CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
+						CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
 					}
-					cur = new IndexInfo(tableName, indexName, isUnique, indexType);
+					cur = new IndexInfo(schemaName, tableName, indexName, isUnique, indexType);
 				}
 				if(isIncluded){
 					cur.getExtraColumns().add(columnName);

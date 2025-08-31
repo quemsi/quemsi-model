@@ -45,6 +45,7 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 			""";
 	private static final String SQL_FOR_INDEXES = """
 SELECT
+    st.INDEX_SCHEMA as schema_name,
     st.TABLE_NAME,
     st.INDEX_NAME,
     st.COLUMN_NAME,
@@ -135,16 +136,18 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
 			while (irs.next()) {
+				String schemaName = irs.getString("SCHEMA_NAME");
 				String tableName = irs.getString("TABLE_NAME");
 				String indexName = irs.getString("INDEX_NAME");
 				String columnName = irs.getString("COLUMN_NAME");
 				boolean nonUnique = irs.getBoolean("NON_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
-				if(cur == null || !tableName.equals(cur.getTableName()) || !indexName.equals(cur.getIndexName())){
+				String qualifiedTableName = new StringBuilder(schemaName).append(".").append(tableName).toString();
+				if(cur == null || !qualifiedTableName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
 						CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
 					}
-					cur = new IndexInfo(tableName, indexName, !nonUnique, indexType);
+					cur = new IndexInfo(schemaName, tableName, indexName, !nonUnique, indexType);
 				}
 				cur.getColumns().add(columnName);
 			}

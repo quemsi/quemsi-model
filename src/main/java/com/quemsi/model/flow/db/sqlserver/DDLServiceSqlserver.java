@@ -161,7 +161,7 @@ public class DDLServiceSqlserver implements DDLService{
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			boolean hasClustedIndex = CommonOps.getOrDefault(dbModel.getIndexes(), tableName, () -> new HashMap<>())
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
-			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(".").append(tableName).append(" (").append(System.lineSeparator());
+			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			for(DbColumn c : columns){
 				sb.append("  ");
@@ -206,7 +206,7 @@ public class DDLServiceSqlserver implements DDLService{
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
-						.append(table.getSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
+						.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
 				}
 			}
 			sb.append(System.lineSeparator()).append(");");
@@ -228,7 +228,7 @@ public class DDLServiceSqlserver implements DDLService{
 					}
 					indBuilder.append(" ").append(indCols.getIndexType());
 					indBuilder.append(" INDEX ").append(indCols.getIndexName()).append(" ON ");
-					indBuilder.append(table.getSchema()).append(".").append(tableName);
+					indBuilder.append(tableName);
 					indBuilder.append(" (");
 					Iterator<String> icIt = indCols.getColumns().iterator();
 					while(icIt.hasNext()){

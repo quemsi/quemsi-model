@@ -198,19 +198,24 @@ public class DbModel {
     @NoArgsConstructor
     @Data
     public static class IndexInfo {
+        private String schemaName;
         private String tableName;
         private String indexName;
         private boolean unique;
         private String indexType;
         private LinkedList<String> columns;
         private LinkedList<String> extraColumns;
-        public IndexInfo(String tableName, String indexName, boolean unique, String indexType){
+        public IndexInfo(String schemaName, String tableName, String indexName, boolean unique, String indexType){
+            this.schemaName = schemaName;
             this.tableName = tableName;
             this.indexName = indexName;
             this.unique = unique;
             this.indexType = indexType;
             this.columns = new LinkedList<>();
             this.extraColumns = new LinkedList<>();
+        }
+        public String qualifiedTableName(){
+            return new StringBuilder(this.schemaName).append(".").append(this.tableName).toString();
         }
     }
 }

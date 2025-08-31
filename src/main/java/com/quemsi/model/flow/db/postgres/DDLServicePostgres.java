@@ -115,10 +115,10 @@ public class DDLServicePostgres implements DDLService{
             seqStringBuilder.append(" CYCLE;");
             scripts.add(seqStringBuilder);
         }
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTableName()));
+		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> new StringBuilder(r.getSrcSchema()).append(".").append(r.getSrcTableName()).toString()));
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
-			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(dbModel.getSchema()).append(".").append(tableName).append(" (").append(System.lineSeparator());
+			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			for(DbColumn c : columns){
 				sb.append("  ").append(c.getName()).append(" ").append(columnType(c.getColumnType(), c.getMaxLength()));
@@ -160,7 +160,7 @@ public class DDLServicePostgres implements DDLService{
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
-						.append(dbModel.getSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
+						.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
 				}
 			}
 			sb.append(System.lineSeparator()).append(");");
@@ -177,7 +177,7 @@ public class DDLServicePostgres implements DDLService{
                         indBuilder.append("UNIQUE ");
                     }
                     indBuilder.append("INDEX ").append("IF NOT EXISTS ").append(indName);
-                    indBuilder.append(" ON ").append(dbModel.getSchema()).append(".").append(tableName).append(" USING ").append(indCols.getIndexType()).append(" (");
+                    indBuilder.append(" ON ").append(tableName).append(" USING ").append(indCols.getIndexType()).append(" (");
                     Iterator<String> icIt = indCols.getColumns().iterator();
                     while(icIt.hasNext()){
                         String ic = icIt.next();
