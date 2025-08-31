@@ -16,7 +16,6 @@ import org.apache.commons.io.IOUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
-import com.quemsi.model.dto.DataType;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.db.DDLService;
@@ -94,10 +93,10 @@ public class RdbmsTarget extends AbstractStorage{
         
     }
 
-    @Override
-    public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-        throw new UnsupportedOperationException("Unimplemented method 'RdbmsTarget.getDataPackage'");
-    }
+    // @Override
+    // public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
+    //     throw new UnsupportedOperationException("Unimplemented method 'RdbmsTarget.getDataPackage'");
+    // }
     
     @Override
     public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
@@ -135,28 +134,32 @@ public class RdbmsTarget extends AbstractStorage{
 
         @Override
         public Boolean call() throws Exception {
-            CompletableFuture<Object> future = taskRegistry.get(table.getName());
-            log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
-            String fileName = "data-" + table.getName() + ".json";
-            if(!namedPackages.containsKey(fileName)){
-                log.error("unable to find data file {}", fileName);
-                return false;
+            try{
+                CompletableFuture<Object> future = taskRegistry.get(table.getName());
+                log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
+                String fileName = "data-" + table.getName() + ".json";
+                if(!namedPackages.containsKey(fileName)){
+                    log.error("unable to find data file {}", fileName);
+                    return false;
+                }
+                table.getReferences().stream().filter(r -> !table.getName().equals(r.getName())).forEach(tr -> {
+                    log.info("{} waiting for {}", table.getName(), tr.getName());
+                    taskRegistry.get(tr.getName()).join();
+                    log.info("future of {} completed for {}", tr.getName(), table.getName());
+                });
+                log.info("{} done waiting", table.getName());
+                String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
+                TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
+                log.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName());
+                
+                List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage))
+                    .map(t -> forkJoinPool.submit(t)).toList();
+                boolean allSucceded = pageTaskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (b, n) -> b && n);
+                future.complete(allSucceded);
+                return allSucceded;
+            }catch(Exception e){
+                throw Exceptions.server("failed-to-restore").withExtra("tableName", table.getName()).get();
             }
-            table.getReferences().stream().filter(r -> !table.getName().equals(r.getName())).forEach(tr -> {
-                log.info("{} waiting for {}", table.getName(), tr.getName());
-                taskRegistry.get(tr.getName()).join();
-                log.info("future of {} completed for {}", tr.getName(), table.getName());
-            });
-            log.info("{} done waiting", table.getName());
-            String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
-            TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
-            log.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName());
-            
-            List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage))
-                .map(t -> forkJoinPool.submit(t)).toList();
-            boolean allSucceded = pageTaskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (b, n) -> b && n);
-            future.complete(allSucceded);
-            return allSucceded;
         }
     }
     public class PageRestoreTask implements Callable<Boolean>{

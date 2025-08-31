@@ -35,7 +35,7 @@ public class StorageFactory extends AbstractFactory<Storage>{
 		},
 		"RdbmsTarget", node -> {
 			String datasource = node.get("datasource").asText(null);
-			int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 1);
+			int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 10);
 			RdbmsTarget rdbmsTarget = new RdbmsTarget();
 			rdbmsTarget.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
 			rdbmsTarget.setObjectMapper(context.getBean(ObjectMapper.class));

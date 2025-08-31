@@ -11,7 +11,6 @@ import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
-import com.quemsi.model.dto.DataType;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.db.DataSourceFactory;
@@ -62,10 +61,10 @@ public class MySqlDb extends AbstractStorage{
         });
     }
 
-    @Override
-    public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-        throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getDataPackage'");
-    }
+    // @Override
+    // public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
+    //     throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getDataPackage'");
+    // }
     
     @Override
     public List<DataPackage> getFiles(List<DataFile> files) throws IOException {

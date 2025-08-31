@@ -6,14 +6,16 @@ import java.util.Map;
 
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.model.dto.DataFile;
-import com.quemsi.model.dto.DataType;
 import com.quemsi.model.flow.DataPackage;
+import com.quemsi.model.flow.Flow;
 
 import lombok.Setter;
 
 public class ABStorage extends AbstractStorage{
     @Setter
     private AzureBlobDrive azureBlobDrive;
+    @Setter
+    private Storage underlyingStorage;
     @Setter
     private String retentionPolicy;
     @Setter
@@ -25,37 +27,37 @@ public class ABStorage extends AbstractStorage{
     
     @Override
     public void store(String dataName, List<DataPackage> dataPackages, Long version) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'store'");
+        underlyingStorage.store(dataName, dataPackages, version);
     }
 
-    @Override
-    public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'getDataPackage'");
-    }
+    // @Override
+    // public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
+    //     return underlyingStorage.getDataPackage(dataName, type, version);
+    // }
 
     @Override
     public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'getFiles'");
+        return underlyingStorage.getFiles(files);
     }
 
     @Override
     public void deleteFile(String dir, String fileName) throws IOException {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'deleteFile'");
+        underlyingStorage.deleteFile(dir, fileName);
     }
 
     @Override
     public boolean isReady() {
-        throw new UnsupportedOperationException("unimplemented ye");
+        return underlyingStorage.isReady();
     }
 
     @Override
     public void fillDetails(Map<String, Object> props) {
-        // TODO Auto-generated method stub
-        throw new UnsupportedOperationException("Unimplemented method 'fillDetails'");
+        underlyingStorage.fillDetails(props);
+    }
+
+    @Override
+    public void init(Flow f) {
+        underlyingStorage.init(f);
     }
 
 }

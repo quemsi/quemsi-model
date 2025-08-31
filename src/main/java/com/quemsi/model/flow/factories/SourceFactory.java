@@ -49,7 +49,7 @@ public class SourceFactory extends AbstractFactory<Source>{
 			"RdbmsBackup", node -> {
 				String datasource = node.findValue("datasource").asText(null);
 				int batchSize = jsonUtils.asInteger(node.findValue("batchSize"), 1000);
-				int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 1);
+				int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 10);
 				RdbmsBackup s = new RdbmsBackup();
 				s.setBatchSize(batchSize);
 				s.setParallelism(parallelism);

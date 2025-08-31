@@ -38,7 +38,17 @@ public class DDLServiceSqlserver implements DDLService{
 
     @Override
     public boolean dropTables(String... tableNames) {
-        throw new UnsupportedOperationException("Unimplemented method 'dropTables'");
+        try{
+			Statement s = conn.createStatement();
+			for(String tableName : tableNames){
+				s.addBatch("DROP TABLE IF EXISTS " + tableName);
+			}
+			s.executeBatch();
+			return true;
+		}catch(Exception e){
+			e.printStackTrace();
+			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
+		}
     }
 
 	public LinkedList<String> tables(String schema){
@@ -151,7 +161,7 @@ public class DDLServiceSqlserver implements DDLService{
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			boolean hasClustedIndex = CommonOps.getOrDefault(dbModel.getIndexes(), tableName, () -> new HashMap<>())
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
-			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(dbModel.getSchema()).append(".").append(tableName).append(" (").append(System.lineSeparator());
+			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(".").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			for(DbColumn c : columns){
 				sb.append("  ");
@@ -160,7 +170,7 @@ public class DDLServiceSqlserver implements DDLService{
                     sb.append(" IDENTITY(1,1)");
                 }
 				if(c.getColumnDefault() != null){
-                    sb.append(" DEFAULT " + StringUtils.trim(c.getColumnDefault(), "(", ")"));
+                    sb.append(" DEFAULT " + StringUtils.trimSymetric(c.getColumnDefault(), "(", ")"));
                 }
                 if(!c.isNullable()){
 					sb.append(" NOT NULL");
