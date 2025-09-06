@@ -11,4 +11,10 @@ import lombok.Data;
 public class ObjectReference implements Serializable{
     @JsonView(Views.OnlyIdName.class)
     private Long id;
+
+    public static ObjectReference with(Long id){
+        ObjectReference r = new ObjectReference();
+        r.setId(id);
+        return r;
+    }
 }

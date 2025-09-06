@@ -305,6 +305,14 @@ public class DDLServiceSqlserver implements DDLService{
 			}
 		}
 		try{
+			PreparedStatement ss = conn.prepareStatement(DatasourceFactorySqlserver.SQL_FOR_SCHEMA);
+			ss.setString(1, dbModel.getSchema());
+			ResultSet rss = ss.executeQuery();
+			if(!rss.next()){
+				StringBuilder csSql = new StringBuilder("create schema ").append(dbModel.getSchema()).append(";");
+				Statement css = conn.createStatement();
+				css.execute(csSql.toString());
+			}
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
 				log.info("sql : {}", sb.toString());

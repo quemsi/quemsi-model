@@ -3,13 +3,9 @@ package com.quemsi.model.dto;
 import java.io.Serializable;
 import java.util.List;
 
-import com.quemsi.commons.persistence.Views;
-import com.fasterxml.jackson.annotation.JsonView;
-
 import lombok.Data;
 
 @Data
-@JsonView(Views.Agent.AgentModel.class)
 public class AgentModel implements Serializable{
     public Long agentId;
     private List<Datasource> datasources;
@@ -20,7 +16,6 @@ public class AgentModel implements Serializable{
     private List<FlowDetail> flows;
 
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class Storage implements Serializable{
         private Long id;
         private String name;
@@ -37,7 +32,6 @@ public class AgentModel implements Serializable{
         private String fullPath;
     }
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class LocalDrive implements Serializable {
         private Long id;
         private String name;
@@ -47,7 +41,6 @@ public class AgentModel implements Serializable{
         private long usedSize;
     }
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class Timer implements Serializable{
         private Long id;
         private String name;
@@ -55,7 +48,6 @@ public class AgentModel implements Serializable{
         private String schedule;
     }
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class Datasource implements Serializable{
         private Long id;
         private DatasourceType type;
@@ -68,7 +60,6 @@ public class AgentModel implements Serializable{
     }
 
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class AzureBlobDrive implements Serializable{
         private String name;
         private String accountName;

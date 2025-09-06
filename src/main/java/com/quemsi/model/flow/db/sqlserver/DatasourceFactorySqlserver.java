@@ -109,6 +109,7 @@ from sys.sequences s
 where schema_name(s.schema_id) = ?
 ;
 			""";
+	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
 
     private String name;
 	private String dbName;

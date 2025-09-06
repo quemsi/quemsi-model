@@ -1,10 +1,10 @@
 package com.quemsi.model.service;
 
 import java.io.ByteArrayInputStream;
-import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.http.MediaType;
 
@@ -21,7 +21,7 @@ import lombok.Setter;
 public class TableDataPersister {
     @Setter
     private ObjectMapper objectMapper;
-    public Map<String, TableData> tableDataMap = new HashMap<>(); 
+    public Map<String, TableData> tableDataMap = new ConcurrentHashMap<>();
     
     public void persist(TableDataPage tableDataPage){
         tableDataMap.compute(tableDataPage.getRequest().getTable().getName(), (key, td) -> {

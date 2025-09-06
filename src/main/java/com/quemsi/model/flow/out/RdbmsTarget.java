@@ -93,11 +93,6 @@ public class RdbmsTarget extends AbstractStorage{
         
     }
 
-    // @Override
-    // public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-    //     throw new UnsupportedOperationException("Unimplemented method 'RdbmsTarget.getDataPackage'");
-    // }
-    
     @Override
     public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
         throw new UnsupportedOperationException("Unimplemented method 'RdbmsTarget.getFiles'");

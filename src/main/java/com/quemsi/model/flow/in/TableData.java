@@ -1,8 +1,8 @@
 package com.quemsi.model.flow.in;
 
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Data
 public class TableData {
     private String tableName;
-    private List<DataPage> dataPages = new LinkedList<>();
+    private List<DataPage> dataPages = new CopyOnWriteArrayList<>();
     
     public TableData(String tableName){
         this.tableName = tableName;
