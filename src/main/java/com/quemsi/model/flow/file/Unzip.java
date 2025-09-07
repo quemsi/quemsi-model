@@ -1,6 +1,5 @@
 package com.quemsi.model.flow.file;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -55,7 +54,7 @@ public class Unzip extends AbstractStep {
                         } else {
                             ByteArrayOutputStream os = new ByteArrayOutputStream();
                             IOUtils.copy(zipFile.getInputStream(entry), os);
-                            FileResource fr = new FileResource(null, entry.getName(), entry.getName(), util.getFileType(entry.getName()), false, os.size(), new ByteArrayInputStream(os.toByteArray()));
+                            FileResource fr = new FileResource(null, entry.getName(), entry.getName(), util.getFileType(entry.getName()), false, os.size(), os.toByteArray());
                             resultList.add(new DataPackageFileResource(fr));
                         }
                     }

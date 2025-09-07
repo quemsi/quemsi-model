@@ -1,6 +1,5 @@
 package com.quemsi.model.service;
 
-import java.io.ByteArrayInputStream;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +39,10 @@ public class TableDataPersister {
             String tableDataJson = objectMapper.writeValueAsString(tableData);
             byte[] dataPagesJsonBytes = tableDataJson.getBytes();
             String fileName = "data-" +e.getKey() + ".json";
-            FileResource tData = new FileResource(null, fileName, fileName , MediaType.APPLICATION_JSON_VALUE, false, dataPagesJsonBytes.length, new ByteArrayInputStream(dataPagesJsonBytes));
+            FileResource tData = FileResource.builder()
+                .name(fileName).originalFilename(fileName).contentType(MediaType.APPLICATION_JSON_VALUE)
+                .empty(false).size(dataPagesJsonBytes.length).data(dataPagesJsonBytes)
+                .build();
             DataPackageFileResource tDataResource = new DataPackageFileResource(tData);
             dataPackages.add(tDataResource);
         }));

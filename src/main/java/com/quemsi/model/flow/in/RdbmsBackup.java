@@ -1,6 +1,5 @@
 package com.quemsi.model.flow.in;
 
-import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,12 +51,13 @@ public class RdbmsBackup implements Source{
             DbModel dbModel = datasource.getDbModel();
             dbModel.setFormat(format);
             String dbModelJson = dataMapper.writeValueAsString(dbModel);
-            FileResource modelFile = new FileResource();
-            modelFile.setName("db-model.json");
-            modelFile.setContentType(MediaType.APPLICATION_JSON_VALUE);
             byte[] bytes = dbModelJson.getBytes();
-            modelFile.setInputStream(new ByteArrayInputStream(bytes));
-            modelFile.setSize(bytes.length);
+            FileResource modelFile = FileResource.builder()
+                .name("db-model.json")
+                .contentType(MediaType.APPLICATION_JSON_VALUE)
+                .size(Long.valueOf(bytes.length))
+                .data(bytes)
+                .build();
             
             context.getDataPackages().add(new DataPackageFileResource(modelFile));
 

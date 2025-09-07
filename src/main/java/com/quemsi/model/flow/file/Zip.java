@@ -1,6 +1,5 @@
 package com.quemsi.model.flow.file;
 
-import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.time.LocalDateTime;
 import java.util.HashMap;
@@ -40,7 +39,7 @@ public class Zip extends AbstractStep {
             
             String fileName = context.getFlow().getData().getName() + ".zip";
 
-            FileResource fileResource = new FileResource(null, fileName, fileName, "application/zip", false, output.size(), new ByteArrayInputStream(output.toByteArray()));
+            FileResource fileResource = new FileResource(null, fileName, fileName, "application/zip", false, output.size(), output.toByteArray());
             context.setDataPackages(List.of(new DataPackageFileResource(fileResource)));
             flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch(Exception ex){
