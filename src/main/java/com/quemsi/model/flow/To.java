@@ -36,7 +36,7 @@ public class To extends AbstractStep {
 						df.setDir(context.getDataVersion().getData().getName());
 						df.setName(dp.getName());
 						df.setSize(dp.getLength());
-						df.setStorage(t.getName());
+						df.addStorage(t.getName());
 						return df;
 					}).toList());
 				}

@@ -1,7 +1,10 @@
 package com.quemsi.model.dto;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import com.quemsi.commons.persistence.BaseDto;
 
@@ -30,4 +33,24 @@ public class DataVersion extends BaseDto<Long>{
 	private List<DataFile> files;
 	private String descript;
 	private Long companyId;
+	public void setFiles(List<DataFile> fs){
+		if(files == null){
+			files = fs;
+		}else{
+			Map<String, DataFile> fileMap = new HashMap<>();
+			for (DataFile f : files) {
+				fileMap.put(f.getName(), f);
+			}
+			for (DataFile f : fs) {
+				DataFile existing = fileMap.get(f.getName());
+				if (existing != null) {
+					// Merge storages
+					existing.getStorages().addAll(f.getStorages());
+				} else {
+					fileMap.put(f.getName(), f);
+				}
+			}
+			files = new ArrayList<>(fileMap.values());
+		}
+	}
 }
