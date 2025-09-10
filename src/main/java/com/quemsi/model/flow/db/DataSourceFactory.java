@@ -1,11 +1,18 @@
 package com.quemsi.model.flow.db;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 
 import javax.sql.DataSource;
 
+import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.dto.DatasourceType;
+import com.quemsi.model.flow.db.mysql.DataSourceFactoryMySql;
+import com.quemsi.model.flow.db.postgres.DatasourceFactoryPostgres;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sqlserver.DatasourceFactorySqlserver;
 
 public interface DataSourceFactory {
 	String PK_VALUES_SEPERATOR = "|-|";
@@ -14,6 +21,8 @@ public interface DataSourceFactory {
 	void setName(String name);
 	String getDbName();
 	void setDbName(String dbName);
+	String getSchema();
+	void setSchema(String schema);
 	String getUrl();
 	void setUrl(String url);
 	String getUsername();
@@ -27,4 +36,29 @@ public interface DataSourceFactory {
 	DDLService ddlService(Connection conn);
 	DMLService dmlService() throws SQLException;
 	DMLService dmlService(Connection conn);
+
+	static DataSourceFactory create(DatasourceType type){
+		if(DatasourceType.MYSQL.equals(type)){
+			return new DataSourceFactoryMySql();
+		} else if(DatasourceType.POSTGRES.equals(type)) {
+			return new DatasourceFactoryPostgres();
+		} else if(DatasourceType.SQLSERVER.equals(type)) {
+			return new DatasourceFactorySqlserver();
+		} else{
+			throw Exceptions.server("invalid-datasource-type").withExtra("type", type).get();
+		}
+	}
+	default String connectionHealthCheckQuery(){
+		return "select 1;";
+	}
+	default boolean healthCheck() throws Exception{
+		try(
+			Connection conn = getDataSource().getConnection();
+			PreparedStatement st = conn.prepareStatement(connectionHealthCheckQuery())
+		){
+			ResultSet rs = st.executeQuery();
+			rs.close();
+			return true;
+		}
+	}
 }

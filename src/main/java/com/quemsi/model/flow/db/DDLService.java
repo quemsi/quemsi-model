@@ -1,5 +1,6 @@
 package com.quemsi.model.flow.db;
 
+import java.sql.SQLException;
 import java.util.Set;
 
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -10,4 +11,5 @@ public interface DDLService extends AutoCloseable {
 	void disableConstraints(Set<ReferenceInfo> constraints);
 	void enableContraints(Set<ReferenceInfo> constraints);
 	void createTables(DbModel dbModel);
+	boolean checkSchema(String schema) throws SQLException;
 }

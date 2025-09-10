@@ -1,6 +1,8 @@
 package com.quemsi.model.flow.db.postgres;
 
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.Iterator;
@@ -14,9 +16,9 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
+import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 
 import lombok.AllArgsConstructor;
@@ -194,6 +196,11 @@ public class DDLServicePostgres implements DDLService{
 			
 		}
 		try{
+            if(!checkSchema(dbModel.getSchema())){
+				StringBuilder csSql = new StringBuilder("create schema ").append(dbModel.getSchema()).append(";");
+				Statement css = conn.createStatement();
+				css.execute(csSql.toString());
+			}
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
                 log.info("ddl : {}", sb.toString());
@@ -203,6 +210,15 @@ public class DDLServicePostgres implements DDLService{
 			log.info("create tables sql", ignore);
 		}
     }
+
+    @Override
+	public boolean checkSchema(String schema) throws SQLException{
+		try(PreparedStatement ss = conn.prepareStatement(DatasourceFactoryPostgres.SQL_FOR_SCHEMA)){
+			ss.setString(1, schema);
+			ResultSet rss = ss.executeQuery();
+			return rss.next();
+		}
+	}
 
     @Override
     public void close() throws Exception {

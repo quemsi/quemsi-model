@@ -56,9 +56,10 @@ FROM INFORMATION_SCHEMA.STATISTICS st
 WHERE TABLE_SCHEMA = ?
 order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			""";
-
+	
 	private String name;
 	private String dbName;
+	private String schema;
 	private String url;
 	private String username;
 	private String password;
@@ -70,6 +71,13 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
+			// Connection pool settings to prevent exhaustion
+			config.setMaximumPoolSize(5);  // Limit max connections per datasource
+			config.setMinimumIdle(1);      // Keep minimum idle connections
+			config.setIdleTimeout(300000); // 5 minutes idle timeout
+			config.setMaxLifetime(1200000); // 20 minutes max lifetime
+			config.setConnectionTimeout(20000); // 20 seconds connection timeout
+			config.setLeakDetectionThreshold(60000); // 1 minute leak detection
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}

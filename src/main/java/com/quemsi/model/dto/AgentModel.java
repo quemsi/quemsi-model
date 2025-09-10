@@ -53,6 +53,7 @@ public class AgentModel implements Serializable{
         private DatasourceType type;
         private String name;
         private String dbName;
+        private String schema;
         private String url;
         private String username;
         private String password;

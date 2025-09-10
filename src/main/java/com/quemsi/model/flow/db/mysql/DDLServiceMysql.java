@@ -157,6 +157,11 @@ public class DDLServiceMysql implements DDLService{
 		}
 	}
 
+	@Override
+	public boolean checkSchema(String schema) throws SQLException{
+		return true;
+	}
+
     @Override
     public void close() throws Exception {
         if(conn != null){

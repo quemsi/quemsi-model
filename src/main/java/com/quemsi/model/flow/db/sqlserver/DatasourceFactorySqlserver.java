@@ -111,12 +111,12 @@ where schema_name(s.schema_id) = ?
 			""";
 	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
 
-    private String name;
+	private String name;
 	private String dbName;
 	private String url;
 	private String username;
 	private String password;
-	private String schema = "Production";
+	private String schema;
 	private HikariDataSource instance;
 	private ReentrantLock globalLock;
 	
@@ -140,6 +140,13 @@ where schema_name(s.schema_id) = ?
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
+			// Connection pool settings to prevent exhaustion
+			config.setMaximumPoolSize(5);  // Limit max connections per datasource
+			config.setMinimumIdle(1);      // Keep minimum idle connections
+			config.setIdleTimeout(300000); // 5 minutes idle timeout
+			config.setMaxLifetime(1200000); // 20 minutes max lifetime
+			config.setConnectionTimeout(20000); // 20 seconds connection timeout
+			config.setLeakDetectionThreshold(60000); // 1 minute leak detection
 			globalLock = new ReentrantLock();
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
@@ -150,7 +157,7 @@ where schema_name(s.schema_id) = ?
 	@Override
     public DbModel getDbModel() {
         DbModel dbModel = new DbModel();
-		dbModel.setSchema("Production");
+		dbModel.setSchema(getSchema());
 		dbModel.setSourceType(DatasourceType.SQLSERVER.name());
 		try(
 			Connection con = getDataSource().getConnection();

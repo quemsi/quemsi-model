@@ -305,10 +305,7 @@ public class DDLServiceSqlserver implements DDLService{
 			}
 		}
 		try{
-			PreparedStatement ss = conn.prepareStatement(DatasourceFactorySqlserver.SQL_FOR_SCHEMA);
-			ss.setString(1, dbModel.getSchema());
-			ResultSet rss = ss.executeQuery();
-			if(!rss.next()){
+			if(!checkSchema(dbModel.getSchema())){
 				StringBuilder csSql = new StringBuilder("create schema ").append(dbModel.getSchema()).append(";");
 				Statement css = conn.createStatement();
 				css.execute(csSql.toString());
@@ -322,6 +319,15 @@ public class DDLServiceSqlserver implements DDLService{
 			log.info("create tables sql", ignore);
 		}
     }
+
+	@Override
+	public boolean checkSchema(String schema) throws SQLException{
+		try(PreparedStatement ss = conn.prepareStatement(DatasourceFactorySqlserver.SQL_FOR_SCHEMA)){
+			ss.setString(1, schema);
+			ResultSet rss = ss.executeQuery();
+			return rss.next();
+		}
+	}
 
     @Override
     public void close() throws Exception {

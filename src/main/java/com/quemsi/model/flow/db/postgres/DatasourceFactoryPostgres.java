@@ -104,12 +104,14 @@ from pg_sequences s
 where s.schemaname = ?;
 			""";
 
+	protected static final String SQL_FOR_SCHEMA = "select nspname from pg_catalog.pg_namespace ns where ns.nspname = ?;";
+	
     private String name;
 	private String dbName;
 	private String url;
 	private String username;
 	private String password;
-	private String schema = "public";
+	private String schema;
 	private HikariDataSource instance;
 	
 
@@ -132,6 +134,13 @@ where s.schemaname = ?;
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
+			// Connection pool settings to prevent exhaustion
+			config.setMaximumPoolSize(5);  // Limit max connections per datasource
+			config.setMinimumIdle(1);      // Keep minimum idle connections
+			config.setIdleTimeout(300000); // 5 minutes idle timeout
+			config.setMaxLifetime(1200000); // 20 minutes max lifetime
+			config.setConnectionTimeout(20000); // 20 seconds connection timeout
+			config.setLeakDetectionThreshold(60000); // 1 minute leak detection
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}
@@ -141,7 +150,7 @@ where s.schemaname = ?;
     @Override
     public DbModel getDbModel() {
         DbModel dbModel = new DbModel();
-		dbModel.setSchema("public");
+		dbModel.setSchema(getSchema());
 		dbModel.setSourceType(DatasourceType.POSTGRES.name());
 		try(
 			Connection con = getDataSource().getConnection();
