@@ -141,7 +141,8 @@ where schema_name(s.schema_id) = ?
 			config.setPassword(password);
 			config.setUsername(username);
 			// Connection pool settings to prevent exhaustion
-			config.setMaximumPoolSize(5);  // Limit max connections per datasource
+			//TODO: should be according to parallelism
+			config.setMaximumPoolSize(50);  // Limit max connections per datasource 
 			config.setMinimumIdle(1);      // Keep minimum idle connections
 			config.setIdleTimeout(300000); // 5 minutes idle timeout
 			config.setMaxLifetime(1200000); // 20 minutes max lifetime
