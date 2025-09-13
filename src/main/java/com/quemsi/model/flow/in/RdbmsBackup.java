@@ -6,7 +6,11 @@ import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -44,9 +48,15 @@ public class RdbmsBackup implements Source{
     @Setter
     private int parallelism;
     private Map<String, ForkJoinTask<Boolean>> taskRegistry = new HashMap<>();
+    private AtomicBoolean globalCancellationFlag = new AtomicBoolean(false);
+    private AtomicReference<Exception> firstFailure = new AtomicReference<>();
+	
 	
     @Override
     public void execute(FlowContext context) {
+        globalCancellationFlag.set(false);
+        firstFailure.set(null);
+        taskRegistry.clear();
         try(ForkJoinPool pool = new ForkJoinPool(parallelism)) {
             DbModel dbModel = datasource.getDbModel();
             dbModel.setFormat(format);
@@ -73,13 +83,12 @@ public class RdbmsBackup implements Source{
             .toList();
             boolean result = tasks.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.TRUE, (f, s) -> f && s);
             if(!result){
-                context.logError("Backup failed", Exceptions.server("backup-failed").get());
+                throw Exceptions.server("backup-failed").withCause(firstFailure.get()).get();
             }else{
                 context.getDataPackages().addAll(tableDataPersister.getDataPackages());
                 log.info("{} data packages created", context.getDataPackages().size());
             }
         } catch (BaseRuntimeException e) {
-            context.logError("error-in-backup", e);
             throw e;
         } catch (JsonProcessingException e) {
             throw Exceptions.server("json-serialization-error").withCause(e).get();
@@ -106,20 +115,27 @@ public class RdbmsBackup implements Source{
         
         @Override
         public Boolean call() throws Exception {
-            ForkJoinTask<Boolean> future = taskRegistry.get(table.getName());
             try(DMLService dmlService = datasource.dmlService()){
                 log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
                 for(TableReference tr : table.getReferences()){
                     if(!tr.getName().equals(table.getName())){
-                        boolean dependency = taskRegistry.get(tr.getName()).join();
-                        log.info("future of {} completed for {} result {}", tr.getName(), table.getName(), dependency);
-                        if(!dependency){
-                            log.error("failed to backup dependency {} for {}", tr.getName(), table.getName());
-                            return false;
+                        boolean dependency = false;
+                        while(!dependency){
+                            try{
+                                dependency = taskRegistry.get(tr.getName()).get(1, TimeUnit.SECONDS);
+                                log.info("future of {} completed for {} result {}", tr.getName(), table.getName(), dependency);
+                                if(!dependency || globalCancellationFlag.get()){
+                                    return false;
+                                }
+                            }catch(TimeoutException e){
+                                if(globalCancellationFlag.get()){
+                                    return false;
+                                }
+                            }
                         }
                     }
                 }
-                log.info("{} done waiting", table.getName());
+                log.info("all dependencies are processed for {}", table.getName());
                 Request request = new Request();
                 request.setPageNum(0);
                 request.setPageSize(batchSize);
@@ -127,6 +143,9 @@ public class RdbmsBackup implements Source{
                 TableDataPage dataPage = null;
                 AtomicInteger counter = new AtomicInteger(0);
                 while(dataPage == null || dataPage.isHasMorePage()){
+                    if(globalCancellationFlag.get()){
+                        return false;
+                    }
                     dataPage = dmlService.getTableDataPage(request);
                     counter.incrementAndGet();
                     tableDataPersister.persist(dataPage);
@@ -135,8 +154,9 @@ public class RdbmsBackup implements Source{
                 log.info("{} pages are completed for {}", counter.get(), table.getName());
                 return true;
             }catch(Exception e){
-                log.error("ignored for " + table.getName(), e);
-                future.completeExceptionally(e);
+                log.error("failed process " + table.getName(), e);
+                firstFailure.compareAndSet(null, e);
+                globalCancellationFlag.set(true);
             }
             return false;
         }

@@ -9,6 +9,10 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import org.apache.commons.io.IOUtils;
@@ -39,6 +43,8 @@ public class RdbmsTarget extends AbstractStorage{
     @Setter
     private int parallelism;
     private Map<String, CompletableFuture<Object>> taskRegistry = new HashMap<>();
+    private AtomicBoolean globalCancellationFlag = new AtomicBoolean(false);
+    private AtomicReference<Exception> firstFailure = new AtomicReference<>();
 
     @Override
     public boolean recordFiles() {
@@ -52,6 +58,11 @@ public class RdbmsTarget extends AbstractStorage{
     @Override
     public void store(String dataName, List<DataPackage> dataPackages, Long version) {
         if(!dataPackages.isEmpty()){
+            // Reset global state
+            globalCancellationFlag.set(false);
+            firstFailure.set(null);
+            taskRegistry.clear();
+            
             Map<String, DataPackage> namedPackages = dataPackages.stream().collect(Collectors.toMap(dp -> dp.getName(), dp -> dp));
             if(!namedPackages.containsKey(DB_MODEL_FILE_NAME)){
                 throw Exceptions.notFound("unable-to-find-db-model").get();
@@ -80,9 +91,14 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.enableContraints(dbModel.getCircularIgnore());
 
                 if(result){
-                    log.info("all data is restored");
+                    log.info("all data is restored successfully");
                 } else {
-                    log.error("some errors");
+                    Exception failure = firstFailure.get();
+                    String errorMessage = failure != null ? 
+                        "Restore failed due to: " + failure.getMessage() : 
+                        "Restore failed - one or more tasks failed";
+                    log.error(errorMessage);
+                    throw Exceptions.server("restore-failed").withCause(failure).get();
                 }
             } catch(IOException e){
                 throw Exceptions.server("io-exception-in-rdbms-restore").withCause(e).get();
@@ -137,12 +153,27 @@ public class RdbmsTarget extends AbstractStorage{
                     log.error("unable to find data file {}", fileName);
                     return false;
                 }
-                table.getReferences().stream().filter(r -> !table.getName().equals(r.getName())).forEach(tr -> {
+                
+                // Wait for dependencies with timeout and cancellation support
+                for(var tr : table.getReferences().stream().filter(r -> !table.getName().equals(r.getName())).toList()) {
                     log.info("{} waiting for {}", table.getName(), tr.getName());
-                    taskRegistry.get(tr.getName()).join();
-                    log.info("future of {} completed for {}", tr.getName(), table.getName());
-                });
-                log.info("{} done waiting", table.getName());
+                    boolean dependency = false;
+                    while(!dependency){
+                        try{
+                            dependency = (Boolean) taskRegistry.get(tr.getName()).get(1, TimeUnit.SECONDS);
+                            log.info("future of {} completed for {} result {}", tr.getName(), table.getName(), dependency);
+                            if(!dependency || globalCancellationFlag.get()){
+                                return false;
+                            }
+                        }catch(TimeoutException e){
+                            if(globalCancellationFlag.get()){
+                                return false;
+                            }
+                        }
+                    }
+                }
+                log.info("all dependencies are processed for {}", table.getName());
+                
                 String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
                 TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
                 log.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName());
@@ -153,8 +184,11 @@ public class RdbmsTarget extends AbstractStorage{
                 future.complete(allSucceded);
                 return allSucceded;
             }catch(Exception e){
-                throw Exceptions.server("failed-to-restore").withExtra("tableName", table.getName()).get();
+                log.error("failed process " + table.getName(), e);
+                firstFailure.compareAndSet(null, e);
+                globalCancellationFlag.set(true);
             }
+            return false;
         }
     }
     public class PageRestoreTask implements Callable<Boolean>{
@@ -170,8 +204,24 @@ public class RdbmsTarget extends AbstractStorage{
 
         @Override
         public Boolean call() throws Exception {
+            // Check for global cancellation before starting
+            if (globalCancellationFlag.get()) {
+                log.info("Page restore task for table {} cancelled before execution", table.getName());
+                return false;
+            }
+            
             try(DMLService dmlService = datasourceFactory.dmlService()){
                 dmlService.writePageData(table, dataPage);
+                // Check for global cancellation after processing
+                if (globalCancellationFlag.get()) {
+                    log.info("Page restore task for table {} cancelled after processing", table.getName());
+                    return false;
+                }
+            } catch(Exception e) {
+                log.error("Failed to restore page for table {}: {}", table.getName(), e.getMessage(), e);
+                firstFailure.compareAndSet(null, e);
+                globalCancellationFlag.set(true);
+                return false;
             }
             return true;
         }
