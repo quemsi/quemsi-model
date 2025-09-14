@@ -5,17 +5,19 @@ import com.quemsi.model.dto.DataVersion;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
 
 @Data
-@NoArgsConstructor
 @EqualsAndHashCode(callSuper = true)
-public class VersionDeleteRequest extends AgentCommand{
+public class VersionDeleteRequest extends AgentCommandSync{
     private DataVersion version;
 
+    public VersionDeleteRequest(){
+        super(VersionDeleteRequest.class.getSimpleName(), null, null, -1L);
+    }
+
     @Builder
-    public VersionDeleteRequest(Long agentId, DataVersion version){
-        super(VersionDeleteRequest.class.getSimpleName(), agentId);
+    public VersionDeleteRequest(Long agentId, Long correlationId, long timeoutMilis, DataVersion version){
+        super(VersionDeleteRequest.class.getSimpleName(), agentId, correlationId, timeoutMilis);
         this.version = version;
     }
 }

@@ -1,21 +1,26 @@
 package com.quemsi.model.dto.agent.onapi;
 
-import com.quemsi.model.dto.agent.AgentCommand;
+import com.quemsi.model.dto.agent.AgentCommandSync;
 
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
 
 @Data
-@NoArgsConstructor
 @EqualsAndHashCode(callSuper = true)
-public class VersionDeleted extends AgentCommand{
+public class VersionDeleted extends AgentCommandSync{
     private Long versionId;
+    private boolean succeeded;
+    private String message;
+    
+    public VersionDeleted(){
+        super(VersionDeleted.class.getSimpleName(), null, null, -1L);
+    }
     
     @Builder
-    public VersionDeleted(Long agentId, Long versionId){
-        super(VersionDeleted.class.getSimpleName(), agentId);
+    public VersionDeleted(Long agentId, Long correlationId, long timeoutMilis, Long versionId, boolean succeeded){
+        super(VersionDeleted.class.getSimpleName(), agentId, correlationId, timeoutMilis);
         this.versionId = versionId;
+        this.succeeded = succeeded;
     }
 }
