@@ -10,19 +10,18 @@ import lombok.NoArgsConstructor;
 @Data
 @EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
-public class TestDatasourceResult extends AgentCommandSync{
+public class TestAzureBlobDriveResult extends AgentCommandSync{
     private boolean success;
     private String message;
     private int errorCode;
     private String errorMessage;
 
     @Builder
-    public TestDatasourceResult(Long agentId, Long correlationId, long timeoutMilis, boolean success, int errorCode, String message, String errorMessage){
-        super(TestDatasourceResult.class.getSimpleName(), agentId, correlationId, timeoutMilis);
+    public TestAzureBlobDriveResult(Long agentId, Long correlationId, long timeoutMilis, boolean success, int errorCode, String message, String errorMessage){
+        super(TestAzureBlobDriveResult.class.getSimpleName(), agentId, correlationId, timeoutMilis);
         this.success = success;
         this.errorCode = errorCode;
         this.message = message;
         this.errorMessage = errorMessage;
     }
-    
 }
