@@ -7,10 +7,11 @@ import lombok.Data;
 
 @Data
 public class AgentModel implements Serializable{
-    public Long agentId;
+    private Long agentId;
     private List<Datasource> datasources;
     private List<Timer> timers;
     private List<AzureBlobDrive> azureBlobDrives;
+    private List<AWSS3Drive> awsS3Drives;
     private List<LocalDrive> localDrives;
     private List<Storage> storages;
     private List<FlowDetail> flows;
@@ -67,6 +68,19 @@ public class AgentModel implements Serializable{
         private String accountKey;
         private String storageRoot;
 	    private Long capacity;
+        private Long usedSize;
+        private boolean useEnvVar;
+    }
+
+    @Data
+    public static class AWSS3Drive implements Serializable{
+        private String name;
+        private String accessKey;
+        private String secretKey;
+        private String region;
+        private String bucketName;
+        private String storageRoot;
+        private Long capacity;
         private Long usedSize;
         private boolean useEnvVar;
     }

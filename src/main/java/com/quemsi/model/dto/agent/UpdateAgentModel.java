@@ -4,6 +4,7 @@ import java.util.ArrayList;
 
 import com.quemsi.model.dto.AgentModel;
 import com.quemsi.model.dto.AgentModel.AzureBlobDrive;
+import com.quemsi.model.dto.AgentModel.AWSS3Drive;
 import com.quemsi.model.dto.AgentModel.Datasource;
 import com.quemsi.model.dto.AgentModel.LocalDrive;
 import com.quemsi.model.dto.AgentModel.Storage;
@@ -53,6 +54,13 @@ public class UpdateAgentModel extends AgentCommand{
                 model.setAzureBlobDrives(new ArrayList<>());
             }
             model.getAzureBlobDrives().add(ld);
+            return this;
+        }
+        public Builder add(AWSS3Drive awsS3Drive){
+            if(model.getAwsS3Drives() == null){
+                model.setAwsS3Drives(new ArrayList<>());
+            }
+            model.getAwsS3Drives().add(awsS3Drive);
             return this;
         }
         public Builder add(LocalDrive ld){
