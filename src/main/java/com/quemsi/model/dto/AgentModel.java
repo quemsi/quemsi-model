@@ -31,6 +31,7 @@ public class AgentModel implements Serializable{
         private long capacity;
         private long usedSize;
         private String fullPath;
+        private boolean active;
     }
     @Data
     public static class LocalDrive implements Serializable {
@@ -40,6 +41,7 @@ public class AgentModel implements Serializable{
         private String storageRoot;
         private long capacity;
         private long usedSize;
+        private boolean active;
     }
     @Data
     public static class Timer implements Serializable{
@@ -47,6 +49,7 @@ public class AgentModel implements Serializable{
         private String name;
         private String title;
         private String schedule;
+        private boolean active;
     }
     @Data
     public static class Datasource implements Serializable{
@@ -59,6 +62,7 @@ public class AgentModel implements Serializable{
         private String username;
         private String password;
         private boolean useEnvVar;
+        private boolean active;
     }
 
     @Data
@@ -70,6 +74,7 @@ public class AgentModel implements Serializable{
 	    private Long capacity;
         private Long usedSize;
         private boolean useEnvVar;
+        private boolean active;
     }
 
     @Data
@@ -83,5 +88,6 @@ public class AgentModel implements Serializable{
         private Long capacity;
         private Long usedSize;
         private boolean useEnvVar;
+        private boolean active;
     }
 }

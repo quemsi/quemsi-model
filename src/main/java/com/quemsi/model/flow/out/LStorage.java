@@ -11,14 +11,12 @@ import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
-import com.quemsi.commons.persistence.Views;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFile;
 import com.quemsi.model.flow.Flow;
-import com.fasterxml.jackson.annotation.JsonView;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -27,7 +25,6 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class LStorage extends  AbstractStorage{
 	private boolean ready;
-	@JsonView(Views.OnlyIdName.class)
 	@Setter
 	@Getter
 	private LocalDrive localDrive;
@@ -86,12 +83,6 @@ public class LStorage extends  AbstractStorage{
 			}
 		});
 	}
-
-	// @Override
-	// public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-	// 	File dataFile = new File(dirPath +  File.separator + dataName + File.separator + dataName + "-" + version + "." + type.getExt());
-	// 	return List.of((DataPackage)new DataPackageFile(dataFile, dataFile.length(), util.getFileType(dataFile.getName())));
-	// }
 
 	@Override
 	public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
