@@ -40,7 +40,7 @@ public class Zip extends AbstractStep {
             String fileName = context.getFlow().getData().getName() + ".zip";
 
             FileResource fileResource = new FileResource(null, fileName, fileName, "application/zip", false, output.size(), output.toByteArray());
-            context.setDataPackages(List.of(new DataPackageFileResource(fileResource)));
+            context.setDataPackages(List.of(new DataPackageFileResource(fileName, fileResource)));
             flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch(Exception ex){
             Throwable cause = ex;

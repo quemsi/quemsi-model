@@ -86,7 +86,7 @@ public class LStorage extends  AbstractStorage{
 
 	@Override
 	public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
-		return files.stream().peek(f -> log.info("adding {}", dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion()))).map(f -> (DataPackage)new DataPackageFile(new File(dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())), f.getSize(), f.getContentType())).toList();
+		return files.stream().peek(f -> log.info("adding {}", dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion()))).map(f -> (DataPackage)new DataPackageFile(f.getName(), new File(dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())), f.getSize(), f.getContentType())).toList();
 	}
 
 	@Override

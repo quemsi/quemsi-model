@@ -43,7 +43,7 @@ public class TableDataPersister {
                 .name(fileName).originalFilename(fileName).contentType(MediaType.APPLICATION_JSON_VALUE)
                 .empty(false).size(dataPagesJsonBytes.length).data(dataPagesJsonBytes)
                 .build();
-            DataPackageFileResource tDataResource = new DataPackageFileResource(tData);
+            DataPackageFileResource tDataResource = new DataPackageFileResource(tData.getName(), tData);
             dataPackages.add(tDataResource);
         }));
         return dataPackages;

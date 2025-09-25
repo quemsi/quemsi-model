@@ -55,7 +55,7 @@ public class Unzip extends AbstractStep {
                             ByteArrayOutputStream os = new ByteArrayOutputStream();
                             IOUtils.copy(zipFile.getInputStream(entry), os);
                             FileResource fr = new FileResource(null, entry.getName(), entry.getName(), util.getFileType(entry.getName()), false, os.size(), os.toByteArray());
-                            resultList.add(new DataPackageFileResource(fr));
+                            resultList.add(new DataPackageFileResource(entry.getName(),fr));
                         }
                     }
                     return resultList.stream();

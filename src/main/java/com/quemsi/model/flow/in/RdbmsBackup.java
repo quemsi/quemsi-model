@@ -69,7 +69,7 @@ public class RdbmsBackup implements Source{
                 .data(bytes)
                 .build();
             
-            context.getDataPackages().add(new DataPackageFileResource(modelFile));
+            context.getDataPackages().add(new DataPackageFileResource(modelFile.getName(), modelFile));
 
             TableDataPersister tableDataPersister = new TableDataPersister();
             tableDataPersister.setObjectMapper(dataMapper);

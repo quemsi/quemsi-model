@@ -20,15 +20,16 @@ public class DataPackageFile implements DataPackage{
 	private long length;
 	private String contentType;
 	
-	public DataPackageFile(File file, long length, String contentType){
+	public DataPackageFile(String name, File file, long length, String contentType){
 		this.file = file;
-		this.name = file.getName();
+		this.name = name;
 		this.length = file.length();
 		this.contentType = contentType;
 	}
 	@Override
 	public File getFile(String destName) {
-		if(!name.equals(destName)){
+		
+		if(!file.getName().equals(destName)){
 			file.renameTo(new File(destName));
 		}
 		return file;

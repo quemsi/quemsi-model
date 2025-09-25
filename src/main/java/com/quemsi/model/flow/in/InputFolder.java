@@ -52,7 +52,7 @@ public class InputFolder implements Source {
 						return true;
 					}
 				})		
-				.map(f -> new DataPackageFile(f, f.length(), util.getFileType(f.getName())))
+				.map(f -> new DataPackageFile(f.getName(), f, f.length(), util.getFileType(f.getName())))
 		        .collect(Collectors.toList()));
 		    log.debug("{} files is being processed", context.getDataPackages().size());
 		} catch (IOException e) {
