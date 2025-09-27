@@ -5,13 +5,13 @@ import java.time.LocalTime;
 
 import com.quemsi.commons.persistence.BaseDto;
 
-import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.experimental.SuperBuilder;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
-@Builder
+@SuperBuilder
 public class AgentError extends BaseDto<Long>{
     private Long agentId;
 	private boolean seen;
