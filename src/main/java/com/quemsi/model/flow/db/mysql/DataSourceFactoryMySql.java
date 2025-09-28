@@ -72,12 +72,14 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			config.setPassword(password);
 			config.setUsername(username);
 			// Connection pool settings to prevent exhaustion
-			config.setMaximumPoolSize(5);  // Limit max connections per datasource
-			config.setMinimumIdle(1);      // Keep minimum idle connections
+			config.setMaximumPoolSize(20);  // Reasonable max connections per datasource
+			config.setMinimumIdle(2);      // Keep minimum idle connections
 			config.setIdleTimeout(300000); // 5 minutes idle timeout
 			config.setMaxLifetime(1200000); // 20 minutes max lifetime
-			config.setConnectionTimeout(20000); // 20 seconds connection timeout
-			config.setLeakDetectionThreshold(60000); // 1 minute leak detection
+			config.setConnectionTimeout(30000); // 30 seconds connection timeout
+			config.setLeakDetectionThreshold(30000); // 30 seconds leak detection
+			config.setValidationTimeout(5000); // 5 seconds validation timeout
+			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "MySQL")); // Named pool for monitoring
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}
@@ -86,22 +88,12 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 
 	@Override
 	public DDLService ddlService() throws SQLException {
-		return new DDLServiceMysql(getDataSource().getConnection());
-	}
-
-	@Override
-	public DDLService ddlService(Connection conn){
-		return new DDLServiceMysql(conn);
+		return new DDLServiceMysql(getDataSource());
 	}
 
 	@Override
 	public DMLService dmlService() throws SQLException {
-	  return new DMLServiceMysql(getDataSource().getConnection());
-	}
-
-	@Override
-	public DMLService dmlService(Connection conn){
-	  return new DMLServiceMysql(conn);
+		return new DMLServiceMysql(getDataSource());
 	}
 
 	@Override

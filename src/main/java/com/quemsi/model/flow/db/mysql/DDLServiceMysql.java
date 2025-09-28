@@ -10,6 +10,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import javax.sql.DataSource;
+
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
@@ -26,11 +28,11 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @NoArgsConstructor
 public class DDLServiceMysql implements DDLService{
-    private Connection conn;
+    private DataSource dataSource;
     
     @Override
 	public boolean dropTables(String... tableNames) {
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
 				s.addBatch("DROP TABLE IF EXISTS " + tableName + ";");
@@ -48,7 +50,7 @@ public class DDLServiceMysql implements DDLService{
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
             sb.append(refInfo.getSrcTableName()).append(" DROP FOREIGN KEY ")
             .append(refInfo.getConstraintName()).append(";");
-            try{
+            try(Connection conn = dataSource.getConnection()){
                 String dropConstraintSql = sb.toString();
                 log.info("drop constraint sql :{}", dropConstraintSql);
                 Statement s = conn.createStatement();
@@ -67,7 +69,7 @@ public class DDLServiceMysql implements DDLService{
             .append(refInfo.getConstraintName())
             .append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
             .append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");");
-            try{
+            try(Connection conn = dataSource.getConnection()){
                 String dropConstraintSql = sb.toString();
                 log.info("drop constraint sql :{}", dropConstraintSql);
                 Statement s = conn.createStatement();
@@ -147,7 +149,7 @@ public class DDLServiceMysql implements DDLService{
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
 		}
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
 				s.executeUpdate(sb.toString());
@@ -164,8 +166,5 @@ public class DDLServiceMysql implements DDLService{
 
     @Override
     public void close() throws Exception {
-        if(conn != null){
-            conn.close();
-        }
     }
 }

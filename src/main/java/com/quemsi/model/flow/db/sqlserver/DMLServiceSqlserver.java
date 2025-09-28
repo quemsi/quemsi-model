@@ -11,6 +11,8 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
+import javax.sql.DataSource;
+
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
@@ -35,12 +37,12 @@ select * from (
 	private static final String SET_INSERT_IDENTITY_ON = "SET IDENTITY_INSERT %s ON;";
 	private static final String SET_INSERT_IDENTITY_OFF = "SET IDENTITY_INSERT %s OFF;";
 	
-    private Connection conn;
+    private DataSource dataSource;
 	private ReentrantLock globalLock;
 
     @Override
     public TableDataPage getTableDataPage(Request request){
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().joinedPkColumnNames(), request.getTable().qualifiedName());
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
@@ -106,7 +108,7 @@ select * from (
 	}
     @Override
     public int writePageData(DbTable table, DataPage dataPage){
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
 			StringBuilder paramsBuilder = new StringBuilder("(");
 			int counter = 0;
@@ -164,7 +166,7 @@ select * from (
 
     @Override
 	public boolean clearTables(String... tableNames) {
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
 				s.addBatch("delete from " + tableName);
@@ -179,9 +181,5 @@ select * from (
 
     @Override
     public void close() throws Exception {
-        if(conn != null && !conn.isClosed()){
-            conn.close();
-        }
     }
-
 }

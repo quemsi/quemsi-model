@@ -141,12 +141,14 @@ where schema_name(s.schema_id) = ?
 			config.setPassword(password);
 			config.setUsername(username);
 			// Connection pool settings to prevent exhaustion
-			config.setMaximumPoolSize(50);  // Limit max connections per datasource 
-			config.setMinimumIdle(1);      // Keep minimum idle connections
+			config.setMaximumPoolSize(20);  // Reasonable max connections per datasource 
+			config.setMinimumIdle(2);      // Keep minimum idle connections
 			config.setIdleTimeout(300000); // 5 minutes idle timeout
 			config.setMaxLifetime(1200000); // 20 minutes max lifetime
-			config.setConnectionTimeout(20000); // 20 seconds connection timeout
-			config.setLeakDetectionThreshold(60000); // 1 minute leak detection
+			config.setConnectionTimeout(30000); // 30 seconds connection timeout
+			config.setLeakDetectionThreshold(30000); // 30 seconds leak detection
+			config.setValidationTimeout(5000); // 5 seconds validation timeout
+			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "SQLServer")); // Named pool for monitoring
 			globalLock = new ReentrantLock();
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
@@ -260,18 +262,7 @@ where schema_name(s.schema_id) = ?
 	}
 
 	@Override
-	public DDLService ddlService(Connection conn){
-		return new DDLServiceSqlserver(conn);
-	}
-
-	@Override
 	public DMLService dmlService() throws SQLException {
-	  return new DMLServiceSqlserver(getDataSource().getConnection(), globalLock);
+	  return new DMLServiceSqlserver(getDataSource(), globalLock);
 	}
-
-	@Override
-	public DMLService dmlService(Connection conn){
-	  return new DMLServiceSqlserver(conn, globalLock);
-	}
-
 }

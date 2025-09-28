@@ -33,10 +33,8 @@ public interface DataSourceFactory {
 	DataSource getDataSource();
 	DbModel getDbModel();
 	DDLService ddlService() throws SQLException;
-	DDLService ddlService(Connection conn);
 	DMLService dmlService() throws SQLException;
-	DMLService dmlService(Connection conn);
-
+	
 	static DataSourceFactory create(DatasourceType type){
 		if(DatasourceType.MYSQL.equals(type)){
 			return new DataSourceFactoryMySql();

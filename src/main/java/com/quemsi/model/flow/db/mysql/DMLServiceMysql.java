@@ -7,6 +7,8 @@ import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
 
+import javax.sql.DataSource;
+
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
@@ -23,12 +25,11 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 public class DMLServiceMysql implements DMLService{
     private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ?, ?";
-	
-    private Connection conn;
+	private DataSource dataSource;
 
     @Override
     public TableDataPage getTableDataPage(Request request){
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), request.getTable().joinedPkColumnNames());
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
@@ -85,7 +86,7 @@ public class DMLServiceMysql implements DMLService{
 
     @Override
     public int writePageData(DbTable table, DataPage dataPage){
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.getName()).append("(");
 			StringBuilder paramsBuilder = new StringBuilder("(");
 			int counter = 0;
@@ -122,7 +123,7 @@ public class DMLServiceMysql implements DMLService{
 
     @Override
 	public boolean clearTables(String... tableNames) {
-		try{
+		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
 				s.addBatch("delete from " + tableName);
@@ -137,9 +138,7 @@ public class DMLServiceMysql implements DMLService{
 
     @Override
     public void close() throws Exception {
-        if(conn != null && !conn.isClosed()){
-            conn.close();
-        }
+        
     }
 
 }

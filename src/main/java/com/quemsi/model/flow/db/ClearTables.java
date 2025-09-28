@@ -30,8 +30,8 @@ public class ClearTables extends AbstractStep {
         FlowExecutionStep fes = null;
         try(
             Connection conn = datasource.getDataSource().getConnection();
-            DMLService dmlService = datasource.dmlService(conn);
-            DDLService ddlService = datasource.ddlService(conn);
+            DMLService dmlService = datasource.dmlService();
+            DDLService ddlService = datasource.ddlService();
             ){
             fes = flow.sendStepStarted(context.getExecution().getId(), ClearTables.class.getSimpleName(), this.ord , LocalDateTime.now());
             DbModel dbModel = datasource.getDbModel();
