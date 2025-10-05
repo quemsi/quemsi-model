@@ -3,7 +3,7 @@
 	<modelVersion>4.0.0</modelVersion>
 	<groupId>com.quemsi</groupId>
 	<artifactId>quemsi-model</artifactId>
-	<version>2.3.3-SNAPSHOT</version>
+	<version>2.3.3</version>
 	<name>quemsi-model</name>
 	<description>quemsi model</description>
 	<properties>
@@ -15,7 +15,7 @@
 	</properties>
 	<scm>
 		<developerConnection>scm:git:https://github.com/quemsi/quemsi-model.git</developerConnection>
-		<tag>version-2.2.4</tag>
+		<tag>version-2.3.3</tag>
 	</scm>
 	<distributionManagement>
 		<repository>
