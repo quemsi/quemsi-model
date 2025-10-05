@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 public class FlowExecution extends BaseDto<Long>{
 	@NotNull
     private Long flowId;
+    private String dataName;
     private String flowName;
     @NotNull
     private FlowExecutionStatus status;
