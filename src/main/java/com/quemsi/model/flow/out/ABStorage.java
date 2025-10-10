@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 
-import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
@@ -16,24 +15,11 @@ public class ABStorage extends AbstractStorage{
     private AzureBlobDrive azureBlobDrive;
     @Setter
     private Storage underlyingStorage;
-    @Setter
-    private String retentionPolicy;
-    @Setter
-    private Long usedSize;
-    @Setter
-    private Long capacity;
-    @Setter
-    private FileNameUtil util;
     
     @Override
     public void store(String dataName, List<DataPackage> dataPackages, Long version) {
         underlyingStorage.store(dataName, dataPackages, version);
     }
-
-    // @Override
-    // public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-    //     return underlyingStorage.getDataPackage(dataName, type, version);
-    // }
 
     @Override
     public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
