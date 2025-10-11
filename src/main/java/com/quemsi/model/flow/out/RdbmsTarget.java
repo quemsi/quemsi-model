@@ -22,6 +22,7 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
+import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
@@ -56,7 +57,7 @@ public class RdbmsTarget extends AbstractStorage{
     }
 
     @Override
-    public void store(String dataName, List<DataPackage> dataPackages, Long version) {
+    public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
         if(!dataPackages.isEmpty()){
             // Reset global state
             globalCancellationFlag.set(false);
@@ -78,6 +79,8 @@ public class RdbmsTarget extends AbstractStorage{
                 String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
                 
+                context.getDbModelProcessors().forEach(p -> p.process(dbModel));
+
                 ddlService.createTables(dbModel);
 
                 ddlService.disableConstraints(dbModel.getCircularIgnore());
@@ -110,7 +113,7 @@ public class RdbmsTarget extends AbstractStorage{
     }
 
     @Override
-    public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
+    public List<DataPackage> getFiles(FlowContext context, List<DataFile> files) throws IOException {
         throw new UnsupportedOperationException("Unimplemented method 'RdbmsTarget.getFiles'");
     }
 

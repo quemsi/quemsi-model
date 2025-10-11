@@ -20,6 +20,7 @@ import lombok.Setter;
 
 public class DbTable {
     @Getter
+    @Setter
     private String schema;
     @Getter
     private String name;

@@ -17,6 +17,7 @@ import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFile;
 import com.quemsi.model.flow.Flow;
+import com.quemsi.model.flow.FlowContext;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -58,7 +59,7 @@ public class LStorage extends  AbstractStorage{
 	}
 
 	@Override
-	public void store(String dataName, List<DataPackage> dataPackages, Long version) {
+	public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
 		if(dataPackages.isEmpty()){
 			throw Exceptions.badRequest("datapackages-empty").withExtra("versionId", version).get();
 		}
@@ -85,7 +86,7 @@ public class LStorage extends  AbstractStorage{
 	}
 
 	@Override
-	public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
+	public List<DataPackage> getFiles(FlowContext context, List<DataFile> files) throws IOException {
 		return files.stream().peek(f -> log.info("adding {}", dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion()))).map(f -> (DataPackage)new DataPackageFile(f.getName(), new File(dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())), f.getSize(), f.getContentType())).toList();
 	}
 

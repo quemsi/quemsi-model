@@ -11,6 +11,7 @@ import com.quemsi.model.dto.DataVersion;
 import com.quemsi.model.dto.FlowExecution;
 import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
+import com.quemsi.model.flow.process.DbModelProcessor;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ public class FlowContext {
 	private List<DataPackage> dataPackages;
 	private Flow flow;
 	private Map<String, String> tags;
+	private List<DbModelProcessor> dbModelProcessors;
 	
 	public FlowContext(Flow flow, Long flowExecutionId) {
 		execution = new FlowExecution();
@@ -36,6 +38,7 @@ public class FlowContext {
 		this.tags = new HashMap<>();
 		this.flow = flow;
 		dataPackages = new LinkedList<>();
+		dbModelProcessors = new LinkedList<>();
 	}
 
 	public void setDataVersion(DataVersion dataVersion){

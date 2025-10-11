@@ -27,7 +27,7 @@ public class To extends AbstractStep {
 		try {
 			fes = flow.sendStepStarted(context.getExecution().getId(), "To", this.ord , LocalDateTime.now());
 			targets.stream().forEach(t -> {
-				t.store(context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
+				t.store(context, context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
 				if(t.recordFiles()){
 					context.getExecution().getVersion().setFiles(context.getDataPackages().stream().map(dp -> {
 						DataFile df = new DataFile();
@@ -59,8 +59,8 @@ public class To extends AbstractStep {
 	
 	@Override
 	public void init(Flow f) {
-		targets.forEach(t -> t.init(f));
 		super.init(f);
+		targets.forEach(t -> t.init(f));
 		super.initNext(f);
 	}
 	

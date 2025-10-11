@@ -8,6 +8,7 @@ import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
+import com.quemsi.model.flow.FlowContext;
 
 import lombok.Setter;
 
@@ -26,13 +27,13 @@ public class AWS3Storage extends AbstractStorage{
     private FileNameUtil util;
     
     @Override
-    public void store(String dataName, List<DataPackage> dataPackages, Long version) {
-        underlyingStorage.store(dataName, dataPackages, version);
+    public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
+        underlyingStorage.store(context, dataName, dataPackages, version);
     }
 
     @Override
-    public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
-        return underlyingStorage.getFiles(files);
+    public List<DataPackage> getFiles(FlowContext context, List<DataFile> files) throws IOException {
+        return underlyingStorage.getFiles(context, files);
     }
 
     @Override

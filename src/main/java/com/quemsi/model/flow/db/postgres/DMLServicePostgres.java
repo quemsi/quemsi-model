@@ -129,7 +129,7 @@ public class DMLServicePostgres implements DMLService{
 						}
 					}
 					else{
-						ps.setObject(i + 1, e.getValue()[i]);
+						ps.setObject(i + 1, e.getValue()[i], java.sql.Types.OTHER);
 					}
 				}
 				ps.addBatch();

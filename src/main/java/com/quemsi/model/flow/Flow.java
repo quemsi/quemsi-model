@@ -8,8 +8,10 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.DateUtils;
+import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.api.ApiClient;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DataGroup;
@@ -20,7 +22,6 @@ import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.dto.NamedEntityReference;
 import com.quemsi.model.dto.Tag;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -87,6 +88,7 @@ public class Flow {
 				apiClient.saveFlowExecution(execution);
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
+					fc.logError("failed-to-execute-flow", Exceptions.server("flow initialization is not completed yet").get());
 					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
 				} else {
 					try {

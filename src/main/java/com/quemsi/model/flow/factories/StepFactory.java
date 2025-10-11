@@ -23,6 +23,7 @@ import com.quemsi.model.flow.db.sql.SqlParser;
 import com.quemsi.model.flow.file.Unzip;
 import com.quemsi.model.flow.file.Zip;
 import com.quemsi.model.flow.out.Storage;
+import com.quemsi.model.flow.process.SchemaMapping;
 
 import lombok.Getter;
 
@@ -105,6 +106,12 @@ public class StepFactory extends AbstractFactory<Step>{
 				dropTables.setTables(tables);
 				dropTables.setSqlParser(context.getBean(SqlParser.class));
 				return dropTables;
+			},
+			"SchemaMapping", node -> {
+				SchemaMapping schemaMapping = new SchemaMapping();
+				schemaMapping.setSourceSchema(node.findValue("sourceSchema").asText(null));
+				schemaMapping.setTargetSchema(node.findValue("targetSchema").asText(null));
+				return schemaMapping;
 			}
 			);
 }
