@@ -34,7 +34,7 @@ public interface DataSourceFactory {
 	DbModel getDbModel();
 	DDLService ddlService() throws SQLException;
 	DMLService dmlService() throws SQLException;
-	
+	DatasourceType type();
 	static DataSourceFactory create(DatasourceType type){
 		if(DatasourceType.MYSQL.equals(type)){
 			return new DataSourceFactoryMySql();

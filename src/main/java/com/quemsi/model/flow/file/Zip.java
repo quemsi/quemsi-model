@@ -1,7 +1,6 @@
 package com.quemsi.model.flow.file;
 
 import java.io.ByteArrayOutputStream;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -15,17 +14,13 @@ import org.apache.commons.io.IOUtils;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileResource;
-import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
-import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.DataPackageFileResource;
-import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
 
 public class Zip extends AbstractStep {
     @Override
     public void execute(FlowContext context) {
-        FlowExecutionStep fes = flow.sendStepStarted(context.getExecution().getId(), "Zip", this.ord , LocalDateTime.now());
 		try (ByteArrayOutputStream output = new ByteArrayOutputStream();
             ZipArchiveOutputStream archive = new ZipArchiveOutputStream(output);) {
             archive.setMethod(ZipEntry.DEFLATED);
@@ -41,23 +36,11 @@ public class Zip extends AbstractStep {
 
             FileResource fileResource = new FileResource(null, fileName, fileName, "application/zip", false, output.size(), output.toByteArray());
             context.setDataPackages(List.of(new DataPackageFileResource(fileName, fileResource)));
-            flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
-        } catch(Exception ex){
-            Throwable cause = ex;
-            if(ex instanceof BaseRuntimeException bre){
-                cause = bre.getCause();
-            }
-            context.logError(fes, "error in Zip", cause);
-            flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
-			throw Exceptions.server("unable-zip-data-package").withExtra("dataName", context.getFlow().getData().getName()).withCause(cause).get();
+        } catch(BaseRuntimeException bre) {
+            throw Exceptions.server("unable-zip-data-package").withExtra("dataName", context.getFlow().getData().getName()).withCause(bre.getCause()).get();
+        }catch(Exception ex){
+            throw Exceptions.server("general-error-in-zip").withCause(ex).get();
         }
-        executeNext(context);
-    }
-
-    @Override
-    public void init(Flow f) {
-        super.init(f);
-        super.initNext(f);
     }
 
     @Override
@@ -65,6 +48,5 @@ public class Zip extends AbstractStep {
 		Map<String, Object> props = new HashMap<>();
 		props.put("type", Zip.class.getSimpleName());
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }

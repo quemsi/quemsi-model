@@ -64,6 +64,12 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 	private String username;
 	private String password;
 	private DataSource instance;
+
+	@Override
+	public DatasourceType type() {
+		return DatasourceType.MYSQL;
+	}
+
 	@Override
 	public synchronized DataSource getDataSource() {
 		if(instance == null) {

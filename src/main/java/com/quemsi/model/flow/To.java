@@ -1,16 +1,12 @@
 package com.quemsi.model.flow;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
-import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
-import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.flow.out.Storage;
 
 import lombok.Data;
@@ -23,9 +19,7 @@ public class To extends AbstractStep {
 
 	@Override
 	public void execute(FlowContext context) {
-		FlowExecutionStep fes = null;
 		try {
-			fes = flow.sendStepStarted(context.getExecution().getId(), "To", this.ord , LocalDateTime.now());
 			targets.stream().forEach(t -> {
 				t.store(context, context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
 				if(t.recordFiles()){
@@ -44,24 +38,15 @@ public class To extends AbstractStep {
 			if(context.isDeleteAfterwards()) {
 				context.getDataPackages().stream().forEach(dp-> dp.clear());
 			}
-			flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
-		}catch(BaseRuntimeException bre) {
-			context.logError(fes, "error in To step", bre);
-			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
-			throw bre;
 		}catch(Exception e) {
-			context.logError(fes, "error in To step", e);
-			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw Exceptions.server("error-storing-file").withCause(e).get();
 		}
-		executeNext(context);
 	}
 	
 	@Override
 	public void init(Flow f) {
 		super.init(f);
 		targets.forEach(t -> t.init(f));
-		super.initNext(f);
 	}
 	
 	@Override
@@ -80,6 +65,5 @@ public class To extends AbstractStep {
 		}).collect(Collectors.toList());
 		props.put("targets", ts);
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }

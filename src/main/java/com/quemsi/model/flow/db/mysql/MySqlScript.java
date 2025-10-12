@@ -10,7 +10,6 @@ import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.AbstractStep;
-import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.SqlParser;
@@ -45,13 +44,6 @@ public class MySqlScript extends AbstractStep{
         } catch (Exception e) {
             throw Exceptions.server("script-exception").withExtra("datasource", datasourceFactory.getName()).withCause(e).get();
         }
-        executeNext(context);
-	}
-	
-	@Override
-	public void init(Flow f) {
-		super.init(f);
-		super.initNext(f);
 	}
 	
 	@Override
@@ -61,6 +53,5 @@ public class MySqlScript extends AbstractStep{
         props.put("script", script);
 		props.put("type", MySqlScript.class.getSimpleName());
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }

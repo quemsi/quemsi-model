@@ -114,6 +114,10 @@ where s.schemaname = ?;
 	private String schema;
 	private HikariDataSource instance;
 	
+	@Override
+	public DatasourceType type() {
+		return DatasourceType.POSTGRES;
+	}
 
 	@PostConstruct
 	public void afterPropertiesSet(){

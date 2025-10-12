@@ -20,6 +20,7 @@ import org.apache.commons.io.IOUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
+import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
@@ -79,6 +80,10 @@ public class RdbmsTarget extends AbstractStorage{
                 String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
                 
+                if(!datasourceFactory.type().equals(DatasourceType.valueOf(dbModel.getSourceType()))){
+                    throw Exceptions.badRequest("unsupported-source-type-for-rdbms-target").withExtra("sourceType", dbModel.getSourceType()).withExtra("targetType", datasourceFactory.getName()).get();
+                }
+
                 context.getDbModelProcessors().forEach(p -> p.process(dbModel));
 
                 ddlService.createTables(dbModel);

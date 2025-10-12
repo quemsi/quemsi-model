@@ -6,8 +6,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.AbstractStep;
-import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DataSourceFactory;
 
@@ -28,17 +28,10 @@ public class StartReplica extends AbstractStep{
 			try(Connection conn = datasource.getDataSource().getConnection();
 					PreparedStatement ps = conn.prepareStatement(SQL_START_REPLICA);){
 				ps.executeUpdate();
-				executeNext(context);
 			} catch(Exception e) {
-				// context.logError("unable to start replica", e);
+				throw Exceptions.server("unable-to-start-replica").withCause(e).get();
 			}
 		}
-	}
-	
-	@Override
-	public void init(Flow f) {
-		super.init(f);
-		super.initNext(f);
 	}
 	
 	@Override
@@ -47,6 +40,5 @@ public class StartReplica extends AbstractStep{
 		props.put("datasource", datasource.getName());
 		props.put("type", StartReplica.class.getSimpleName());
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }

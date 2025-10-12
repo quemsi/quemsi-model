@@ -120,6 +120,10 @@ where schema_name(s.schema_id) = ?
 	private HikariDataSource instance;
 	private ReentrantLock globalLock;
 	
+	@Override
+	public DatasourceType type() {
+		return DatasourceType.SQLSERVER;
+	}
 
 	@PostConstruct
 	public void afterPropertiesSet(){

@@ -33,7 +33,7 @@ public class FlowContext {
 		execution.setActive(true);
 		execution.setFlowId(flow.getId());
 		execution.setFlowName(flow.getName());
-		execution.setNumberOfSteps(flow.getNumberOfSteps());
+		execution.setNumberOfSteps(flow.numberOfSteps());
 		execution.setStatus(FlowExecutionStatus.SCHEDULED);
 		this.tags = new HashMap<>();
 		this.flow = flow;

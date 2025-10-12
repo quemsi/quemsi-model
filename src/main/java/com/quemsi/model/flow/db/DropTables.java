@@ -1,6 +1,5 @@
 package com.quemsi.model.flow.db;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -8,10 +7,7 @@ import java.util.Map;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
-import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
-import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.flow.AbstractStep;
-import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.SqlParser;
@@ -37,9 +33,7 @@ public class DropTables extends AbstractStep{
 
     @Override
 	public void execute(FlowContext context) {
-		FlowExecutionStep fes = null;
-        try (DDLService ddlService = datasource.ddlService()){
-            fes = flow.sendStepStarted(context.getExecution().getId(), DropTables.class.getSimpleName(), this.ord , LocalDateTime.now());
+		try (DDLService ddlService = datasource.ddlService()){
             DbModel dbModel = datasource.getDbModel();
 			if(all){
 				tables = CommonOps.reverse(dbModel.orderedTableNames());
@@ -50,19 +44,9 @@ public class DropTables extends AbstractStep{
 				}
 				ddlService.dropTables(tables.toArray(new String[tables.size()]));
             }
-            flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch (Exception e) {
-            context.logError(fes, "error in ClearTables step", e);
-			flow.sendStepFinished(fes, FlowExecutionStatus.FAILED);
 			throw Exceptions.server("script-exception").withExtra("datasource", datasource.getName()).withCause(e).get();
         }
-		executeNext(context);
-	}
-	
-	@Override
-	public void init(Flow f) {
-		super.init(f);
-		super.initNext(f);
 	}
 	
 	@Override
@@ -72,7 +56,6 @@ public class DropTables extends AbstractStep{
         props.put("all", all);
 		props.put("type", DropTables.class.getSimpleName());
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }
 
