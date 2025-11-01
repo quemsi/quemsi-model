@@ -205,8 +205,9 @@ public class DDLServiceSqlserver implements DDLService{
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
-						.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
+						// .append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
+						// .append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")")
+						;
 				}
 			}
 			sb.append(System.lineSeparator()).append(");");

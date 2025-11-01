@@ -13,6 +13,7 @@ import javax.sql.DataSource;
 
 import org.postgresql.jdbc.PgArray;
 import org.postgresql.jdbc.PgClob;
+import org.postgresql.util.PGobject;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DMLService;
@@ -63,6 +64,8 @@ public class DMLServicePostgres implements DMLService{
 							val = pgArray.getArray();
 						} else if (val instanceof PgClob pgClob){
 							val = pgClob.toString();
+						} else if (val instanceof PGobject pGobject){
+							val = pGobject.getValue();
 						}
 						log.trace("{} column {} value {}", request.getTable().getName(), columnName, val);
 						cellValues[columnIndex++] = val;
@@ -70,9 +73,15 @@ public class DMLServicePostgres implements DMLService{
 						if(request.getTable().getPkColumnNames().size() == 1){
 							String pkName = request.getTable().getPkColumnNames().iterator().next();
 							pk = rs.getObject(pkName);
+							if(pk instanceof PGobject pGobject){
+								pk = pGobject.getValue();
+							}
 							cellValues[columnIndex++] = pk;
 						}else{
 							Object pkVal = Exceptions.wrapSupplier(() -> rs.getObject(columnName)).get();
+							if(pkVal instanceof PGobject pGobject){
+								pkVal = pGobject.getValue();
+							}
 							cellValues[columnIndex++] = pkVal;
 							pkVals.put(columnName, pkVal);
 							if(pkBuilder.length() > 0){
@@ -100,7 +109,7 @@ public class DMLServicePostgres implements DMLService{
     @Override
     public int writePageData(DbTable table, DataPage dataPage) {
         try(Connection conn = dataSource.getConnection()){
-			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.getName()).append("(");
+			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
 			StringBuilder paramsBuilder = new StringBuilder("(");
 			int counter = 0;
  			for(String columnName : table.columnNames()){

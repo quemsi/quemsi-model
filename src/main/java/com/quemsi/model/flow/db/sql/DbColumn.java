@@ -22,10 +22,6 @@ public class DbColumn {
     @Getter
     private String dataType;
     @Getter
-    private ReferencedColumn references;
-    @Getter
-    private String constraintName;
-    @Getter
     private Integer ordinalPosition;
     @Getter
     private Integer maxLength;

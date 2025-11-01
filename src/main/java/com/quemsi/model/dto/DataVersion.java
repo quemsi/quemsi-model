@@ -44,7 +44,6 @@ public class DataVersion extends BaseDto<Long>{
 			for (DataFile f : fs) {
 				DataFile existing = fileMap.get(f.getName());
 				if (existing != null) {
-					// Merge storages
 					existing.getStorages().addAll(f.getStorages());
 				} else {
 					fileMap.put(f.getName(), f);

@@ -69,13 +69,30 @@ public class DDLServicePostgres implements DDLService{
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
             sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ")
             .append(refInfo.getConstraintName())
-            .append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
-            .append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");");
+            .append(" FOREIGN KEY (");
+            Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
+            while(cIt.hasNext()){
+                String cName = cIt.next();
+                sb.append(cName);
+                if(cIt.hasNext()){
+                    sb.append(", ");
+                }
+            }
+            sb.append(") REFERENCES ").append(refInfo.getRefTableName()).append("(");
+            cIt = refInfo.getRefColumnNames().iterator();
+            while(cIt.hasNext()){
+                String cName = cIt.next();
+                sb.append(cName);
+                if(cIt.hasNext()){
+                    sb.append(", ");
+                }
+            }
+            sb.append(");");
             try{
-                String dropConstraintSql = sb.toString();
-                log.info("drop constraint sql :{}", dropConstraintSql);
+                String enableConstraintSql = sb.toString();
+                log.info("enable constraint sql :{}", enableConstraintSql);
                 Statement s = conn.createStatement();
-                s.executeUpdate(dropConstraintSql);
+                s.executeUpdate(enableConstraintSql);
             }catch(SQLException ignore){
                 log.info("ignored enable constraint : " + refInfo.getConstraintName(), ignore);
             }
@@ -139,7 +156,7 @@ public class DDLServicePostgres implements DDLService{
 			if(table.getPkColumnNames().size() > 0){
                 StringBuilder pkConst = new StringBuilder();
                 Iterator<String> cIt = table.getPkColumnNames().iterator();
-				String pkConstraintName = table.getPkColumnNames().stream().map(cn -> table.column(cn)).filter(c -> c.getConstraintName() != null).findFirst().map(c -> c.getConstraintName()).orElse(null);
+				String pkConstraintName = table.getPkConstraintName();
                 while(cIt.hasNext()){
 					String cName = cIt.next();
 					if(pkConst.length() == 0){
@@ -161,8 +178,25 @@ public class DDLServicePostgres implements DDLService{
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
-						.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
+						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+                    Iterator<String> cIt = ref.getSrcColumnNames().iterator();
+                    while(cIt.hasNext()){
+                        String cName = cIt.next();
+                        sb.append(cName);
+                        if(cIt.hasNext()){
+                            sb.append(", ");
+                        }
+                    }
+					sb.append(") REFERENCES ").append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (");
+                    cIt = ref.getRefColumnNames().iterator();
+                    while(cIt.hasNext()){
+                        String cName = cIt.next();
+                        sb.append(cName);
+                        if(cIt.hasNext()){
+                            sb.append(", ");
+                        }
+                    }
+                    sb.append(")");
 				}
 			}
 			sb.append(System.lineSeparator()).append(");");

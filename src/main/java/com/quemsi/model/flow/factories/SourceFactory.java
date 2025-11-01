@@ -88,7 +88,7 @@ public class SourceFactory extends AbstractFactory<Source>{
         module.addDeserializer(LocalDate.class, new LocalDateDeserializer(DateTimeFormatter.ofPattern(dataDateFormat)));
         module.addSerializer(new LocalDateTimeSerializer(DateTimeFormatter.ofPattern(dataDateTimeFormat)));
         module.addDeserializer(LocalDateTime.class, new LocalDateTimeDeserializer(DateTimeFormatter.ofPattern(dataDateTimeFormat)));
-		// module.addSerializer(new SqlDateSerializer().withFormat(true, new SimpleDateFormat(dataDateTimeFormat)));
+		/* module.addSerializer(new SqlDateSerializer().withFormat(true, new SimpleDateFormat(dataDateTimeFormat))); */
 		module.addSerializer(new ApacheDurationSerializer());
         module.addDeserializer(Duration.class, new ApacheDurationDeserializer());
 		dataMapper.registerModule(module);

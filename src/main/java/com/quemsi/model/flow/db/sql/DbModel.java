@@ -20,6 +20,7 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import lombok.Singular;
 
 @Data
 public class DbModel {
@@ -70,10 +71,12 @@ public class DbModel {
         for(ReferenceInfo refInfo : this.referenceInfos){
             DbTable sTable = this.findTable(refInfo.srcQualifiedName()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTableName()).supplier());
             DbTable rTable = this.findTable(refInfo.refQualifiedName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
-                    .withExtra("schema", refInfo.getSrcSchema()).withExtra("tableName", refInfo.getSrcTableName()).withExtra("columnName", refInfo.getSrcColumnName()).withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
-            DbColumn rColumn = rTable.findColumn(refInfo.getRefColumnName()).orElseThrow(Exceptions.server("unknow-column-in-fk")
-                .withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumn", refInfo.getRefColumnName()).supplier());
-            sTable.addReference(sTable.column(refInfo.getSrcColumnName()), rColumn, refInfo.getConstraintName());
+                    .withExtra("schema", refInfo.getSrcSchema()).withExtra("tableName", refInfo.getSrcTableName()).withExtra("columnNames", refInfo.getSrcColumnNames()).withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumnNames", refInfo.getRefColumnNames()).supplier());
+            for(String refColName : refInfo.getRefColumnNames()){
+                rTable.findColumn(refColName).orElseThrow(Exceptions.server("unknow-column-in-fk").supplier());
+            }
+            sTable.addReference(refInfo);
+            rTable.addReferencedBy(sTable);
         }
     }
 
@@ -137,7 +140,8 @@ public class DbModel {
                 index.add(t.qualifiedName());
                 result.add(t.qualifiedName());
             } else {
-                boolean allProcessed = t.getReferences().stream().filter(r -> !t.qualifiedName().equals(r.qualifiedName())).map(r -> index.contains(r.qualifiedName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
+                boolean allProcessed = t.getReferences().stream()
+                .filter(r -> !t.qualifiedName().equals(r.refQualifiedName())).map(r -> index.contains(r.refQualifiedName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
                 if(allProcessed){
                     index.add(t.qualifiedName());
                     result.add(t.qualifiedName());
@@ -174,18 +178,41 @@ public class DbModel {
         }
     }
 
-    @NoArgsConstructor
-    @AllArgsConstructor
     @Builder
     @Data
+    @NoArgsConstructor
     public static class ReferenceInfo {
+        private String constraintName;
         private String srcSchema;
         private String srcTableName;
-        private String srcColumnName;
+        @Singular
+        private Set<String> srcColumnNames;
         private String refSchema;
         private String refTableName;
-        private String refColumnName;
-        private String constraintName;
+        @Singular
+        private Set<String> refColumnNames;
+
+        public ReferenceInfo(
+            String constraintName,
+            String srcSchema,
+            String srcTableName,
+            Set<String> srcColumnNames,
+            String refSchema,
+            String refTableName,
+            Set<String> refColumnNames
+        ) {
+            this.constraintName = constraintName;
+            this.srcSchema = srcSchema;
+            this.srcTableName = srcTableName;
+            this.srcColumnNames = new LinkedHashSet<>(srcColumnNames);
+            this.refSchema = refSchema;
+            this.refTableName = refTableName;
+            this.refColumnNames = new LinkedHashSet<>(refColumnNames);
+        }
+
+        public String qualifiedConstraintName(){
+            return CommonHelpers.qualifiedName(srcSchema, constraintName);
+        }
         public String srcQualifiedName(){
             return CommonHelpers.qualifiedName(srcSchema, srcTableName);
         }

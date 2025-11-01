@@ -45,8 +45,8 @@ public class SchemaMapping extends AbstractStep{
                     }
                 });
                 t.getReferences().stream().forEach(r -> {
-                    if(r.getSchema().equalsIgnoreCase(sourceSchema)){
-                        r.setSchema(targetSchema);
+                    if(r.getRefSchema().equalsIgnoreCase(sourceSchema)){
+                        r.setRefSchema(targetSchema);
                     }
                 });
                 return t;

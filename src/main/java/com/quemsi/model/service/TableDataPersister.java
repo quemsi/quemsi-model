@@ -16,7 +16,9 @@ import com.quemsi.model.flow.in.TableData;
 import com.quemsi.model.flow.in.TableDataPage;
 
 import lombok.Setter;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class TableDataPersister {
     @Setter
     private ObjectMapper objectMapper;
@@ -35,8 +37,10 @@ public class TableDataPersister {
     public List<DataPackage> getDataPackages(){
         LinkedList<DataPackage> dataPackages = new LinkedList<>();
         tableDataMap.entrySet().forEach(Exceptions.wrapConsumer(e -> {
+            log.info("serializing table data for {}", e.getKey());
             TableData tableData = e.getValue();
             String tableDataJson = objectMapper.writeValueAsString(tableData);
+            log.info("table data json size: {}", tableDataJson.length());
             byte[] dataPagesJsonBytes = tableDataJson.getBytes();
             String fileName = "data-" +e.getKey() + ".json";
             FileResource tData = FileResource.builder()

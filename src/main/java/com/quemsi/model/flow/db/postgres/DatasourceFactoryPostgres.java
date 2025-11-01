@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.Map;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -19,10 +20,11 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
+import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -33,30 +35,42 @@ import lombok.extern.slf4j.Slf4j;
 @Data
 public class DatasourceFactoryPostgres implements DataSourceFactory{
     private static final String SQL_FOR_COLUMNS = """
-select
-	c.table_schema, c.table_name, c.column_name, c.ordinal_position,
+select 
+	c.table_schema as TABLE_SCHEMA, c.table_name, c.column_name, c.ordinal_position,
 	c.character_maximum_length, c.udt_name as column_type, c.udt_name as data_type, c.character_octet_length, c.numeric_precision, c.numeric_scale,
-	const.contype as column_key, c.column_default, c.is_nullable, const.constraint_name, const.referenced_schema_name, const.REFERENCED_TABLE_NAME, const.REFERENCED_COLUMN_NAME, const.condef
+	c.column_default, c.is_nullable
 from information_schema.columns c
-	left join (
-		SELECT rel.relname as table_name, con.conname as constraint_name, con.contype,
-		  pg_catalog.pg_get_constraintdef(con.oid, true) as condef
-		  ,a.attname as column_name, nsf.nspname as referenced_schema_name, relf.relname as REFERENCED_TABLE_NAME, af.attname as REFERENCED_COLUMN_NAME
-		FROM pg_catalog.pg_constraint con
-		INNER JOIN pg_catalog.pg_namespace ns ON con.connamespace = ns.oid
-		CROSS JOIN LATERAL unnest(con.conkey) ak(k)
-		INNER JOIN pg_attribute a ON a.attrelid = con.conrelid AND a.attnum = ak.k
-		INNER JOIN pg_catalog.pg_class rel ON rel.oid = con.conrelid
-		left join lateral unnest(con.confkey) cf on 1 = 1
-		left join pg_attribute af ON af.attrelid = con.confrelid AND af.attnum = cf
-		left JOIN pg_catalog.pg_class relf ON relf.oid = con.confrelid
-		left JOIN pg_catalog.pg_namespace nsf ON relf.relnamespace = nsf.oid
-	) const on c.table_name = const.table_name and c.column_name = const.column_name
 where c.table_catalog = ? and c.table_schema  = ?
 	and not exists (select v.table_name from INFORMATION_SCHEMA.views v where v.table_catalog = c.table_catalog and v.table_name = c.table_name )
 order by c.table_catalog, c.table_schema, c.table_name, c.ordinal_position
 ;            """;
 
+	private static final String SQL_FOR_CONSTRAINTS = """
+select
+  ns.nspname as table_schema,
+  rel.relname as table_name,
+  con.conname as constraint_name,
+  con.contype as con_type,
+  pg_catalog.pg_get_constraintdef(con.oid, true) as con_def,
+  a.attname as column_name,
+  nsf.nspname as referenced_schema_name,
+  relf.relname as referenced_table_name,
+  af.attname as referenced_column_name
+from pg_catalog.pg_constraint con
+join pg_catalog.pg_namespace ns on ns.oid = con.connamespace
+join pg_catalog.pg_class rel on rel.oid = con.conrelid
+join lateral unnest(con.conkey) with ordinality as ak(attnum, ord) on true
+join pg_attribute a
+  on a.attrelid = con.conrelid and a.attnum = ak.attnum
+left join pg_catalog.pg_class relf on relf.oid = con.confrelid
+left join pg_catalog.pg_namespace nsf on nsf.oid = relf.relnamespace
+left join lateral unnest(con.confkey) with ordinality as cf(attnum, ord) on cf.ord = ak.ord
+left join pg_attribute af
+  on af.attrelid = con.confrelid and af.attnum = cf.attnum
+where ns.nspname = ?
+order by rel.relname, con.conname, ak.ord	
+;
+	""";
     private static final String SQL_FOR_INDEXES = """
 select * from (
   select 
@@ -138,15 +152,15 @@ where s.schemaname = ?;
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
-			// Connection pool settings to prevent exhaustion
-			config.setMaximumPoolSize(20);  // Reasonable max connections per datasource
-			config.setMinimumIdle(2);      // Keep minimum idle connections
-			config.setIdleTimeout(300000); // 5 minutes idle timeout
-			config.setMaxLifetime(1200000); // 20 minutes max lifetime
-			config.setConnectionTimeout(30000); // 30 seconds connection timeout
-			config.setLeakDetectionThreshold(30000); // 30 seconds leak detection
-			config.setValidationTimeout(5000); // 5 seconds validation timeout
-			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "Postgres")); // Named pool for monitoring
+			/* Connection pool settings to prevent exhaustion */
+			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
+			config.setMinimumIdle(2);      /* Keep minimum idle connections */
+			config.setIdleTimeout(300000); /* 5 minutes idle timeout */
+			config.setMaxLifetime(1200000); /* 20 minutes max lifetime */
+			config.setConnectionTimeout(30000); /* 30 seconds connection timeout */
+			config.setLeakDetectionThreshold(30000); /* 30 seconds leak detection */
+			config.setValidationTimeout(5000); /* 5 seconds validation timeout */
+			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "Postgres")); /* Named pool for monitoring */
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}
@@ -161,6 +175,7 @@ where s.schemaname = ?;
 		try(
 			Connection con = getDataSource().getConnection();
 			PreparedStatement ps = con.prepareStatement(SQL_FOR_COLUMNS);
+			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
 			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES);
 			PreparedStatement sst = con.prepareStatement(SQL_FOR_SEQUENCES);
 		){
@@ -178,25 +193,46 @@ where s.schemaname = ?;
 				String dataType = rs.getString("DATA_TYPE");
 				Integer numPrecision = rsHelper.getInt("NUMERIC_PRECISION");
 				Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
-				String columnKey = rs.getString("COLUMN_KEY");
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
 				String isIdentity = "FALSE";
-				String constName = rs.getString("CONSTRAINT_NAME");
-				String refSchemaName = rs.getString("REFERENCED_SCHEMA_NAME");
-				String refTable = rs.getString("REFERENCED_TABLE_NAME");
-				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
-				DbTable table = dbModel.crateIfAbsent(tableName);
-				DbColumn column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable, isIdentity);
-				if(refColumn != null){
-					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcSchema(schemaName).srcTableName(tableName).srcColumnName(column.getName()).constraintName(constName).refSchema(refSchemaName).refTableName(refTable).refColumnName(refColumn).build());
-				}else{
-					column.setConstraintName(constName);
-				}
-				if("p".equals(columnKey)){
+				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
+				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+			}
+
+			cps.setString(1, schema);
+			ResultSet crs = cps.executeQuery();
+			rsHelper = new RsHelper(crs);
+			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			while(crs.next()){
+				String schemaName = crs.getString("TABLE_SCHEMA");
+				String tableName = crs.getString("TABLE_NAME");
+				String constraintName = crs.getString("CONSTRAINT_NAME");
+				String conType = crs.getString("CON_TYPE");
+				String conDef = crs.getString("CON_DEF");
+				String columnName = crs.getString("COLUMN_NAME");
+				String refSchemaName = crs.getString("REFERENCED_SCHEMA_NAME");	
+				String refTableName = crs.getString("REFERENCED_TABLE_NAME");
+				String refColumnName = crs.getString("REFERENCED_COLUMN_NAME");
+				if("p".equals(conType)){
+					DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
 					table.getPkColumnNames().add(columnName);
+					table.setPkConstraintName(constraintName);
+				} else if("f".equals(conType)){
+					ReferenceInfo refInfo = referenceInfos.get(constraintName);
+					if(refInfo == null){
+						refInfo = ReferenceInfo.builder().constraintName(constraintName).srcSchema(schemaName).srcTableName(tableName).srcColumnName(columnName).refSchema(refSchemaName).refTableName(refTableName).refColumnName(refColumnName).build();
+						referenceInfos.put(constraintName, refInfo);
+					}else{
+						if(refInfo.getRefColumnNames().contains(refColumnName)){
+							continue;
+						}
+						refInfo.getSrcColumnNames().add(columnName);
+						refInfo.getRefColumnNames().add(refColumnName);	
+					}
 				}
 			}
+			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			ist.setString(1, schema);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;

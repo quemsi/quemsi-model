@@ -67,8 +67,9 @@ public class DDLServiceMysql implements DDLService{
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
             sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ")
             .append(refInfo.getConstraintName())
-            .append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
-            .append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");");
+            // .append(" FOREIGN KEY (").append(refInfo.getSrcColumnName())
+            // .append(") REFERENCES ").append(refInfo.getRefTableName()).append("(").append(refInfo.getRefColumnName()).append(");")
+			;
             try(Connection conn = dataSource.getConnection()){
                 String dropConstraintSql = sb.toString();
                 log.info("drop constraint sql :{}", dropConstraintSql);
@@ -141,8 +142,9 @@ public class DDLServiceMysql implements DDLService{
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
-						.append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")");
+						// .append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
+						// .append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")")
+						;
 				}
 			}
 			sb.append(System.lineSeparator()).append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");

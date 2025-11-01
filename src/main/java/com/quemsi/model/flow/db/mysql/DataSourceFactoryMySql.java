@@ -77,15 +77,15 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
-			// Connection pool settings to prevent exhaustion
-			config.setMaximumPoolSize(20);  // Reasonable max connections per datasource
-			config.setMinimumIdle(2);      // Keep minimum idle connections
-			config.setIdleTimeout(300000); // 5 minutes idle timeout
-			config.setMaxLifetime(1200000); // 20 minutes max lifetime
-			config.setConnectionTimeout(30000); // 30 seconds connection timeout
-			config.setLeakDetectionThreshold(30000); // 30 seconds leak detection
-			config.setValidationTimeout(5000); // 5 seconds validation timeout
-			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "MySQL")); // Named pool for monitoring
+			/* Connection pool settings to prevent exhaustion */
+			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
+			config.setMinimumIdle(2);      /* Keep minimum idle connections */
+			config.setIdleTimeout(300000); /* 5 minutes idle timeout */
+			config.setMaxLifetime(1200000); /* 20 minutes max lifetime */
+			config.setConnectionTimeout(30000); /* 30 seconds connection timeout */
+			config.setLeakDetectionThreshold(30000); /* 30 seconds leak detection */
+			config.setValidationTimeout(5000); /* 5 seconds validation timeout */
+			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "MySQL")); /* Named pool for monitoring */
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}
@@ -122,7 +122,6 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 				String dataType = rs.getString("DATA_TYPE");
 				Integer numPrecision = rs.getInt("NUMERIC_PRECISION");
 				Integer numScale = rs.getInt("NUMERIC_SCALE");
-				String columnKey = rs.getString("COLUMN_KEY");
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
 				String isIdentity = "FALSE";
@@ -130,13 +129,7 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 				String refTable = rs.getString("REFERENCED_TABLE_NAME");
 				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
 				DbTable table = dbModel.crateIfAbsent(tableName);
-				DbColumn column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable, isIdentity);
-				if(refColumn != null){
-					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcTableName(tableName).srcColumnName(column.getName()).constraintName(constName).refTableName(refTable).refColumnName(refColumn).build());
-				}
-				if("PRI".equals(columnKey)){
-					table.getPkColumnNames().add(columnName);
-				}
+				DbColumn column = table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 			}
 			ist.setString(1, dbName);
 			ResultSet irs = ist.executeQuery();

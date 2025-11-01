@@ -23,7 +23,6 @@ import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
-import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.zaxxer.hikari.HikariConfig;
@@ -144,15 +143,15 @@ where schema_name(s.schema_id) = ?
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
-			// Connection pool settings to prevent exhaustion
-			config.setMaximumPoolSize(20);  // Reasonable max connections per datasource 
-			config.setMinimumIdle(2);      // Keep minimum idle connections
-			config.setIdleTimeout(300000); // 5 minutes idle timeout
-			config.setMaxLifetime(1200000); // 20 minutes max lifetime
-			config.setConnectionTimeout(30000); // 30 seconds connection timeout
-			config.setLeakDetectionThreshold(30000); // 30 seconds leak detection
-			config.setValidationTimeout(5000); // 5 seconds validation timeout
-			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "SQLServer")); // Named pool for monitoring
+			/* Connection pool settings to prevent exhaustion */
+			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
+			config.setMinimumIdle(2);      /* Keep minimum idle connections */
+			config.setIdleTimeout(300000); /* 5 minutes idle timeout */	
+			config.setMaxLifetime(1200000); /* 20 minutes max lifetime */	
+			config.setConnectionTimeout(30000); /* 30 seconds connection timeout */
+			config.setLeakDetectionThreshold(30000); /* 30 seconds leak detection */
+			config.setValidationTimeout(5000); /* 5 seconds validation timeout */
+			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "SQLServer")); /* Named pool for monitoring */
 			globalLock = new ReentrantLock();
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
@@ -195,12 +194,12 @@ where schema_name(s.schema_id) = ?
 				String columnKey = !StringUtils.isEmptyOrNull(pkConstraintName)?"p":(!StringUtils.isEmptyOrNull(constName)?"f":null);
 				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
 
-				DbColumn column = table.addColumn(columnName, dataType, ordinalPosition, columnType, maxLength, numPrecision, numScale, columnKey, columnDefault, nullable, isIdentity);
-				if(refColumn != null){
-					dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcSchema(schemaName).srcTableName(tableName).srcColumnName(column.getName()).constraintName(constName).refSchema(refSchema).refTableName(refTable).refColumnName(refColumn).build());
-				}else{
-					column.setConstraintName(constName);
-				}
+				DbColumn column = table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+				// if(refColumn != null){
+				// 	dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcSchema(schemaName).srcTableName(tableName).srcColumnName(column.getName()).constraintName(constName).refSchema(refSchema).refTableName(refTable).refColumnName(refColumn).build());
+				// }else{
+				// 	column.setConstraintName(constName);
+				// }
 				if(!StringUtils.isEmptyOrNull(pkConstraintName)){
 					table.setPkConstraintName(pkConstraintName);
 					table.getPkColumnNames().add(columnName);

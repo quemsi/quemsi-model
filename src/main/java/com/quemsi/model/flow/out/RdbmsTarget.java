@@ -60,7 +60,7 @@ public class RdbmsTarget extends AbstractStorage{
     @Override
     public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
         if(!dataPackages.isEmpty()){
-            // Reset global state
+            /* Reset global state */
             globalCancellationFlag.set(false);
             firstFailure.set(null);
             taskRegistry.clear();
@@ -91,7 +91,7 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.disableConstraints(dbModel.getCircularIgnore());
                 List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool))
                     .map(t -> {
-                        taskRegistry.put(t.getTable().getName(), new CompletableFuture<>());
+                        taskRegistry.put(t.getTable().qualifiedName(), new CompletableFuture<>());
                         ForkJoinTask<Boolean> task = pool.submit(t);
                         return task;
                     }).toList();
@@ -154,22 +154,22 @@ public class RdbmsTarget extends AbstractStorage{
         @Override
         public Boolean call() throws Exception {
             try{
-                CompletableFuture<Object> future = taskRegistry.get(table.getName());
-                log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
+                CompletableFuture<Object> future = taskRegistry.get(table.qualifiedName());
+                log.info("{} will wait for [{}] {}", table.qualifiedName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.refQualifiedName()).toList());
                 String fileName = "data-" + table.getName() + ".json";
                 if(!namedPackages.containsKey(fileName)){
                     log.error("unable to find data file {}", fileName);
                     return false;
                 }
                 
-                // Wait for dependencies with timeout and cancellation support
-                for(var tr : table.getReferences().stream().filter(r -> !table.getName().equals(r.getName())).toList()) {
-                    log.info("{} waiting for {}", table.getName(), tr.getName());
+                /* Wait for dependencies with timeout and cancellation support */
+                for(var tr : table.getReferences().stream().filter(r -> !table.qualifiedName().equals(r.refQualifiedName())).toList()) {
+                    log.info("{} waiting for {}", table.qualifiedName(), tr.refQualifiedName());
                     boolean dependency = false;
                     while(!dependency){
                         try{
-                            dependency = (Boolean) taskRegistry.get(tr.getName()).get(1, TimeUnit.SECONDS);
-                            log.info("future of {} completed for {} result {}", tr.getName(), table.getName(), dependency);
+                            dependency = (Boolean) taskRegistry.get(tr.refQualifiedName()).get(1, TimeUnit.SECONDS);
+                            log.info("future of {} completed for {} result {}", tr.refQualifiedName(), table.qualifiedName(), dependency);
                             if(!dependency || globalCancellationFlag.get()){
                                 return false;
                             }
@@ -192,7 +192,7 @@ public class RdbmsTarget extends AbstractStorage{
                 future.complete(allSucceded);
                 return allSucceded;
             }catch(Exception e){
-                log.error("failed process " + table.getName(), e);
+                log.error("failed to process " + table.getName(), e);
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
             }
@@ -212,7 +212,7 @@ public class RdbmsTarget extends AbstractStorage{
 
         @Override
         public Boolean call() throws Exception {
-            // Check for global cancellation before starting
+            /* Check for global cancellation before starting */
             if (globalCancellationFlag.get()) {
                 log.info("Page restore task for table {} cancelled before execution", table.getName());
                 return false;
@@ -220,7 +220,7 @@ public class RdbmsTarget extends AbstractStorage{
             
             try(DMLService dmlService = datasourceFactory.dmlService()){
                 dmlService.writePageData(table, dataPage);
-                // Check for global cancellation after processing
+                /* Check for global cancellation after processing */
                 if (globalCancellationFlag.get()) {
                     log.info("Page restore task for table {} cancelled after processing", table.getName());
                     return false;

@@ -25,7 +25,7 @@ import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbModel.TableReference;
+import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableDataPage.Request;
 import com.quemsi.model.service.TableDataPersister;
@@ -116,14 +116,14 @@ public class RdbmsBackup implements Source{
         @Override
         public Boolean call() throws Exception {
             try(DMLService dmlService = datasource.dmlService()){
-                log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getName()).toList());
-                for(TableReference tr : table.getReferences()){
-                    if(!tr.getName().equals(table.getName())){
+                log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getRefTableName()).toList());
+                for(ReferenceInfo tr : table.getReferences()){
+                    if(!tr.getRefTableName().equals(table.getName())){
                         boolean dependency = false;
                         while(!dependency){
                             try{
-                                dependency = taskRegistry.get(tr.getName()).get(1, TimeUnit.SECONDS);
-                                log.info("future of {} completed for {} result {}", tr.getName(), table.getName(), dependency);
+                                dependency = taskRegistry.get(tr.getRefTableName()).get(1, TimeUnit.SECONDS);
+                                log.info("future of {} completed for {} result {}", tr.getRefTableName(), table.getName(), dependency);
                                 if(!dependency || globalCancellationFlag.get()){
                                     return false;
                                 }

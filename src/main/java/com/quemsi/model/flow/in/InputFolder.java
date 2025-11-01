@@ -27,8 +27,8 @@ public class InputFolder implements Source {
 	private boolean changed;
 	@Setter
 	private Boolean zip;
-	// @Setter
-	// private CheckSumDb checksumDb;
+	/* @Setter
+	 * private CheckSumDb checksumDb; */
 	@Setter
 	private ChecksumProducer checksumProducer;
 	@Autowired
@@ -44,7 +44,7 @@ public class InputFolder implements Source {
 					if(!changed){
 						return true;
 					}
-					String old = null; //checksumDb.fileChecksum(f.getAbsolutePath());
+					String old = null; /* checksumDb.fileChecksum(f.getAbsolutePath()); */
 					try {
 						return checksumProducer.isDifferent(f, old);
 					}catch(Exception e) {
