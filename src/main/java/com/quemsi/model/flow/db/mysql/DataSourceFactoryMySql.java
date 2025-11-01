@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.Map;
 
 import javax.sql.DataSource;
 
@@ -14,11 +15,13 @@ import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
+import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -32,15 +35,17 @@ public class DataSourceFactoryMySql implements DataSourceFactory {
 SELECT cols.TABLE_NAME, cols.COLUMN_NAME, cols.ORDINAL_POSITION,
     cols.CHARACTER_MAXIMUM_LENGTH, cols.COLUMN_TYPE, cols.DATA_TYPE, cols.CHARACTER_OCTET_LENGTH, cols.NUMERIC_PRECISION, cols.NUMERIC_SCALE,
     cols.COLUMN_KEY, cols.COLUMN_DEFAULT, cols.IS_NULLABLE
-    ,  refs.CONSTRAINT_NAME, refs.REFERENCED_TABLE_SCHEMA, refs.REFERENCED_TABLE_NAME, refs.REFERENCED_COLUMN_NAME
 FROM INFORMATION_SCHEMA.`COLUMNS` as cols
-  LEFT JOIN INFORMATION_SCHEMA.`KEY_COLUMN_USAGE` AS refs
-	ON refs.TABLE_SCHEMA=cols.TABLE_SCHEMA
-    AND refs.REFERENCED_TABLE_SCHEMA=cols.TABLE_SCHEMA
-    AND refs.TABLE_NAME=cols.TABLE_NAME
-    AND refs.COLUMN_NAME=cols.COLUMN_NAME
 where cols.TABLE_SCHEMA = ?
 order by cols.TABLE_NAME, cols.ORDINAL_POSITION
+;
+			""";
+	private static final String SQL_FOR_CONSTRAINTS = """
+select kcu.table_name, kcu.constraint_name, kcu.column_name, coalesce(kcu.position_in_unique_constraint, kcu.ordinal_position) as ORD,
+	kcu.referenced_table_name, kcu.referenced_column_name
+from INFORMATION_SCHEMA.`KEY_COLUMN_USAGE` kcu 
+where kcu.CONSTRAINT_SCHEMA = ?
+order by kcu.table_name, kcu.constraint_name, coalesce(kcu.position_in_unique_constraint, kcu.ordinal_position)
 ;
 			""";
 	private static final String SQL_FOR_INDEXES = """
@@ -109,28 +114,56 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 		try(
 			Connection con = getDataSource().getConnection();
 			PreparedStatement ps = con.prepareStatement(SQL_FOR_COLUMNS);
+			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
 			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES); 
 		){
 			ps.setString(1, dbName);
 			ResultSet rs = ps.executeQuery();
+			RsHelper rsHelper = new RsHelper(rs);
 			while(rs.next()){
 				String tableName = rs.getString("TABLE_NAME");
 				String columnName = rs.getString("COLUMN_NAME");
-				Integer ordinalPosition = rs.getInt("ORDINAL_POSITION");
-				Integer maxLength = rs.getInt("CHARACTER_MAXIMUM_LENGTH");
+				Integer ordinalPosition = rsHelper.getInt("ORDINAL_POSITION");
+				Integer maxLength = rsHelper.getInt("CHARACTER_MAXIMUM_LENGTH");
 				String columnType = rs.getString("COLUMN_TYPE");
 				String dataType = rs.getString("DATA_TYPE");
-				Integer numPrecision = rs.getInt("NUMERIC_PRECISION");
-				Integer numScale = rs.getInt("NUMERIC_SCALE");
+				Integer numPrecision = rsHelper.getInt("NUMERIC_PRECISION");
+				Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
 				String isIdentity = "FALSE";
-				String constName = rs.getString("CONSTRAINT_NAME");
-				String refTable = rs.getString("REFERENCED_TABLE_NAME");
-				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
 				DbTable table = dbModel.crateIfAbsent(tableName);
-				DbColumn column = table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 			}
+			cps.setString(1, dbName);
+			ResultSet crs = cps.executeQuery();
+			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			while(crs.next()){
+				String tableName = crs.getString("TABLE_NAME");
+				String constraintName = crs.getString("CONSTRAINT_NAME");
+				String conType = "PRIMARY".equals(constraintName) ? "p" : "f";
+				String columnName = crs.getString("COLUMN_NAME");
+				String refTableName = crs.getString("REFERENCED_TABLE_NAME");
+				String refColumnName = crs.getString("REFERENCED_COLUMN_NAME");
+				if("p".equals(conType)){	
+					DbTable table = dbModel.findTable(tableName).orElseThrow(Exceptions.server("unknow-table").withExtra("tableName", tableName).supplier());
+					table.getPkColumnNames().add(columnName);
+					table.setPkConstraintName(constraintName);
+				} else if("f".equals(conType)){
+					ReferenceInfo refInfo = referenceInfos.get(constraintName);
+					if(refInfo == null){
+						refInfo = ReferenceInfo.builder().constraintName(constraintName).srcTableName(tableName).srcColumnName(columnName).refTableName(refTableName).refColumnName(refColumnName).build();
+						referenceInfos.put(constraintName, refInfo);
+					}else{
+						if(refInfo.getRefColumnNames().contains(refColumnName)){
+							continue;
+						}
+						refInfo.getSrcColumnNames().add(columnName);
+						refInfo.getRefColumnNames().add(refColumnName);	
+					}
+				}
+			}
+			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			ist.setString(1, dbName);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
