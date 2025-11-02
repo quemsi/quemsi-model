@@ -69,6 +69,9 @@ public class DbModel {
 
     public void addReferenceInfosToColumns(){
         for(ReferenceInfo refInfo : this.referenceInfos){
+            if(!this.getSchema().equals(refInfo.getSrcSchema()) || !this.getSchema().equals(refInfo.getRefSchema())){
+                continue;
+            }
             DbTable sTable = this.findTable(refInfo.srcQualifiedName()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTableName()).supplier());
             DbTable rTable = this.findTable(refInfo.refQualifiedName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
                     .withExtra("schema", refInfo.getSrcSchema()).withExtra("tableName", refInfo.getSrcTableName()).withExtra("columnNames", refInfo.getSrcColumnNames()).withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumnNames", refInfo.getRefColumnNames()).supplier());
@@ -156,14 +159,6 @@ public class DbModel {
         return this.orderedTableNames().stream().map(tName -> tables.get(tName)).collect(Collectors.toCollection(LinkedList::new));
     }
     
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class ReferencedColumn {
-        private String on;
-        private String column;
-    }
-
     @Data
     @NoArgsConstructor
     @AllArgsConstructor

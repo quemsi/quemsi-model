@@ -202,14 +202,12 @@ where s.schemaname = ?;
 
 			cps.setString(1, schema);
 			ResultSet crs = cps.executeQuery();
-			rsHelper = new RsHelper(crs);
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
 			while(crs.next()){
 				String schemaName = crs.getString("TABLE_SCHEMA");
 				String tableName = crs.getString("TABLE_NAME");
 				String constraintName = crs.getString("CONSTRAINT_NAME");
 				String conType = crs.getString("CON_TYPE");
-				String conDef = crs.getString("CON_DEF");
 				String columnName = crs.getString("COLUMN_NAME");
 				String refSchemaName = crs.getString("REFERENCED_SCHEMA_NAME");	
 				String refTableName = crs.getString("REFERENCED_TABLE_NAME");

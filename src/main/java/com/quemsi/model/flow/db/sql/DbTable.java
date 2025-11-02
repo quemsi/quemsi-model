@@ -10,9 +10,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import com.quemsi.commons.util.CommonOps;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
-import com.quemsi.model.flow.db.sql.DbModel.ReferencedColumn;
 import com.quemsi.model.flow.db.sql.DbModel.TableReference;
 import com.quemsi.model.util.CommonHelpers;
 

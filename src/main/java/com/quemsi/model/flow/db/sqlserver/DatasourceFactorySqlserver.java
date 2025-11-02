@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -14,7 +15,6 @@ import javax.sql.DataSource;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
-import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
@@ -23,8 +23,10 @@ import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
+import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -50,39 +52,43 @@ select
 	c.max_length as character_maximum_length, ut.name as column_type, st.name as data_type,
 	c.max_length as character_octet_length, c.precision as numeric_precision, c.scale as numeric_scale,
 	object_definition(c.default_object_id) as column_default, c.is_nullable, c.is_identity,
-	pkinfo.constraint_name as pk_constraint_name, 
-	fkinfo.constraint_name as fk_constraint_name, fkinfo.schema_name as REFERENCED_SCHEMA, fkinfo.REFERENCED_TABLE_NAME, fkinfo.REFERENCED_COLUMN_NAME
+	c.*
 from sys.columns c
-inner JOIN sys.tables t ON c.object_id = t.object_id
-inner join sys.types st on c.system_type_id = st.system_type_id
-inner join sys.types ut on c.user_type_id = ut.user_type_id 
-left join (
-	-- pk constraints 
-	SELECT  kcu.table_schema, kcu.table_name, kcu.constraint_name, kcu.column_name, kcu.ordinal_position
-	FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
-		WHERE OBJECTPROPERTY(OBJECT_ID(CONSTRAINT_SCHEMA + '.' + QUOTENAME(CONSTRAINT_NAME)), 'IsPrimaryKey') = 1
-) pkinfo on pkinfo.table_schema = SCHEMA_NAME(t.schema_id) and pkinfo.table_name = t.name and pkinfo.column_name = c.name
-left join (
-	SELECT t.schema_id, schema_name(t.schema_id) as schema_name, CAST (oParent.name AS VARCHAR(255)) as table_name, CAST ( oParentCol.name AS VARCHAR(255)) as column_name,
-		CAST (oConstraint.name AS VARCHAR(255)) as CONSTRAINT_NAME,
-		CAST ( oReference.name AS VARCHAR(255)) as REFERENCED_TABLE_NAME, CAST (oReferenceCol.name AS VARCHAR(255)) as REFERENCED_COLUMN_NAME 
-	FROM sys.foreign_key_columns FKC
-	    INNER JOIN sys.sysobjects oConstraint ON FKC.constraint_object_id=oConstraint.id 
-	    INNER JOIN sys.sysobjects oParent ON FKC.parent_object_id=oParent.id
-	    INNER JOIN sys.all_columns oParentCol ON FKC.parent_object_id=oParentCol.object_id /* ID of the object to which this column belongs.*/
-	            AND FKC.parent_column_id=oParentCol.column_id/* ID of the column. Is unique within the object.Column IDs might not be sequential.*/
-	    INNER JOIN sys.sysobjects oReference ON FKC.referenced_object_id=oReference.id
-	    INNER JOIN INFORMATION_SCHEMA.COLUMNS oParentColDtl ON oParentColDtl.TABLE_NAME=oParent.name AND oParentColDtl.COLUMN_NAME=oParentCol.name
-	    INNER JOIN sys.all_columns oReferenceCol ON FKC.referenced_object_id=oReferenceCol.object_id /* ID of the object to which this column belongs.*/
-	            AND FKC.referenced_column_id=oReferenceCol.column_id/* ID of the column. Is unique within the object.Column IDs might not be sequential.*/
-	    inner JOIN sys.tables t ON oParentCol.object_id = t.object_id
-) fkinfo on fkinfo.schema_id  = t.schema_id and fkinfo.table_name = t.name and fkinfo.column_name = c.name
-where schema_name(t.schema_id) = ? and c.name <> 'rowguid' and t.[type] = 'U' 	
-and st.user_type_id = (select min(itq.user_type_id) from sys.types itq where itq.system_type_id  = st.system_type_id)
+	inner JOIN sys.tables t ON c.object_id = t.object_id
+	inner join sys.types st on c.system_type_id = st.system_type_id
+	inner join sys.types ut on c.user_type_id = ut.user_type_id 
+where schema_name(t.schema_id) = ? and t.[type] = 'U'
+	and st.user_type_id = (select min(itq.user_type_id) from sys.types itq where itq.system_type_id  = st.system_type_id)
 order by t.schema_id, t.name, c.column_id
 ;
     """;
 
+	private static final String SQL_FOR_CONSTRAINTS = """
+select * from (
+	SELECT kcu.table_schema, kcu.table_name, kcu.constraint_name, 'p' as con_type, kcu.column_name, kcu.ordinal_position,
+		null as REFERENCED_SCHEMA_NAME, null as REFERENCED_TABLE_NAME, null as REFERENCED_COLUMN_NAME
+	FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+	WHERE OBJECTPROPERTY(OBJECT_ID(CONSTRAINT_SCHEMA + '.' + QUOTENAME(CONSTRAINT_NAME)), 'IsPrimaryKey') = 1
+	UNION
+	SELECT  schema_name(t.schema_id) as schema_name, CAST (oParent.name AS VARCHAR(255)) as table_name, 
+		CAST (oConstraint.name AS VARCHAR(255)) as CONSTRAINT_NAME, 'f' as con_type, CAST ( oParentCol.name AS VARCHAR(255)) as column_name, FKC.constraint_column_id as ordinal,
+		schema_name(tRef.schema_id) as REFERENCED_SCHEMA_NAME, CAST ( oReference.name AS VARCHAR(255)) as REFERENCED_TABLE_NAME, CAST (oReferenceCol.name AS VARCHAR(255)) as REFERENCED_COLUMN_NAME
+	FROM sys.foreign_key_columns FKC
+	    INNER JOIN sys.sysobjects oConstraint ON FKC.constraint_object_id=oConstraint.id 
+	    INNER JOIN sys.sysobjects oParent ON FKC.parent_object_id=oParent.id
+	    INNER JOIN sys.all_columns oParentCol ON FKC.parent_object_id=oParentCol.object_id 
+	            AND FKC.parent_column_id=oParentCol.column_id
+	    INNER JOIN sys.sysobjects oReference ON FKC.referenced_object_id=oReference.id
+	    INNER JOIN INFORMATION_SCHEMA.COLUMNS oParentColDtl ON oParentColDtl.TABLE_NAME=oParent.name AND oParentColDtl.COLUMN_NAME=oParentCol.name
+	    INNER JOIN sys.all_columns oReferenceCol ON FKC.referenced_object_id=oReferenceCol.object_id 
+	            AND FKC.referenced_column_id=oReferenceCol.column_id
+	    INNER JOIN sys.tables t ON oParentCol.object_id = t.object_id
+	    INNER JOIN sys.tables tRef ON oReferenceCol.object_id = tRef.object_id
+) cons
+where cons.table_schema = ?
+order by cons.table_schema, cons.table_name, cons.ordinal_position 
+;
+			""";
     private static final String SQL_FOR_INDEXES = """
 SELECT 
 	 schema_name(t.schema_id) as schema_name,
@@ -167,6 +173,7 @@ where schema_name(s.schema_id) = ?
 		try(
 			Connection con = getDataSource().getConnection();
 			PreparedStatement ps = con.prepareStatement(SQL_FOR_COLUMNS);
+			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
 			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES);
 			PreparedStatement sst = con.prepareStatement(SQL_FOR_SEQUENCES);
 		){
@@ -186,25 +193,42 @@ where schema_name(s.schema_id) = ?
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
 				String isIdentity = rs.getString("IS_IDENTITY");
-				String pkConstraintName = rs.getString("PK_CONSTRAINT_NAME");
-				String constName = rs.getString("FK_CONSTRAINT_NAME");
-				String refSchema = rs.getString("REFERENCED_SCHEMA");
-				String refTable = rs.getString("REFERENCED_TABLE_NAME");
-				String refColumn = rs.getString("REFERENCED_COLUMN_NAME");
-				String columnKey = !StringUtils.isEmptyOrNull(pkConstraintName)?"p":(!StringUtils.isEmptyOrNull(constName)?"f":null);
+				
 				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
 
-				DbColumn column = table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
-				// if(refColumn != null){
-				// 	dbModel.getReferenceInfos().add(ReferenceInfo.builder().srcSchema(schemaName).srcTableName(tableName).srcColumnName(column.getName()).constraintName(constName).refSchema(refSchema).refTableName(refTable).refColumnName(refColumn).build());
-				// }else{
-				// 	column.setConstraintName(constName);
-				// }
-				if(!StringUtils.isEmptyOrNull(pkConstraintName)){
-					table.setPkConstraintName(pkConstraintName);
+				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+			}
+			cps.setString(1, schema);
+			ResultSet crs = cps.executeQuery();
+			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			while(crs.next()){
+				String schemaName = crs.getString("TABLE_SCHEMA");
+				String tableName = crs.getString("TABLE_NAME");
+				String constraintName = crs.getString("CONSTRAINT_NAME");
+				String conType = crs.getString("CON_TYPE");
+				String columnName = crs.getString("COLUMN_NAME");
+				String refSchemaName = crs.getString("REFERENCED_SCHEMA_NAME");	
+				String refTableName = crs.getString("REFERENCED_TABLE_NAME");
+				String refColumnName = crs.getString("REFERENCED_COLUMN_NAME");
+				if("p".equals(conType)){
+					DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
 					table.getPkColumnNames().add(columnName);
+					table.setPkConstraintName(constraintName);
+				} else if("f".equals(conType)){
+					ReferenceInfo refInfo = referenceInfos.get(constraintName);
+					if(refInfo == null){
+						refInfo = ReferenceInfo.builder().constraintName(constraintName).srcSchema(schemaName).srcTableName(tableName).srcColumnName(columnName).refSchema(refSchemaName).refTableName(refTableName).refColumnName(refColumnName).build();
+						referenceInfos.put(constraintName, refInfo);
+					}else{
+						if(refInfo.getRefColumnNames().contains(refColumnName)){
+							continue;
+						}
+						refInfo.getSrcColumnNames().add(columnName);
+						refInfo.getRefColumnNames().add(refColumnName);	
+					}
 				}
 			}
+			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			ist.setString(1, schema);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;

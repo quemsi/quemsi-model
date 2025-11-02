@@ -1,7 +1,6 @@
 package com.quemsi.model.flow.db.sql;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.quemsi.model.flow.db.sql.DbModel.ReferencedColumn;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

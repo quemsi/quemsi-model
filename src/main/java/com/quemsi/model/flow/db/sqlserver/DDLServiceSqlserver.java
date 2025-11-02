@@ -151,7 +151,7 @@ public class DDLServiceSqlserver implements DDLService{
     @Override
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTableName()));
+		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.srcQualifiedName()));
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchema()));
 		for(String tableName : dbModel.orderedTableNames()){
 			if(existingTables.contains(tableName)){
@@ -204,9 +204,30 @@ public class DDLServiceSqlserver implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
+					if(!ref.getSrcSchema().equals(dbModel.getSchema()) || !ref.getRefSchema().equals(dbModel.getSchema())){
+						continue;
+					}
 					sb.append(",").append(System.lineSeparator())
-						// .append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (").append(ref.getSrcColumnName()).append(") REFERENCES ")
-						// .append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (").append(ref.getRefColumnName()).append(")")
+						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+						Iterator<String> cIt = ref.getSrcColumnNames().iterator();
+						while(cIt.hasNext()){
+							String cName = cIt.next();
+							sb.append(cName);
+							if(cIt.hasNext()){
+								sb.append(", ");
+							}
+						}
+						sb.append(") REFERENCES ")
+						.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (");
+						cIt = ref.getRefColumnNames().iterator();
+						while(cIt.hasNext()){
+							String cName = cIt.next();
+							sb.append(cName);
+							if(cIt.hasNext()){
+								sb.append(", ");
+							}
+						}
+						sb.append(")");
 						;
 				}
 			}
@@ -316,8 +337,8 @@ public class DDLServiceSqlserver implements DDLService{
 				log.info("sql : {}", sb.toString());
 				s.executeUpdate(sb.toString());
 			}
-		}catch(SQLException ignore){
-			log.info("create tables sql", ignore);
+		}catch(SQLException e){
+			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
 		}
     }
 

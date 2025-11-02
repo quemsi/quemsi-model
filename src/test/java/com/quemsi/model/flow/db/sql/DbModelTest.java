@@ -65,7 +65,6 @@ public class DbModelTest {
         DbTable t2 = dbModel.crateIfAbsent("T2");
         t2.addColumn(DbColumn.builder().name("ac1").dataType("int").build());
         DbColumn t2ac2 = t2.addColumn(DbColumn.builder().name("ac2").dataType("tinyint").build());
-        DbColumn t2ac3 = t2.addColumn(DbColumn.builder().name("ac3").dataType("bigint").build());
         
         DbTable t3 = dbModel.crateIfAbsent("T3");
         t3.addColumn(DbColumn.builder().name("bc1").dataType("int").build());
@@ -111,7 +110,6 @@ public class DbModelTest {
         DbTable f2 = dbModel.crateIfAbsent("F2");
         f2.addColumn(DbColumn.builder().name("id").dataType("bigint").build());
         DbColumn f2f1Id = f2.addColumn(DbColumn.builder().name("f1_id").dataType("bigint").build());
-        DbColumn f2r3Id = f2.addColumn(DbColumn.builder().name("r3_id").dataType("bigint").build());
         
         DbTable f3 = dbModel.crateIfAbsent("F3");
         f3.addColumn(DbColumn.builder().name("id").dataType("bigint").build());

@@ -177,6 +177,9 @@ public class DDLServicePostgres implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
+					if(!ref.getSrcSchema().equals(dbModel.getSchema()) || !ref.getRefSchema().equals(dbModel.getSchema())){
+						continue;
+					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
