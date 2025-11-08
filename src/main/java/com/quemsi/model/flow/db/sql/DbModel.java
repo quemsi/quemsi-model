@@ -69,7 +69,7 @@ public class DbModel {
 
     public void addReferenceInfosToColumns(){
         for(ReferenceInfo refInfo : this.referenceInfos){
-            if(!this.getSchema().equals(refInfo.getSrcSchema()) || !this.getSchema().equals(refInfo.getRefSchema())){
+            if(!StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getSrcSchema()) || !StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getRefSchema())){
                 continue;
             }
             DbTable sTable = this.findTable(refInfo.srcQualifiedName()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTableName()).supplier());
