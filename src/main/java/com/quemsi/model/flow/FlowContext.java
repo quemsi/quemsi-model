@@ -11,6 +11,7 @@ import com.quemsi.model.dto.DataVersion;
 import com.quemsi.model.dto.FlowExecution;
 import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
+import com.quemsi.model.flow.process.DbModelProcessor;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -24,6 +25,7 @@ public class FlowContext {
 	private List<DataPackage> dataPackages;
 	private Flow flow;
 	private Map<String, String> tags;
+	private List<DbModelProcessor> dbModelProcessors;
 	
 	public FlowContext(Flow flow, Long flowExecutionId) {
 		execution = new FlowExecution();
@@ -31,11 +33,12 @@ public class FlowContext {
 		execution.setActive(true);
 		execution.setFlowId(flow.getId());
 		execution.setFlowName(flow.getName());
-		execution.setNumberOfSteps(flow.getNumberOfSteps());
+		execution.setNumberOfSteps(flow.numberOfSteps());
 		execution.setStatus(FlowExecutionStatus.SCHEDULED);
 		this.tags = new HashMap<>();
 		this.flow = flow;
 		dataPackages = new LinkedList<>();
+		dbModelProcessors = new LinkedList<>();
 	}
 
 	public void setDataVersion(DataVersion dataVersion){
@@ -49,7 +52,7 @@ public class FlowContext {
 	public Long executionVersion(){
 		return this.dataVersion.getId();
 	}
-	public void logError(FlowExecutionStep step, String tag, Exception e) {
+	public void logError(FlowExecutionStep step, String tag, Throwable e) {
 		log.error(tag, e);
 		if(step != null){
 			step.setStatus(FlowExecutionStatus.FAILED);
@@ -58,7 +61,7 @@ public class FlowContext {
 			step.setLogs(sw.toString());
 		}
 	}
-	public void logError(String tag, Exception e) {
+	public void logError(String tag, Throwable e) {
 		log.error(tag, e);
 		execution.setStatus(FlowExecutionStatus.FAILED);
 		StringWriter sw = execution.logWriter();

@@ -6,15 +6,17 @@ import com.quemsi.commons.util.FileResource;
 
 
 public class DataPackageFileResource implements DataPackage{
+    private String name;
     private FileResource file;
 
-    public DataPackageFileResource(FileResource file){
+    public DataPackageFileResource(String name, FileResource file){
+        this.name = name;
         this.file = file;
     }
 
     @Override
     public String getName() {
-        return file.getName();
+        return name;
     }
 
     @Override

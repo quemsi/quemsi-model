@@ -8,7 +8,6 @@ import java.util.List;
 import java.util.Map;
 
 import com.quemsi.model.flow.AbstractStep;
-import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
 
 import lombok.Setter;
@@ -22,7 +21,7 @@ public class ShellCommand extends AbstractStep{
 	private String supass;
 	
 	@Override
-	public void execute(FlowContext content) {
+	public void execute(FlowContext context) {
         try {
         	StringBuilder sb = new StringBuilder();
         	if(supass != null && !"".equals(supass.trim())) {
@@ -40,16 +39,9 @@ public class ShellCommand extends AbstractStep{
             while ((line = bufferedReader.readLine()) != null) {
                 log.debug(line);
             }
-            this.executeNext(content);
         } catch(Exception ex) {
             log.error("error in script : " + script + ex);
         }
-	}
-	
-	@Override
-	public void init(Flow f) {
-		super.init(f);
-		super.initNext(f);
 	}
 	
 	@Override
@@ -60,6 +52,5 @@ public class ShellCommand extends AbstractStep{
 		String maskedSuPass = this.supass!=null&&!"".equals(this.supass)?"*****":this.supass;
 		props.put("supass", maskedSuPass);
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }

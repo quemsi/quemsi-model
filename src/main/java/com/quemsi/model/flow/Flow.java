@@ -8,8 +8,10 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.DateUtils;
+import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.api.ApiClient;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DataGroup;
@@ -20,7 +22,6 @@ import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.dto.NamedEntityReference;
 import com.quemsi.model.dto.Tag;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,6 @@ public class Flow {
 	private ApiClient apiClient;
 	@Autowired
 	private DateUtils dateUtils;
-	private Step first;
 	private Long id;
 	private String name;
 	private String title;
@@ -40,13 +40,13 @@ public class Flow {
 	private boolean back;
 	private DataGroup data;
 	private String timerName;
-	private int numberOfSteps;
+	private List<Step> steps;
 	
 	@JsonIgnore
 	protected ReentrantLock lock = new ReentrantLock();
 	
 	public void initialize() {
-		first.init(this);
+		steps.forEach(s -> s.init(this));
 	}
 	
 	public FlowExecutionStep sendStepStarted(Long flowExecutionId, String type, Integer ord, LocalDateTime started){
@@ -74,7 +74,6 @@ public class Flow {
 				FlowExecution execution = fc.getExecution();
 				execution.setStartedAt(LocalDateTime.now());
 				execution.setStatus(FlowExecutionStatus.RUNNING);
-				apiClient.saveFlowExecution(execution);
 				if(!this.back){
 					if(!fc.getTags().containsKey("date")){
 						fc.getTags().put("date", dateUtils.getDateString(LocalDateTime.now()));
@@ -82,14 +81,28 @@ public class Flow {
 					if(!fc.getTags().containsKey("time")){
 						fc.getTags().put("time", dateUtils.getTimeString(LocalDateTime.now()));
 					}
+					fc.getTags().put("flow", this.name);
 					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
 				}
+				apiClient.saveFlowExecution(execution);
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
+					fc.logError("failed-to-execute-flow", Exceptions.server("flow initialization is not completed yet").get());
 					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
 				} else {
 					try {
-						first.execute(fc);
+						for(Step s : steps) {
+							FlowExecutionStep fes = null;
+							try {
+								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd() , LocalDateTime.now());
+								s.execute(fc);
+								sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
+							}catch(Exception bre) {
+								fc.logError(fes, "error in step", bre);
+								sendStepFinished(fes, FlowExecutionStatus.FAILED);
+								throw bre;
+							}
+						}
 						fc.getExecution().setStatus(FlowExecutionStatus.SUCCESS);
 					}catch(BaseRuntimeException bre) {
 						fc.logError("execution error", bre);
@@ -111,6 +124,10 @@ public class Flow {
 		}
 	}
 
+	public int numberOfSteps() {
+		return steps==null?0:steps.size();
+	}
+
 	public FlowExecution execute(Long versionId, Map<String, String> tags, List<DataFile> files, Long executionId) {
 		FlowContext fc = new FlowContext(this, executionId);
 		fc.setTags(tags);
@@ -119,30 +136,28 @@ public class Flow {
 	}
 
 	public void setSteps(List<Step> steps) {
-		numberOfSteps = steps.size();
-		Step pre = null;
-		for (int i = 0; i < steps.size(); i++) {
-			Step s = steps.get(i);
-			if(s instanceof AbstractStep) {
-				AbstractStep sf = (AbstractStep)s;
-				sf.setFlow(this);
+		this.steps = steps;
+		for(Step s : steps) {
+			if(s instanceof AbstractStep as) {
+				as.setFlow(this);
 			}
-			if (pre != null) {
-				pre.setNextStep(s);
-			} else if (i == 0) {
-				this.setFirst(s);
-			}
-			pre = s;
 		}
 	}
 
 	public boolean isReady() {
-		return first.isReady();
+		for(Step s : steps) {
+			if(!s.isReady()) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	public FlowDetail toDetail() {
-		List<Map<String, Object>> steps = new ArrayList<>();
-		first.fillDetails(steps);
-		return FlowDetail.builder().id(this.id).name(name).title(title).data(data).active(active).back(back).steps(steps).build();
+		List<Map<String, Object>> stepsDetails = new ArrayList<>();
+		for(Step s : steps) {
+			s.fillDetails(stepsDetails);
+		}
+		return FlowDetail.builder().id(this.id).name(name).title(title).data(data).active(active).back(back).steps(stepsDetails).build();
 	}	
 }

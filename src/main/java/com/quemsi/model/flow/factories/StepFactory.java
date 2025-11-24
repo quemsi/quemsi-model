@@ -3,18 +3,19 @@ package com.quemsi.model.flow.factories;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.function.Function;
 
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.flow.From;
 import com.quemsi.model.flow.Step;
 import com.quemsi.model.flow.To;
+import com.quemsi.model.flow.db.ClearTables;
 import com.quemsi.model.flow.db.DataSourceFactory;
-import com.quemsi.model.flow.db.mysql.MySqlDropTables;
+import com.quemsi.model.flow.db.DropTables;
 import com.quemsi.model.flow.db.mysql.MySqlScript;
 import com.quemsi.model.flow.db.mysql.StartReplica;
 import com.quemsi.model.flow.db.mysql.StopReplica;
@@ -22,7 +23,7 @@ import com.quemsi.model.flow.db.sql.SqlParser;
 import com.quemsi.model.flow.file.Unzip;
 import com.quemsi.model.flow.file.Zip;
 import com.quemsi.model.flow.out.Storage;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.quemsi.model.flow.process.SchemaMapping;
 
 import lombok.Getter;
 
@@ -76,6 +77,16 @@ public class StepFactory extends AbstractFactory<Step>{
 				unzip.setUtil(context.getBean(FileNameUtil.class));
 				return unzip;
 			},
+			"ClearTables", node -> {
+				String datasource = node.findValue("datasource").asText(null);
+				ClearTables clearTables = new ClearTables();
+				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
+				clearTables.setAll(all);
+				LinkedList<String> tables = jsonUtils.asLinkedList(node.get("tables"));
+				clearTables.setTables(tables);
+				clearTables.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				return clearTables;
+			},
 			"MySqlScript", node ->  {
 				MySqlScript mScript = new MySqlScript();
 				String datasource = node.findValue("datasource").asText(null);
@@ -85,16 +96,22 @@ public class StepFactory extends AbstractFactory<Step>{
 				mScript.setSqlParser(context.getBean(SqlParser.class));
 				return mScript;
 			},
-			"MySqlDropTables", node ->  {
-				MySqlDropTables dropTables = new MySqlDropTables();
+			"DropTables", node ->  {
+				DropTables dropTables = new DropTables();
 				String datasource = node.findValue("datasource").asText(null);
-				dropTables.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
-				boolean all = jsonUtils.asBoolean(node.findValue("all"), false);
+				dropTables.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
 				dropTables.setAll(all);
-				Set<String> tables = jsonUtils.asSet(node.get("tables"));
+				LinkedList<String> tables = jsonUtils.asLinkedList(node.get("tables"));
 				dropTables.setTables(tables);
 				dropTables.setSqlParser(context.getBean(SqlParser.class));
 				return dropTables;
+			},
+			"SchemaMapping", node -> {
+				SchemaMapping schemaMapping = new SchemaMapping();
+				schemaMapping.setSourceSchema(node.findValue("sourceSchema").asText(null));
+				schemaMapping.setTargetSchema(node.findValue("targetSchema").asText(null));
+				return schemaMapping;
 			}
 			);
 }

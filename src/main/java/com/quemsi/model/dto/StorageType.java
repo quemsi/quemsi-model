@@ -1,11 +1,16 @@
 package com.quemsi.model.dto;
 
+import lombok.Getter;
+
 public enum StorageType implements KeyValuePair{
-	GDRIVE("Google Drive"), LOCAL("Local Disk");
+	AZUREBLOB("Azure Blob Storage", true), AWSS3("AWS S3 Storage", true), LOCAL("Local Disk", false);
+	@Getter
+	private boolean global;
 	private String val;
 
-	private StorageType(String val){
+	private StorageType(String val, boolean global){
 		this.val = val;
+		this.global = global;
 	}
 
 	@Override

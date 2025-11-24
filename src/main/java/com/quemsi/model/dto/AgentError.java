@@ -4,13 +4,14 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 
 import com.quemsi.commons.persistence.BaseDto;
-import com.quemsi.model.dto.agent.AgentReference;
 
 import lombok.Data;
 import lombok.EqualsAndHashCode;
+import lombok.experimental.SuperBuilder;
 
 @Data
 @EqualsAndHashCode(callSuper = true)
+@SuperBuilder
 public class AgentError extends BaseDto<Long>{
     private Long agentId;
 	private boolean seen;
@@ -21,5 +22,5 @@ public class AgentError extends BaseDto<Long>{
 	private LocalDate date;
 	private LocalTime time;
 	private String ago;
-	private AgentReference agent;
+	private ObjectReference agent;
 }

@@ -3,15 +3,12 @@ package com.quemsi.model.flow.os;
 import java.io.BufferedReader;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
-import com.quemsi.model.dto.FlowExecutionStatus;
+import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.AbstractStep;
-import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
 
 import lombok.Setter;
@@ -26,9 +23,7 @@ public class ServiceCommand extends AbstractStep{
 	
 	@Override
 	public void execute(FlowContext context) {
-        FlowExecutionStep fes = null;
 		try {
-        	fes = flow.sendStepStarted(context.getExecution().getId(), "ServiceCommand", this.ord , LocalDateTime.now());
 			String[] command = {"cmd.exe", "/c", "net", action, name};
             Process process = new ProcessBuilder(command).start();
             InputStream inputStream = process.getInputStream(); 
@@ -38,17 +33,9 @@ public class ServiceCommand extends AbstractStep{
             while ((line = bufferedReader.readLine()) != null) {
                 log.debug(line);
             }
-			flow.sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
         } catch(Exception ex) {
-            context.logError(fes, "error in ServiceCommand step", ex);
+            throw Exceptions.server("error-in-service-command").withCause(ex).get();
         }
-        this.executeNext(context);
-	}
-	
-	@Override
-	public void init(Flow f) {
-		super.init(f);
-		initNext(f);
 	}
 	
 	@Override
@@ -58,6 +45,5 @@ public class ServiceCommand extends AbstractStep{
 		props.put("name", name);
 		props.put("action", action);
 		steps.add(props);
-		super.fillDetails(steps);
 	}
 }

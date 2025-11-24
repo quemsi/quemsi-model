@@ -12,6 +12,9 @@ public class DataSummary extends BaseDto<Long>{
 	private String title;
 	private DataType type;
 	private String retentionPolicy;
+	private Integer versionCount;
+	private String size;
+	private Integer fileCount;
 	private DataVersion latestVersion;
 	private Long companyId;
 }

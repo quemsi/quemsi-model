@@ -11,9 +11,9 @@ import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DataFile;
-import com.quemsi.model.dto.DataType;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.Flow;
+import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.SqlParser;
 import com.quemsi.model.flow.db.sql.SqlToken;
@@ -38,7 +38,7 @@ public class MySqlDb extends AbstractStorage{
     }
 
     @Override
-    public void store(String dataName, List<DataPackage> dataPackages, Long version) {
+    public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
         if(!dataPackages.isEmpty()){
             if(!"text/sql".equals(dataPackages.get(0).getContentType())){
                 throw Exceptions.badRequest("unsupported-content-type").withExtra("contentType", dataPackages.get(0).getContentType())
@@ -63,12 +63,7 @@ public class MySqlDb extends AbstractStorage{
     }
 
     @Override
-    public List<DataPackage> getDataPackage(String dataName, DataType type, Long version) throws IOException {
-        throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getDataPackage'");
-    }
-    
-    @Override
-    public List<DataPackage> getFiles(List<DataFile> files) throws IOException {
+    public List<DataPackage> getFiles(FlowContext context, List<DataFile> files) throws IOException {
         throw new UnsupportedOperationException("Unimplemented method 'MySqlDb.getFiles'");
     }
 

@@ -3,8 +3,9 @@ package com.quemsi.model.dto.agent;
 import java.util.ArrayList;
 
 import com.quemsi.model.dto.AgentModel;
+import com.quemsi.model.dto.AgentModel.AzureBlobDrive;
+import com.quemsi.model.dto.AgentModel.AWSS3Drive;
 import com.quemsi.model.dto.AgentModel.Datasource;
-import com.quemsi.model.dto.AgentModel.GoogleDrive;
 import com.quemsi.model.dto.AgentModel.LocalDrive;
 import com.quemsi.model.dto.AgentModel.Storage;
 import com.quemsi.model.dto.AgentModel.Timer;
@@ -48,11 +49,18 @@ public class UpdateAgentModel extends AgentCommand{
             model.getDatasources().add(ds);
             return this;
         }
-        public Builder add(GoogleDrive gd){
-            if(model.getGoogleDrives() == null){
-                model.setGoogleDrives(new ArrayList<>());
+        public Builder add(AzureBlobDrive ld){
+            if(model.getAzureBlobDrives() == null){
+                model.setAzureBlobDrives(new ArrayList<>());
             }
-            model.getGoogleDrives().add(gd);
+            model.getAzureBlobDrives().add(ld);
+            return this;
+        }
+        public Builder add(AWSS3Drive awsS3Drive){
+            if(model.getAwsS3Drives() == null){
+                model.setAwsS3Drives(new ArrayList<>());
+            }
+            model.getAwsS3Drives().add(awsS3Drive);
             return this;
         }
         public Builder add(LocalDrive ld){

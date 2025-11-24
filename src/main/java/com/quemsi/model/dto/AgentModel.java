@@ -3,24 +3,20 @@ package com.quemsi.model.dto;
 import java.io.Serializable;
 import java.util.List;
 
-import com.quemsi.commons.persistence.Views;
-import com.fasterxml.jackson.annotation.JsonView;
-
 import lombok.Data;
 
 @Data
-@JsonView(Views.Agent.AgentModel.class)
 public class AgentModel implements Serializable{
-    public Long agentId;
+    private Long agentId;
     private List<Datasource> datasources;
     private List<Timer> timers;
+    private List<AzureBlobDrive> azureBlobDrives;
+    private List<AWSS3Drive> awsS3Drives;
     private List<LocalDrive> localDrives;
-    private List<GoogleDrive> googleDrives;
     private List<Storage> storages;
     private List<FlowDetail> flows;
 
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class Storage implements Serializable{
         private Long id;
         private String name;
@@ -34,19 +30,10 @@ public class AgentModel implements Serializable{
         private long sizeLimit;
         private long capacity;
         private long usedSize;
+        private String fullPath;
+        private boolean active;
     }
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
-    public static class GoogleDrive implements Serializable {
-        private Long id;
-        private String name;
-        private String title;
-        private String callbackBaseUrl;
-        private Integer callbackPort;
-        private long usedSize;
-    }
-    @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class LocalDrive implements Serializable {
         private Long id;
         private String name;
@@ -54,25 +41,53 @@ public class AgentModel implements Serializable{
         private String storageRoot;
         private long capacity;
         private long usedSize;
+        private boolean active;
     }
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class Timer implements Serializable{
         private Long id;
         private String name;
         private String title;
         private String schedule;
+        private boolean active;
     }
     @Data
-    @JsonView(Views.Agent.AgentModel.class)
     public static class Datasource implements Serializable{
         private Long id;
         private DatasourceType type;
         private String name;
         private String dbName;
+        private String schema;
         private String url;
         private String username;
         private String password;
         private boolean useEnvVar;
+        private boolean active;
+    }
+
+    @Data
+    public static class AzureBlobDrive implements Serializable{
+        private String name;
+        private String accountName;
+        private String accountKey;
+        private String storageRoot;
+	    private Long capacity;
+        private Long usedSize;
+        private boolean useEnvVar;
+        private boolean active;
+    }
+
+    @Data
+    public static class AWSS3Drive implements Serializable{
+        private String name;
+        private String accessKey;
+        private String secretKey;
+        private String region;
+        private String bucketName;
+        private String storageRoot;
+        private Long capacity;
+        private Long usedSize;
+        private boolean useEnvVar;
+        private boolean active;
     }
 }

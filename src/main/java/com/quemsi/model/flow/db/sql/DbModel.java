@@ -2,115 +2,242 @@ package com.quemsi.model.flow.db.sql;
 
 import java.util.Deque;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.StringUtils;
+import com.quemsi.model.util.CommonHelpers;
 
-import lombok.Getter;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import lombok.Singular;
 
+@Data
 public class DbModel {
-    protected Map<String, Table> tables;
+    private String format;
+    private String sourceType;
+    private String schema;
+    protected Map<String, DbTable> tables;
+    private List<ReferenceInfo> referenceInfos;
+    protected Set<ReferenceInfo> circularIgnore;
+    protected Map<String, Map<String, IndexInfo>> indexes;
+    protected List<DbSequence> sequences;
     
     public DbModel(){
         tables = new HashMap<>();
+        referenceInfos = new LinkedList<>();
+        circularIgnore = new HashSet<>();
+        indexes = new HashMap<>();
+        sequences = new LinkedList<>();
     }
-
-    public Table addTable(String tableName){
-        Table table = new Table();
-        table.name = tableName;
-        tables.put(tableName, table);
+    public DbTable addTable(String tableName){
+        return addTable(tableName, this.schema);
+    }
+    public DbTable addTable(String tableName, String schema){
+        DbTable table = new DbTable(schema, tableName);
+        tables.put(table.qualifiedName(), table);
         return table;
     }
-
-    public Optional<Table> getTable(String tableName){
-        return Optional.ofNullable(tables.get(tableName));
+    public Optional<DbTable> findTable(String qualifiedName){
+        return Optional.ofNullable(tables.get(qualifiedName));
     }
-
-    public Table crateIfAbsent(String tableName){
-        if(tables.containsKey(tableName)){
-            return tables.get(tableName);
+    public DbTable crateIfAbsent(String tableName){
+        return crateIfAbsent(tableName, this.schema);
+    }
+    public DbTable crateIfAbsent(String tableName, String schema){
+        Object qualifiedName = CommonHelpers.qualifiedName(schema, tableName);
+        if(tables.containsKey(qualifiedName)){
+            return tables.get(qualifiedName);
         }
-        return addTable(tableName);
+        return addTable(tableName, schema);
     }
 
-    public void controlCircularReference(LinkedList<String> chain, Table t){
-        if(chain.contains(t.getName())){
-            chain.addLast(t.getName());
-            throw Exceptions.server("circular-reference").withExtra("chain", chain).get();
-        }else{
-            chain.addLast(t.getName());
-            if(!t.getReferencedBy().isEmpty()){
-                t.getReferencedBy().forEach(n -> controlCircularReference(new LinkedList<>(chain), n));
+    public void build(){
+        addReferenceInfosToColumns();
+        findReferencesToBreakCycle();
+    }
+
+    public void addReferenceInfosToColumns(){
+        for(ReferenceInfo refInfo : this.referenceInfos){
+            if(!StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getSrcSchema()) || !StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getRefSchema())){
+                continue;
+            }
+            DbTable sTable = this.findTable(refInfo.srcQualifiedName()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTableName()).supplier());
+            DbTable rTable = this.findTable(refInfo.refQualifiedName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
+                    .withExtra("schema", refInfo.getSrcSchema()).withExtra("tableName", refInfo.getSrcTableName()).withExtra("columnNames", refInfo.getSrcColumnNames()).withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumnNames", refInfo.getRefColumnNames()).supplier());
+            for(String refColName : refInfo.getRefColumnNames()){
+                rTable.findColumn(refColName).orElseThrow(Exceptions.server("unknow-column-in-fk").supplier());
+            }
+            sTable.addReference(refInfo);
+            rTable.addReferencedBy(sTable);
+        }
+    }
+
+    public void findReferencesToBreakCycle(){
+        Map<String, Set<String>> reachablity = new HashMap<>();
+        for(ReferenceInfo refInfo : referenceInfos){
+            Queue<String> checkReachability = new LinkedList<>();
+            checkReachability.add(refInfo.getSrcTableName());
+            boolean reachableFrom = refInfo.getRefTableName().equals(refInfo.getSrcTableName());
+            while(!reachableFrom && !checkReachability.isEmpty()){
+                String target = checkReachability.poll();
+                if(reachablity.containsKey(target)){
+                    if(reachablity.get(target).contains(refInfo.getRefTableName())){
+                        reachableFrom = true;
+                    } else {
+                        reachablity.get(target).forEach(checkReachability::add);
+                    }
+                }
+            }
+            if(reachableFrom){
+                circularIgnore.add(refInfo);
+            }else{
+                reachablity.compute(refInfo.getRefTableName(), (key, val) -> {
+                    if(val == null){
+                        val = new HashSet<>();
+                    }
+                    val.add(refInfo.getSrcTableName());
+                    return val;
+                });
             }
         }
     }
 
-    public Set<String> getOrderedTableNames(){
-        tables.values().forEach(t -> controlCircularReference(new LinkedList<>(), t));;
-        Set<String> s = new LinkedHashSet<>();
-        Deque<Table> queue = new LinkedList<>();
+    public List<DbTable> referencesOrderedTables(){
+        LinkedList<DbTable> list = new LinkedList<>();
+        Set<DbTable> processedIndex = new HashSet<>();
+        Deque<DbTable> queue = new LinkedList<>();
+        tables.values().stream().filter(t -> t.getReferences().size() == 0).forEach(t -> {
+            queue.add(t);
+        });
+        while(!queue.isEmpty()){
+            DbTable t = queue.pop();
+            if(!processedIndex.contains(t)){
+                if(t.getReferencedBy().size() > 0){
+                    t.getReferencedBy().forEach(refTable -> queue.add(tables.get(refTable.qualifiedName())));
+                }
+                list.add(t);
+                processedIndex.add(t);
+            }
+        }
+        return list;
+    }
+    public LinkedList<String> orderedTableNames(){
+        LinkedList<String> result = new LinkedList<>();
+        Set<String> index = new LinkedHashSet<>();
+        Deque<DbTable> queue = new LinkedList<>();
         queue.addAll(tables.values());
         while(!queue.isEmpty()){
-            Table t = queue.poll();
-            if(t.referencedBy.isEmpty()){
-                s.add(t.getName());
+            DbTable t = queue.poll();
+            if(t.getReferences().isEmpty()){
+                index.add(t.qualifiedName());
+                result.add(t.qualifiedName());
             } else {
-                boolean allProcessed = t.getReferencedBy().stream().map(r -> s.contains(r.getName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
+                boolean allProcessed = t.getReferences().stream()
+                .filter(r -> !t.qualifiedName().equals(r.refQualifiedName())).map(r -> index.contains(r.refQualifiedName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
                 if(allProcessed){
-                    s.add(t.getName());
+                    index.add(t.qualifiedName());
+                    result.add(t.qualifiedName());
                 }else{
                     queue.add(t);
                 }
             }
         }
-        return s;
+        return result;
+    }
+    public LinkedList<DbTable> orderedTables(){
+        return this.orderedTableNames().stream().map(tName -> tables.get(tName)).collect(Collectors.toCollection(LinkedList::new));
+    }
+    
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class TableReference {
+        private String schema;
+        private String name;
+        public String qualifiedName(){
+            if(schema != null && !StringUtils.isEmptyOrNull(schema)){
+                return new StringBuilder(schema).append(".").append(name).toString();
+            }
+            return name;
+        }
     }
 
-    public static class Table{
-        @Getter
-        private String name;
-        @Getter
-        private Map<String, Column> columns;
-        @Getter
-        private Set<Table> referencedBy;
-        public Table(){
-            this.columns = new LinkedHashMap<>();
-            this.referencedBy = new LinkedHashSet<>();
-        }
-        public void addColumn(String name, String dataType, Column references, String constraintName){
-            Column c = new Column();
-            c.table = this;
-            c.name = name;
-            c.dataType = dataType;
-            c.references = references;
-            c.constraintName = constraintName;
-            if(references != null){
-                references.getTable().addReferencedBy(this);
-            }
-            columns.put(name, c);
-        }
-        public Optional<Column> getColumn(String name){
-            return Optional.ofNullable(columns.get(name));
-        }
-        public void addReferencedBy(Table referencer){
-            referencedBy.add(referencer);
-        }
-    }
-    public static class Column {
-        @Getter
-        private Table table;
-        @Getter
-        private String name;
-        @Getter
-        private String dataType;
-        @Getter
-        private Column references;
-        @Getter
+    @Builder
+    @Data
+    @NoArgsConstructor
+    public static class ReferenceInfo {
         private String constraintName;
+        private String srcSchema;
+        private String srcTableName;
+        @Singular
+        private Set<String> srcColumnNames;
+        private String refSchema;
+        private String refTableName;
+        @Singular
+        private Set<String> refColumnNames;
+
+        public ReferenceInfo(
+            String constraintName,
+            String srcSchema,
+            String srcTableName,
+            Set<String> srcColumnNames,
+            String refSchema,
+            String refTableName,
+            Set<String> refColumnNames
+        ) {
+            this.constraintName = constraintName;
+            this.srcSchema = srcSchema;
+            this.srcTableName = srcTableName;
+            this.srcColumnNames = new LinkedHashSet<>(srcColumnNames);
+            this.refSchema = refSchema;
+            this.refTableName = refTableName;
+            this.refColumnNames = new LinkedHashSet<>(refColumnNames);
+        }
+
+        public String qualifiedConstraintName(){
+            return CommonHelpers.qualifiedName(srcSchema, constraintName);
+        }
+        public String srcQualifiedName(){
+            return CommonHelpers.qualifiedName(srcSchema, srcTableName);
+        }
+        public String refQualifiedName(){
+            return CommonHelpers.qualifiedName(refSchema, refTableName);
+        }
+
+    }
+
+    @NoArgsConstructor
+    @Data
+    public static class IndexInfo {
+        private String schemaName;
+        private String tableName;
+        private String indexName;
+        private boolean unique;
+        private String indexType;
+        private LinkedList<String> columns;
+        private LinkedList<String> extraColumns;
+        public IndexInfo(String schemaName, String tableName, String indexName, boolean unique, String indexType){
+            this.schemaName = schemaName;
+            this.tableName = tableName;
+            this.indexName = indexName;
+            this.unique = unique;
+            this.indexType = indexType;
+            this.columns = new LinkedList<>();
+            this.extraColumns = new LinkedList<>();
+        }
+        public String qualifiedTableName(){
+            return new StringBuilder(this.schemaName).append(".").append(this.tableName).toString();
+        }
     }
 }

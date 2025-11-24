@@ -1,8 +1,6 @@
 package com.quemsi.model.dto;
 
 import com.quemsi.commons.persistence.BaseDto;
-import com.quemsi.commons.persistence.Views;
-import com.fasterxml.jackson.annotation.JsonView;
 
 import lombok.Builder;
 import lombok.Data;
@@ -18,6 +16,5 @@ public class DataVersionSummary extends BaseDto<Long>{
 		super(id, true);
 		this.dataId = dataId;;
 	}
-    @JsonView(Views.OnlyIdName.class)
 	private Long dataId;
 }
