@@ -29,6 +29,7 @@ import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableDataPage.Request;
 import com.quemsi.model.service.TableDataPersister;
+import com.quemsi.model.util.CommonConstants;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -63,7 +64,7 @@ public class RdbmsBackup implements Source{
             String dbModelJson = dataMapper.writeValueAsString(dbModel);
             byte[] bytes = dbModelJson.getBytes();
             FileResource modelFile = FileResource.builder()
-                .name("db-model.json")
+                .name(CommonConstants.DB_MODEL_FILE_NAME)
                 .contentType(MediaType.APPLICATION_JSON_VALUE)
                 .size(Long.valueOf(bytes.length))
                 .data(bytes)

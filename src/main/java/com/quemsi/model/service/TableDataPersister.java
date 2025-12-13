@@ -14,6 +14,7 @@ import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFileResource;
 import com.quemsi.model.flow.in.TableData;
 import com.quemsi.model.flow.in.TableDataPage;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -42,7 +43,7 @@ public class TableDataPersister {
             String tableDataJson = objectMapper.writeValueAsString(tableData);
             log.info("table data json size: {}", tableDataJson.length());
             byte[] dataPagesJsonBytes = tableDataJson.getBytes();
-            String fileName = "data-" +e.getKey() + ".json";
+            String fileName = CommonHelpers.dataFileName(e.getKey());
             FileResource tData = FileResource.builder()
                 .name(fileName).originalFilename(fileName).contentType(MediaType.APPLICATION_JSON_VALUE)
                 .empty(false).size(dataPagesJsonBytes.length).data(dataPagesJsonBytes)

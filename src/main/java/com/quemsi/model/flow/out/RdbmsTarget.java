@@ -30,6 +30,8 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData;
+import com.quemsi.model.util.CommonConstants;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -37,7 +39,6 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public class RdbmsTarget extends AbstractStorage{
-    public static final String DB_MODEL_FILE_NAME = "db-model.json";
     @Setter
     private DataSourceFactory datasourceFactory;
     @Setter
@@ -66,18 +67,18 @@ public class RdbmsTarget extends AbstractStorage{
             taskRegistry.clear();
             
             Map<String, DataPackage> namedPackages = dataPackages.stream().collect(Collectors.toMap(dp -> dp.getName(), dp -> dp));
-            if(!namedPackages.containsKey(DB_MODEL_FILE_NAME)){
+            if(!namedPackages.containsKey(CommonConstants.DB_MODEL_FILE_NAME)){
                 throw Exceptions.notFound("unable-to-find-db-model").get();
             }
-            if(!"application/json".equals(namedPackages.get(DB_MODEL_FILE_NAME).getContentType())){
-                throw Exceptions.badRequest("unsupported-content-type-for-db-model").withExtra("contentType", namedPackages.get(DB_MODEL_FILE_NAME).getContentType())
+            if(!"application/json".equals(namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME).getContentType())){
+                throw Exceptions.badRequest("unsupported-content-type-for-db-model").withExtra("contentType", namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME).getContentType())
                     .withExtra("supported", "application/json").get();
             }
             try(
                 ForkJoinPool pool = new ForkJoinPool(parallelism);
                 DDLService ddlService = datasourceFactory.ddlService();
                 ){
-                String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
+                String dbModelJsonStr = IOUtils.toString(namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
                 
                 if(!datasourceFactory.type().equals(DatasourceType.valueOf(dbModel.getSourceType()))){
@@ -156,7 +157,7 @@ public class RdbmsTarget extends AbstractStorage{
             try{
                 CompletableFuture<Object> future = taskRegistry.get(table.qualifiedName());
                 log.info("{} will wait for [{}] {}", table.qualifiedName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.refQualifiedName()).toList());
-                String fileName = "data-" + table.getName() + ".json";
+                String fileName = CommonHelpers.dataFileName(table.qualifiedName());
                 if(!namedPackages.containsKey(fileName)){
                     log.error("unable to find data file {}", fileName);
                     return false;

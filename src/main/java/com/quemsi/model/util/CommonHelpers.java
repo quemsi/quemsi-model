@@ -11,4 +11,7 @@ public class CommonHelpers {
         sb.append(name);
         return sb.toString();
     }
+    public static String dataFileName(String qualifiedName){
+        return "data-" + qualifiedName + ".json";
+    }
 }
