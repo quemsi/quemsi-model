@@ -20,6 +20,7 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
@@ -47,21 +48,14 @@ order by c.table_catalog, c.table_schema, c.table_name, c.ordinal_position
 
 	private static final String SQL_FOR_CONSTRAINTS = """
 select
-  ns.nspname as table_schema,
-  rel.relname as table_name,
-  con.conname as constraint_name,
-  con.contype as con_type,
+  ns.nspname as table_schema, rel.relname as table_name, con.conname as constraint_name, con.contype as con_type,
   pg_catalog.pg_get_constraintdef(con.oid, true) as con_def,
-  a.attname as column_name,
-  nsf.nspname as referenced_schema_name,
-  relf.relname as referenced_table_name,
-  af.attname as referenced_column_name
+  a.attname as column_name, nsf.nspname as referenced_schema_name, relf.relname as referenced_table_name, af.attname as referenced_column_name
 from pg_catalog.pg_constraint con
 join pg_catalog.pg_namespace ns on ns.oid = con.connamespace
 join pg_catalog.pg_class rel on rel.oid = con.conrelid
 join lateral unnest(con.conkey) with ordinality as ak(attnum, ord) on true
-join pg_attribute a
-  on a.attrelid = con.conrelid and a.attnum = ak.attnum
+join pg_attribute a on a.attrelid = con.conrelid and a.attnum = ak.attnum
 left join pg_catalog.pg_class relf on relf.oid = con.confrelid
 left join pg_catalog.pg_namespace nsf on nsf.oid = relf.relnamespace
 left join lateral unnest(con.confkey) with ordinality as cf(attnum, ord) on cf.ord = ak.ord
@@ -203,6 +197,7 @@ where s.schemaname = ?;
 			cps.setString(1, schema);
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			Map<String, ContraintInfo> contraintInfos = new HashMap<>();
 			while(crs.next()){
 				String schemaName = crs.getString("TABLE_SCHEMA");
 				String tableName = crs.getString("TABLE_NAME");
@@ -228,9 +223,18 @@ where s.schemaname = ?;
 						refInfo.getSrcColumnNames().add(columnName);
 						refInfo.getRefColumnNames().add(refColumnName);	
 					}
+				} else if("u".equals(conType)){	
+					ContraintInfo contraintInfo = contraintInfos.get(constraintName);
+					if(contraintInfo == null){
+						contraintInfo = ContraintInfo.builder().constraintName(constraintName).schema(schemaName).tableName(tableName).columnName(columnName).build();
+						contraintInfos.put(constraintName, contraintInfo);
+					}else{
+						contraintInfo.getColumnNames().add(columnName);
+					}
 				}
 			}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
+			dbModel.getContraintInfos().addAll(contraintInfos.values());
 			ist.setString(1, schema);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
@@ -241,7 +245,7 @@ where s.schemaname = ?;
 				String columnName = irs.getString("COLUMN_NAME");
 				boolean nonUnique = irs.getBoolean("NON_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
-				String qualifiedTableName = new StringBuilder(schemaName).append(".").append(tableName).toString();
+				String qualifiedTableName = CommonHelpers.qualifiedName(schemaName, tableName);
 				if(cur == null || !qualifiedTableName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
 						CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
