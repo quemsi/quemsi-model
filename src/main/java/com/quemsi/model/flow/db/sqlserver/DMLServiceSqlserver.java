@@ -202,12 +202,11 @@ select * from (
         }
         return null;
     }
+
 	@Override
     public void updateSequence(String qualifiedSequenceName, Long newValue) {
 		try (Connection conn = dataSource.getConnection();
-			PreparedStatement ps = conn.prepareStatement(UPDATE_SEQUENCE_SQL)) {
-			ps.setString(1, qualifiedSequenceName);
-			ps.setLong(2, newValue);
+			PreparedStatement ps = conn.prepareStatement(String.format(UPDATE_SEQUENCE_SQL, qualifiedSequenceName, newValue))) {
 			ps.executeUpdate();
 		} catch (SQLException e) {
 			log.warn("Error updating sequence {} to value {}", qualifiedSequenceName, newValue, e);

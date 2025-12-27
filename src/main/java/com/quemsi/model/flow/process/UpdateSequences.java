@@ -108,12 +108,12 @@ public class UpdateSequences extends AbstractStep {
         for (com.quemsi.model.dto.UpdateSequences.SequenceMapping mapping : config.getCustomMappings()) {
             try {
                 String schema = mapping.getSchema() != null ? mapping.getSchema() : dbModel.getSchema();
-                String qualifiedSequenceName = CommonHelpers.qualifiedName(schema, mapping.getSequence());
+                String sequenceName = mapping.getSequence();
                 String qualifiedTableName = CommonHelpers.qualifiedName(schema, mapping.getTable());
 
                 // Check if sequence exists in database
-                if (!existingSequences.containsKey(qualifiedSequenceName)) {
-                    log.debug("Custom mapping: Sequence {} does not exist in database, skipping", qualifiedSequenceName);
+                if (!existingSequences.containsKey(sequenceName)) {
+                    log.debug("Custom mapping: Sequence {} does not exist in database, skipping", sequenceName);
                     continue;
                 }
 
@@ -138,9 +138,9 @@ public class UpdateSequences extends AbstractStep {
                 }
 
                 // Update sequence to 1 + max value
-                dmlService.updateSequence(qualifiedSequenceName, maxValue + 1);
+                dmlService.updateSequence(sequenceName, maxValue + 1);
                 log.info("Updated sequence {} to value {} for custom mapping (table: {}, column: {})", 
-                    qualifiedSequenceName, maxValue + 1, qualifiedTableName, mapping.getColumn());
+                    sequenceName, maxValue + 1, qualifiedTableName, mapping.getColumn());
             } catch (Exception e) {
                 log.warn("Error processing custom mapping for sequence {}, continuing with other mappings", mapping.getSequence(), e);
             }
