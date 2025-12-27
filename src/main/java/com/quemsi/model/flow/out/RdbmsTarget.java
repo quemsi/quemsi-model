@@ -105,9 +105,9 @@ public class RdbmsTarget extends AbstractStorage{
                     Exception failure = firstFailure.get();
                     String errorMessage = failure != null ? 
                         "Restore failed due to: " + failure.getMessage() : 
-                        "Restore failed - one or more tasks failed";
+                        "Restore failed - one or more restore table tasks failed";
                     log.error(errorMessage);
-                    throw Exceptions.server("restore-failed").withCause(failure).get();
+                    throw Exceptions.server("restore-failed").withExtra("errorMessage", errorMessage).withCause(failure).get();
                 }
             } catch(IOException e){
                 throw Exceptions.server("io-exception-in-rdbms-restore").withCause(e).get();

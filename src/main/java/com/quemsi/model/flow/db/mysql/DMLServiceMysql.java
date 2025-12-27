@@ -25,6 +25,7 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 public class DMLServiceMysql implements DMLService{
     private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ?, ?";
+	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(%s) as max_val FROM %s";
 	private DataSource dataSource;
 
     @Override
@@ -135,7 +136,28 @@ public class DMLServiceMysql implements DMLService{
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
 	}
-
+	@Override
+	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
+		String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);
+        try (Statement stmt = dataSource.getConnection().createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                Object maxVal = rs.getObject("max_val");
+                if (maxVal != null) {
+                    if (maxVal instanceof Number) {
+                        return ((Number) maxVal).longValue();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error getting max value for column {} in table {}", columnName, qualifiedTableName, e);
+        }
+        return null;
+	}
+	@Override
+	public void updateSequence(String qualifiedSequenceName, Long newValue) {
+		throw Exceptions.server("not-supported-implemented").get();
+	}
     @Override
     public void close() throws Exception {
         

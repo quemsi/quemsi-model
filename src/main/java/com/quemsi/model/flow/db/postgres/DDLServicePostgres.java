@@ -47,6 +47,20 @@ public class DDLServicePostgres implements DDLService{
     }
 
     @Override
+    public boolean dropSequences(String... sequenceNames) {
+        try{
+            Statement s = conn.createStatement();
+            for(String sequenceName : sequenceNames){
+                s.addBatch("DROP SEQUENCE IF EXISTS " + sequenceName + ";");
+            }
+            s.executeBatch();
+            return true;
+        }catch(Exception e){
+            e.printStackTrace();
+            throw Exceptions.server("failed-to-clear-sequences").withCause(e).get();
+        }
+    }
+    @Override
     public void disableConstraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
@@ -122,7 +136,9 @@ public class DDLServicePostgres implements DDLService{
             }else{
                 seqStringBuilder.append(" NO MAXVALUE ");
             }
-            if(seq.getStartValue() != null){
+            if(seq.getLastValue() != null){
+                seqStringBuilder.append(" START WITH ").append(seq.getLastValue());
+            }else if(seq.getStartValue() != null){
                 seqStringBuilder.append(" START WITH ").append(seq.getStartValue());
             }
             if(seq.getCacheSize() != null){

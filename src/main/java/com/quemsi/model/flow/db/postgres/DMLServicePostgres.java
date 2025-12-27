@@ -4,6 +4,7 @@ import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
 import java.util.List;
@@ -33,7 +34,9 @@ import lombok.extern.slf4j.Slf4j;
 @NoArgsConstructor
 public class DMLServicePostgres implements DMLService{
     private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ? offset ?";
-	
+	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(%s) as max_val FROM %s";
+	private static final String UPDATE_SEQUENCE_SQL = "SELECT setval(?, ?, false)";
+
     private DataSource dataSource;
 
     @Override
@@ -164,6 +167,38 @@ public class DMLServicePostgres implements DMLService{
 		}catch(Exception e){
 			e.printStackTrace();
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
+		}
+    }
+
+	@Override
+	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
+        String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);
+        try (Connection conn = dataSource.getConnection();
+			Statement stmt = conn.createStatement();) {
+			ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next()) {
+                Object maxVal = rs.getObject("max_val");
+                if (maxVal != null) {
+                    if (maxVal instanceof Number) {
+                        return ((Number) maxVal).longValue();
+                    }
+                }
+            }
+			rs.close();
+        } catch (Exception e) {
+            log.warn("Error getting max value for column {} in table {}", columnName, qualifiedTableName, e);
+        }
+        return null;
+    }
+	@Override
+    public void updateSequence(String qualifiedSequenceName, Long newValue) {
+		try (Connection conn = dataSource.getConnection();
+		PreparedStatement ps = conn.prepareStatement(UPDATE_SEQUENCE_SQL)) {
+			ps.setString(1, qualifiedSequenceName);
+			ps.setLong(2, newValue);
+			ps.executeQuery();
+		} catch (SQLException e) {
+			log.warn("Error updating sequence {} to value {}", qualifiedSequenceName, newValue, e);
 		}
     }
 

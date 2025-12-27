@@ -26,9 +26,9 @@ public class TableDataPersister {
     public Map<String, TableData> tableDataMap = new ConcurrentHashMap<>();
     
     public void persist(TableDataPage tableDataPage){
-        tableDataMap.compute(tableDataPage.getRequest().getTable().getName(), (key, td) -> {
+        tableDataMap.compute(tableDataPage.getRequest().getTable().qualifiedName(), (key, td) -> {
             if(td == null){
-                td = new TableData(tableDataPage.getRequest().getTable().getName());
+                td = new TableData(tableDataPage.getRequest().getTable().qualifiedName());
             }
             td.getDataPages().add(new TableData.DataPage(tableDataPage.getRequest().getPageNum(), tableDataPage.getTableData()));
             return td;

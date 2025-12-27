@@ -51,6 +51,21 @@ public class DDLServiceSqlserver implements DDLService{
 		}
     }
 
+	@Override
+	public boolean dropSequences(String... sequenceNames) {
+		try{
+			Statement s = conn.createStatement();
+			for(String sequenceName : sequenceNames){
+				s.addBatch("DROP SEQUENCE IF EXISTS " + sequenceName);
+			}
+			s.executeBatch();
+			return true;
+		}catch(Exception e){
+			e.printStackTrace();
+			throw Exceptions.server("failed-to-clear-sequences").withCause(e).get();
+		}
+	}
+
 	public LinkedList<String> tables(String schema){
 		try(
 			PreparedStatement ps = conn.prepareStatement(DatasourceFactorySqlserver.SQL_FOR_TABLES);

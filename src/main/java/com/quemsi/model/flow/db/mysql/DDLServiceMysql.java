@@ -3,6 +3,7 @@ package com.quemsi.model.flow.db.mysql;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -44,6 +45,12 @@ public class DDLServiceMysql implements DDLService{
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
 	}
+
+    @Override
+    public boolean dropSequences(String... sequenceNames) {
+        log.info("drop sequences: {}", Arrays.toString(sequenceNames));
+        return true;
+    }
 
     public void disableConstraints(Set<ReferenceInfo> constraints){
         for(ReferenceInfo refInfo : constraints) {

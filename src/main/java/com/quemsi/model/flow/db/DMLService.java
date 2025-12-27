@@ -8,4 +8,6 @@ public interface DMLService extends AutoCloseable{
     TableDataPage getTableDataPage(TableDataPage.Request request);
 	int writePageData(DbTable table, DataPage dataPage);
 	boolean clearTables(String... tableNames);
+	void updateSequence(String qualifiedSequenceName, Long newValue);
+	Long getMaxColumnValue(String tableName, String columnName);
 }

@@ -27,6 +27,7 @@ import com.quemsi.model.flow.file.Zip;
 import com.quemsi.model.flow.out.Storage;
 import com.quemsi.model.flow.process.MaskColumns;
 import com.quemsi.model.flow.process.SchemaMapping;
+import com.quemsi.model.flow.process.UpdateSequences;
 
 import lombok.Getter;
 
@@ -134,6 +135,19 @@ public class StepFactory extends AbstractFactory<Step>{
 					maskColumns.setParallelism(10);
 				}
 				return maskColumns;
+			}),
+			Map.entry("UpdateSequences", (Function<JsonNode, Step>) node -> {
+				UpdateSequences updateSequences = new UpdateSequences();
+				ObjectMapper objectMapper = context.getBean(ObjectMapper.class);
+				updateSequences.setObjectMapper(objectMapper);
+				String datasource = node.findValue("datasource").asText(null);
+				updateSequences.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
+				JsonNode configNode = node.get("config");
+				if(configNode != null) {
+					com.quemsi.model.dto.UpdateSequences config = objectMapper.convertValue(configNode, com.quemsi.model.dto.UpdateSequences.class);
+					updateSequences.setConfig(config);
+				}
+				return updateSequences;
 			})
 			);
 }
