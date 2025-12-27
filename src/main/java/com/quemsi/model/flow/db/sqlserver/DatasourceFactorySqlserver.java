@@ -22,6 +22,7 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
@@ -84,6 +85,13 @@ select * from (
 	            AND FKC.referenced_column_id=oReferenceCol.column_id
 	    INNER JOIN sys.tables t ON oParentCol.object_id = t.object_id
 	    INNER JOIN sys.tables tRef ON oReferenceCol.object_id = tRef.object_id
+	UNION
+	SELECT kcu.table_schema, kcu.table_name, kcu.constraint_name, 'u' as con_type, kcu.column_name, kcu.ordinal_position,
+		null as REFERENCED_SCHEMA_NAME, null as REFERENCED_TABLE_NAME, null as REFERENCED_COLUMN_NAME
+	FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+	INNER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON kcu.constraint_name = tc.constraint_name 
+		AND kcu.table_schema = tc.table_schema AND kcu.table_name = tc.table_name
+	WHERE tc.constraint_type = 'UNIQUE'
 ) cons
 where cons.table_schema = ?
 order by cons.table_schema, cons.table_name, cons.ordinal_position 
@@ -201,6 +209,7 @@ where schema_name(s.schema_id) = ?
 			cps.setString(1, schema);
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			Map<String, ContraintInfo> contraintInfos = new HashMap<>();
 			while(crs.next()){
 				String schemaName = crs.getString("TABLE_SCHEMA");
 				String tableName = crs.getString("TABLE_NAME");
@@ -226,9 +235,18 @@ where schema_name(s.schema_id) = ?
 						refInfo.getSrcColumnNames().add(columnName);
 						refInfo.getRefColumnNames().add(refColumnName);	
 					}
+				} else if("u".equals(conType)){
+					ContraintInfo contraintInfo = contraintInfos.get(constraintName);
+					if(contraintInfo == null){
+						contraintInfo = ContraintInfo.builder().constraintName(constraintName).schema(schemaName).tableName(tableName).columnName(columnName).build();
+						contraintInfos.put(constraintName, contraintInfo);
+					}else{
+						contraintInfo.getColumnNames().add(columnName);
+					}
 				}
 			}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
+			dbModel.getContraintInfos().addAll(contraintInfos.values());
 			ist.setString(1, schema);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;

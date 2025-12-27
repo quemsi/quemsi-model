@@ -20,6 +20,7 @@ import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.util.CommonHelpers;
@@ -299,6 +300,20 @@ public class DDLServiceSqlserver implements DDLService{
 					}
 				};
 			}
+		}
+		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append(contraintInfo.getConstraintName()).append(" UNIQUE").append(" (");
+			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
+			while(cIt.hasNext()){
+				String cName = cIt.next();
+				sb.append(cName);
+				if(cIt.hasNext()){
+					sb.append(", ");
+				}
+			}
+			sb.append(");");
+			log.info("create unique constraint {} for table {} : {}", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName(), sb.toString());
+			scripts.add(sb);
 		}
 		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchema()));
 		if(!dbModel.getSequences().isEmpty()){
