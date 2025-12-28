@@ -16,6 +16,7 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
@@ -261,6 +262,11 @@ public class DDLServicePostgres implements DDLService{
             }
             sb.append(");");
             log.info("create unique constraint {} for table {} : {}", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName(), sb.toString());
+            scripts.add(sb);
+        }
+        for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ").append(checkConstraint.getConstraintName()).append(" ").append(checkConstraint.getCondef()).append(";");
+            log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
             scripts.add(sb);
         }
 		try{

@@ -30,6 +30,7 @@ public class DbModel {
     protected Map<String, DbTable> tables;
     private List<ReferenceInfo> referenceInfos;
     private List<ContraintInfo> contraintInfos;
+    private List<CheckConstraint> checkConstraints;
     protected Set<ReferenceInfo> circularIgnore;
     protected Map<String, Map<String, IndexInfo>> indexes;
     protected List<DbSequence> sequences;
@@ -38,6 +39,7 @@ public class DbModel {
         tables = new HashMap<>();
         referenceInfos = new LinkedList<>();
         contraintInfos = new LinkedList<>();
+        checkConstraints = new LinkedList<>();
         circularIgnore = new HashSet<>();
         indexes = new HashMap<>();
         sequences = new LinkedList<>();
@@ -249,6 +251,26 @@ public class DbModel {
         }
 
     }
+
+    @Builder
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class CheckConstraint {
+        private String schema;
+        private String tableName;
+        private String constraintName;
+        private String condef;
+
+        public String qualifiedTableName(){
+            return CommonHelpers.qualifiedName(schema, tableName);
+        }
+
+        public String qualifiedConstraintName(){
+            return CommonHelpers.qualifiedName(schema, constraintName);
+        }
+    }
+
     @NoArgsConstructor
     @Data
     public static class IndexInfo {
