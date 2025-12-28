@@ -9,6 +9,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
@@ -17,6 +18,7 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -108,6 +110,7 @@ public class DDLServiceMysql implements DDLService{
 	public void createTables(DbModel dbModel) {
 		LinkedList<StringBuilder> scripts = new LinkedList<>();
 		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTableName()));
+		Map<String, ContraintInfo> constraintInfos = dbModel.getContraintInfos().stream().collect(Collectors.toMap(ContraintInfo::getConstraintName, Function.identity()));
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
@@ -143,10 +146,11 @@ public class DDLServiceMysql implements DDLService{
 				Iterator<String> indNameIt = indexes.keySet().iterator();
 				while(indNameIt.hasNext()){
 					String indName = indNameIt.next();
-					if(!"PRIMARY".equals(indName)){
+					if(!"PRIMARY".equals(indName) && !constraintInfos.containsKey(indName)){
 						sb.append(",").append(System.lineSeparator());
-						sb.append("  KEY ").append(indName).append(" (");
+						sb.append("  KEY ").append(indName);
 						IndexInfo indCols = indexes.get(indName);
+						sb.append(" (");
 						Iterator<String> icIt = indCols.getColumns().iterator();
 						while(icIt.hasNext()){
 							String ic = icIt.next();
@@ -188,6 +192,20 @@ public class DDLServiceMysql implements DDLService{
 			}
 			sb.append(System.lineSeparator()).append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 			log.info("create script for {} : {}", tableName, sb.toString());
+			scripts.add(sb);
+		}
+		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ").append(contraintInfo.getConstraintName()).append(" UNIQUE").append(" (");
+			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
+			while(cIt.hasNext()){
+				String cName = cIt.next();
+				sb.append(cName);
+				if(cIt.hasNext()){
+					sb.append(", ");
+				}
+			}
+			sb.append(");");
+			log.info("create unique constraint {} for table {} : {}", contraintInfo.getConstraintName(), contraintInfo.getTableName(), sb.toString());
 			scripts.add(sb);
 		}
 		try(Connection conn = dataSource.getConnection()){
