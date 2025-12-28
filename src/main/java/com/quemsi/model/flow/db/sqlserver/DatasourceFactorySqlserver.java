@@ -22,6 +22,7 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
@@ -122,6 +123,19 @@ from sys.sequences s
 where schema_name(s.schema_id) = ?
 ;
 			""";
+
+	private static final String SQL_FOR_CHECK_CONSTRAINTS = """
+select 
+	SCHEMA_NAME(t.schema_id) as table_schema,
+	t.name as table_name,
+	cc.name as constraint_name,
+	OBJECT_DEFINITION(cc.object_id) as condef
+from sys.check_constraints cc
+inner join sys.tables t on cc.parent_object_id = t.object_id
+where SCHEMA_NAME(t.schema_id) = ?
+;
+			""";
+
 	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
 
 	private String name;
@@ -184,6 +198,7 @@ where schema_name(s.schema_id) = ?
 			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
 			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES);
 			PreparedStatement sst = con.prepareStatement(SQL_FOR_SEQUENCES);
+			PreparedStatement ckps = con.prepareStatement(SQL_FOR_CHECK_CONSTRAINTS);
 		){
 			ps.setString(1, schema);
 			ResultSet rs = ps.executeQuery();
@@ -293,6 +308,21 @@ where schema_name(s.schema_id) = ?
 					.build()
 				;
 				dbModel.getSequences().add(seq);
+			}
+			ckps.setString(1, schema);
+			ResultSet ckrs = ckps.executeQuery();
+			while (ckrs.next()) {
+				String schemaName = ckrs.getString("TABLE_SCHEMA");
+				String tableName = ckrs.getString("TABLE_NAME");
+				String constraintName = ckrs.getString("CONSTRAINT_NAME");
+				String condef = ckrs.getString("CONDEF");
+				CheckConstraint checkConstraint = CheckConstraint.builder()
+					.schema(schemaName)
+					.tableName(tableName)
+					.constraintName(constraintName)
+					.condef(condef)
+					.build();
+				dbModel.getCheckConstraints().add(checkConstraint);
 			}
 			dbModel.build();
 		}catch(Exception e){
