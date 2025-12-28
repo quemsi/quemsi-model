@@ -18,6 +18,7 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
@@ -208,6 +209,28 @@ public class DDLServiceMysql implements DDLService{
 			log.info("create unique constraint {} for table {} : {}", contraintInfo.getConstraintName(), contraintInfo.getTableName(), sb.toString());
 			scripts.add(sb);
 		}
+		for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
+			StringBuilder sb = new StringBuilder("ALTER TABLE ");
+			// Backtick table name if it contains special characters
+			String tableName = checkConstraint.getTableName();
+			if(tableName.contains(".") || tableName.contains("`")){
+				sb.append("`").append(tableName.replace("`", "``")).append("`");
+			} else {
+				sb.append(tableName);
+			}
+			sb.append(" ADD CONSTRAINT ");
+			// Backtick constraint name if it contains special characters (like dots)
+			String constraintName = checkConstraint.getConstraintName();
+			if(constraintName.contains(".") || constraintName.contains("`") || constraintName.contains("-") || constraintName.contains(" ")){
+				sb.append("`").append(constraintName.replace("`", "``")).append("`");
+			} else {
+				sb.append(constraintName);
+			}
+			String convertedCondef = convertCheckClause(checkConstraint.getCondef());
+			sb.append(" CHECK (").append(convertedCondef).append(");");
+			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.getTableName(), sb.toString());
+			scripts.add(sb);
+		}
 		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
@@ -222,6 +245,75 @@ public class DDLServiceMysql implements DDLService{
 	public boolean checkSchema(String schema) throws SQLException{
 		return true;
 	}
+
+    /**
+     * Converts MySQL's internal CHECK_CLAUSE format to standard MySQL CHECK syntax.
+     * Converts regexp_like(column, _utf8mb4'pattern') to column REGEXP 'pattern'
+     */
+    private String convertCheckClause(String checkClause) {
+        if (checkClause == null || checkClause.trim().isEmpty()) {
+            return checkClause;
+        }
+        
+        // Check if it's a regexp_like format
+        String trimmed = checkClause.trim();
+        if (trimmed.toLowerCase().startsWith("regexp_like(")) {
+            try {
+                // Pattern: regexp_like(`column`, _utf8mb4\'pattern\')
+                // Find the opening paren and comma (handling backticks in column name)
+                int openParen = trimmed.indexOf('(');
+                int closeParen = trimmed.lastIndexOf(')');
+                if (openParen > 0 && closeParen > openParen) {
+                    String args = trimmed.substring(openParen + 1, closeParen);
+                    
+                    // Find the comma that separates column from pattern
+                    // Need to handle backticks in column name
+                    int commaIndex = -1;
+                    boolean inBackticks = false;
+                    for (int i = 0; i < args.length(); i++) {
+                        char c = args.charAt(i);
+                        if (c == '`' && (i == 0 || args.charAt(i-1) != '\\')) {
+                            inBackticks = !inBackticks;
+                        } else if (c == ',' && !inBackticks) {
+                            commaIndex = i;
+                            break;
+                        }
+                    }
+                    
+                    if (commaIndex > 0) {
+                        String column = args.substring(0, commaIndex).trim();
+                        String patternPart = args.substring(commaIndex + 1).trim();
+                        
+                        // Remove _utf8mb4 prefix if present
+                        String regexString = patternPart;
+                        if (regexString.toLowerCase().startsWith("_utf8mb4")) {
+                            regexString = regexString.substring(8).trim();
+                        }
+                        
+                        // Handle escaped quotes: \' at start and end should become '
+                        if (regexString.startsWith("\\'")) {
+                            regexString = "'" + regexString.substring(2);
+                        }
+                        if (regexString.endsWith("\\'")) {
+                            regexString = regexString.substring(0, regexString.length() - 2) + "'";
+                        }
+                        
+                        // Unescape double backslashes to single backslashes
+                        // MySQL stores \\\\ as the representation of \\ in the pattern
+                        regexString = regexString.replace("\\\\\\\\", "\\\\");
+                        
+                        // Build the REGEXP syntax
+                        return column + " REGEXP " + regexString;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("Failed to convert regexp_like format, using original: {}", checkClause, e);
+            }
+        }
+        
+        // Return as-is if not regexp_like format or conversion failed
+        return checkClause;
+    }
 
     @Override
     public void close() throws Exception {

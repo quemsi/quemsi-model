@@ -18,6 +18,7 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
@@ -64,6 +65,20 @@ SELECT
 FROM INFORMATION_SCHEMA.STATISTICS st
 WHERE TABLE_SCHEMA = ?
 order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
+			""";
+
+	private static final String SQL_FOR_CHECK_CONSTRAINTS = """
+SELECT 
+	tc.CONSTRAINT_SCHEMA as table_schema,
+	tc.TABLE_NAME as table_name,
+	cc.CONSTRAINT_NAME as constraint_name,
+	cc.CHECK_CLAUSE as condef
+FROM INFORMATION_SCHEMA.CHECK_CONSTRAINTS cc
+INNER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc 
+	ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA 
+	AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
+WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
+;
 			""";
 	
 	private String name;
@@ -119,7 +134,8 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			Connection con = getDataSource().getConnection();
 			PreparedStatement ps = con.prepareStatement(SQL_FOR_COLUMNS);
 			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
-			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES); 
+			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES);
+			PreparedStatement ckps = con.prepareStatement(SQL_FOR_CHECK_CONSTRAINTS);
 		){
 			ps.setString(1, dbName);
 			ResultSet rs = ps.executeQuery();
@@ -212,6 +228,21 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			}
 			if(cur != null){
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
+			}
+			ckps.setString(1, dbName);
+			ResultSet ckrs = ckps.executeQuery();
+			while (ckrs.next()) {
+				String schemaName = ckrs.getString("TABLE_SCHEMA");
+				String tableName = ckrs.getString("TABLE_NAME");
+				String constraintName = ckrs.getString("CONSTRAINT_NAME");
+				String condef = ckrs.getString("CONDEF");
+				CheckConstraint checkConstraint = CheckConstraint.builder()
+					.schema(schemaName)
+					.tableName(tableName)
+					.constraintName(constraintName)
+					.condef(condef)
+					.build();
+				dbModel.getCheckConstraints().add(checkConstraint);
 			}
 			dbModel.build();
 		}catch(Exception e){
