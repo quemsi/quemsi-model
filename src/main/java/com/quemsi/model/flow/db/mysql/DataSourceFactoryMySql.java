@@ -18,6 +18,7 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -40,9 +41,13 @@ order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 ;
 			""";
 	private static final String SQL_FOR_CONSTRAINTS = """
-select kcu.table_name, kcu.constraint_name, kcu.column_name, coalesce(kcu.position_in_unique_constraint, kcu.ordinal_position) as ORD,
+select kcu.table_name, kcu.constraint_name, tc.constraint_type, kcu.column_name, coalesce(kcu.position_in_unique_constraint, kcu.ordinal_position) as ORD,
 	kcu.referenced_table_name, kcu.referenced_column_name
 from INFORMATION_SCHEMA.`KEY_COLUMN_USAGE` kcu 
+inner join INFORMATION_SCHEMA.`TABLE_CONSTRAINTS` tc 
+	on kcu.constraint_name = tc.constraint_name 
+	and kcu.table_schema = tc.table_schema 
+	and kcu.table_name = tc.table_name
 where kcu.CONSTRAINT_SCHEMA = ?
 order by kcu.table_name, kcu.constraint_name, coalesce(kcu.position_in_unique_constraint, kcu.ordinal_position)
 ;
@@ -137,13 +142,27 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			cps.setString(1, dbName);
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			Map<String, ContraintInfo> contraintInfos = new HashMap<>();
 			while(crs.next()){
 				String tableName = crs.getString("TABLE_NAME");
 				String constraintName = crs.getString("CONSTRAINT_NAME");
-				String conType = "PRIMARY".equals(constraintName) ? "p" : "f";
+				String constraintType = crs.getString("CONSTRAINT_TYPE");
 				String columnName = crs.getString("COLUMN_NAME");
 				String refTableName = crs.getString("REFERENCED_TABLE_NAME");
 				String refColumnName = crs.getString("REFERENCED_COLUMN_NAME");
+				
+				// Map MySQL constraint types to single-letter codes
+				String conType;
+				if("PRIMARY KEY".equals(constraintType)){
+					conType = "p";
+				} else if("FOREIGN KEY".equals(constraintType)){
+					conType = "f";
+				} else if("UNIQUE".equals(constraintType)){
+					conType = "u";
+				} else {
+					conType = null; // Unknown constraint type, skip
+				}
+				
 				if("p".equals(conType)){	
 					DbTable table = dbModel.findTable(tableName).orElseThrow(Exceptions.server("unknow-table").withExtra("tableName", tableName).supplier());
 					table.getPkColumnNames().add(columnName);
@@ -160,9 +179,18 @@ order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 						refInfo.getSrcColumnNames().add(columnName);
 						refInfo.getRefColumnNames().add(refColumnName);	
 					}
+				} else if("u".equals(conType)){
+					ContraintInfo contraintInfo = contraintInfos.get(constraintName);
+					if(contraintInfo == null){
+						contraintInfo = ContraintInfo.builder().constraintName(constraintName).schema(dbName).tableName(tableName).columnName(columnName).build();
+						contraintInfos.put(constraintName, contraintInfo);
+					}else{
+						contraintInfo.getColumnNames().add(columnName);
+					}
 				}
 			}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
+			dbModel.getContraintInfos().addAll(contraintInfos.values());
 			ist.setString(1, dbName);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
