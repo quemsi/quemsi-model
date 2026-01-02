@@ -12,7 +12,7 @@ public class UpdateSequences implements Serializable {
     private List<SequenceMapping> customMappings;
     
     @Data
-    public static class SequenceMapping {
+    public static class SequenceMapping implements Serializable {
         private String sequence;
         private String schema;
         private String table;
