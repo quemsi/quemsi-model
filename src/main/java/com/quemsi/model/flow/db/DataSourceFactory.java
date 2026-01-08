@@ -40,8 +40,8 @@ public interface DataSourceFactory {
 			return new DataSourceFactoryMySql();
 		} else if(DatasourceType.POSTGRES.equals(type)) {
 			return new DatasourceFactoryPostgres();
-		} else if(DatasourceType.SQLSERVER.equals(type)) {
-			return new DatasourceFactorySqlserver();
+		} else if(DatasourceType.SQLSERVER.equals(type) || DatasourceType.SQLSERVERWIN.equals(type)) {
+			return new DatasourceFactorySqlserver(type);
 		} else{
 			throw Exceptions.server("invalid-datasource-type").withExtra("type", type).get();
 		}

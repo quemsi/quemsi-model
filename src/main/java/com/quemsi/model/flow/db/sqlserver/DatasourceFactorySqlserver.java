@@ -137,7 +137,7 @@ where SCHEMA_NAME(t.schema_id) = ?
 			""";
 
 	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
-
+	private final DatasourceType type;
 	private String name;
 	private String dbName;
 	private String url;
@@ -147,9 +147,13 @@ where SCHEMA_NAME(t.schema_id) = ?
 	private HikariDataSource instance;
 	private ReentrantLock globalLock;
 	
+	public DatasourceFactorySqlserver(DatasourceType type){
+		this.type = type;
+	}
+
 	@Override
 	public DatasourceType type() {
-		return DatasourceType.SQLSERVER;
+		return type;
 	}
 
 	@PostConstruct
@@ -171,6 +175,10 @@ where SCHEMA_NAME(t.schema_id) = ?
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
+			if(DatasourceType.SQLSERVERWIN.equals(type)){
+				config.setDriverClassName("net.sourceforge.jtds.jdbc.Driver");
+				config.setConnectionTestQuery("select 1");
+			}
 			/* Connection pool settings to prevent exhaustion */
 			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
 			config.setMinimumIdle(2);      /* Keep minimum idle connections */
