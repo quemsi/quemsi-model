@@ -81,7 +81,7 @@ public class DDLServiceMysql implements DDLService{
             Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("`").append(cName).append("`");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -90,7 +90,7 @@ public class DDLServiceMysql implements DDLService{
             cIt = refInfo.getRefColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("`").append(cName).append("`");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -116,8 +116,9 @@ public class DDLServiceMysql implements DDLService{
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
-			for(DbColumn c : columns){
-				sb.append("  ").append(c.getName()).append(" ").append(c.getColumnType());
+			int index = 0;
+            for(DbColumn c : columns){
+				sb.append("  ").append("`").append(c.getName()).append("`").append(" ").append(c.getColumnType());
 				if(!c.isNullable()){
 					sb.append(" NOT NULL");
 				}
@@ -128,14 +129,18 @@ public class DDLServiceMysql implements DDLService{
 				}else{
 					sb.append(" DEFAULT " + c.getColumnDefault());
 				}
-				sb.append(",").append(System.lineSeparator());
+                if(index < columns.length - 1){
+                    sb.append(",").append(System.lineSeparator());
+                }
+                index++;
 			}
 			if(table.getPkColumnNames().size() > 0){
-				sb.append("  ").append("PRIMARY KEY (");
+				sb.append(",").append(System.lineSeparator());
+                sb.append("  ").append("PRIMARY KEY (");
 				Iterator<String> cIt = table.getPkColumnNames().iterator();
 				while(cIt.hasNext()){
 					String cName = cIt.next();
-					sb.append(cName);
+					sb.append("`").append(cName).append("`");
 					if(cIt.hasNext()){
 						sb.append(", ");
 					}
@@ -155,7 +160,7 @@ public class DDLServiceMysql implements DDLService{
 						Iterator<String> icIt = indCols.getColumns().iterator();
 						while(icIt.hasNext()){
 							String ic = icIt.next();
-							sb.append(ic);
+							sb.append("`").append(ic).append("`");
 							if(icIt.hasNext()){
 								sb.append(" ,");
 							}
@@ -174,7 +179,7 @@ public class DDLServiceMysql implements DDLService{
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
-                        sb.append(cName);
+                        sb.append("`").append(cName).append("`");
                         if(cIt.hasNext()){
                             sb.append(", ");
                         }
@@ -183,7 +188,7 @@ public class DDLServiceMysql implements DDLService{
                     cIt = ref.getRefColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
-                        sb.append(cName);
+                        sb.append("`").append(cName).append("`");
                         if(cIt.hasNext()){
                             sb.append(", ");
                         }
@@ -200,7 +205,7 @@ public class DDLServiceMysql implements DDLService{
 			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
 			while(cIt.hasNext()){
 				String cName = cIt.next();
-				sb.append(cName);
+				sb.append("`").append(cName).append("`");
 				if(cIt.hasNext()){
 					sb.append(", ");
 				}

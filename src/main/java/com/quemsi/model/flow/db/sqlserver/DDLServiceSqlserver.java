@@ -181,8 +181,8 @@ public class DDLServiceSqlserver implements DDLService{
 			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			for(DbColumn c : columns){
-				sb.append("  ");
-				escape(sb, c.getName()).append(" ").append(columnType(c.getDataType(), c.getMaxLength()));
+				sb.append("  [");
+				escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength()));
                 if(c.isIdentity()){
                     sb.append(" IDENTITY(1,1)");
                 }

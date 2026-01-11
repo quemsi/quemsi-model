@@ -89,7 +89,7 @@ public class DDLServicePostgres implements DDLService{
             Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("\"").append(cName).append("\"");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -98,7 +98,7 @@ public class DDLServicePostgres implements DDLService{
             cIt = refInfo.getRefColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("\"").append(cName).append("\"");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -157,8 +157,9 @@ public class DDLServicePostgres implements DDLService{
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
-			for(DbColumn c : columns){
-				sb.append("  ").append(c.getName()).append(" ").append(columnType(c.getColumnType(), c.getMaxLength()));
+			int index = 0;
+            for(DbColumn c : columns){
+				sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength()));
 				if(c.getColumnDefault() == null){
 					if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())){
 						sb.append(" DEFAULT NULL");
@@ -169,9 +170,13 @@ public class DDLServicePostgres implements DDLService{
 				if(!c.isNullable()){
 					sb.append(" NOT NULL");
 				}
-				sb.append(",").append(System.lineSeparator());
+                if(index < columns.length - 1){
+                    sb.append(",").append(System.lineSeparator());
+                }
+                index++;
 			}
 			if(table.getPkColumnNames().size() > 0){
+                sb.append(",").append(System.lineSeparator());
                 StringBuilder pkConst = new StringBuilder();
                 Iterator<String> cIt = table.getPkColumnNames().iterator();
 				String pkConstraintName = table.getPkConstraintName();
@@ -183,7 +188,7 @@ public class DDLServicePostgres implements DDLService{
                             pkConst.append(pkConstraintName).append(" PRIMARY KEY (");
                         }
                     }
-                    pkConst.append(cName);
+                    pkConst.append("\"").append(cName).append("\"");
 					if(cIt.hasNext()){
 						pkConst.append(", ");
 					}
@@ -203,7 +208,7 @@ public class DDLServicePostgres implements DDLService{
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
-                        sb.append(cName);
+                        sb.append("\"").append(cName).append("\"");
                         if(cIt.hasNext()){
                             sb.append(", ");
                         }
@@ -212,7 +217,7 @@ public class DDLServicePostgres implements DDLService{
                     cIt = ref.getRefColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
-                        sb.append(cName);
+                        sb.append("\"").append(cName).append("\"");
                         if(cIt.hasNext()){
                             sb.append(", ");
                         }
@@ -238,7 +243,7 @@ public class DDLServicePostgres implements DDLService{
                     Iterator<String> icIt = indCols.getColumns().iterator();
                     while(icIt.hasNext()){
                         String ic = icIt.next();
-                        indBuilder.append(ic);
+                        indBuilder.append("\"").append(ic).append("\"");
                         if(icIt.hasNext()){
                             indBuilder.append(", ");
                         }
@@ -255,7 +260,7 @@ public class DDLServicePostgres implements DDLService{
             Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("\"").append(cName).append("\"");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }

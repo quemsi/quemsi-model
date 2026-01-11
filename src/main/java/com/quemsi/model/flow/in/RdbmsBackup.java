@@ -10,6 +10,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -138,6 +139,7 @@ public class RdbmsBackup implements Source{
                 }
                 log.info("all dependencies are processed for {}", table.getName());
                 Request request = new Request();
+                request.setSeqGenerator(new AtomicLong(1));
                 request.setPageNum(0);
                 request.setPageSize(batchSize);
                 request.setTable(table);
