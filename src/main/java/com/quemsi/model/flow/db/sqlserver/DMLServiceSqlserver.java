@@ -18,7 +18,6 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 
 import com.quemsi.commons.util.Exceptions;
-import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbColumn;
@@ -51,7 +50,7 @@ select * from (
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
-			String sortColumnNames = !StringUtils.isEmptyOrNull(request.getTable().getPkColumnNames()) ?request.getTable().getPkColumnNames().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", ")) : request.getTable().getColumns().keySet().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", "));
+			String sortColumnNames = !CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames()) ?request.getTable().getPkColumnNames().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", ")) : request.getTable().getColumns().keySet().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", "));
 			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, sortColumnNames, request.getTable().qualifiedName());
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
