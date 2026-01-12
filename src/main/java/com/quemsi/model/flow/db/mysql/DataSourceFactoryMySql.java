@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
@@ -83,7 +84,7 @@ WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
 	
 	private String name;
 	private String dbName;
-	private String schema;
+	private Set<String> schemas;
 	private String url;
 	private String username;
 	private String password;

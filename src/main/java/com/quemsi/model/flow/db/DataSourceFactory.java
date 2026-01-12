@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.Set;
 
 import javax.sql.DataSource;
 
@@ -21,8 +22,8 @@ public interface DataSourceFactory {
 	void setName(String name);
 	String getDbName();
 	void setDbName(String dbName);
-	String getSchema();
-	void setSchema(String schema);
+	Set<String> getSchemas();
+	void setSchemas(Set<String> schemas);
 	String getUrl();
 	void setUrl(String url);
 	String getUsername();

@@ -68,11 +68,11 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 	}
 
-	public LinkedList<String> tables(String schema){
+	public LinkedList<String> tables(Set<String> schemas){
 		try(
-			PreparedStatement ps = conn.prepareStatement(DatasourceFactorySqlserver.SQL_FOR_TABLES);
+			PreparedStatement ps = conn.prepareStatement(CommonHelpers.addInParameter(DatasourceFactorySqlserver.SQL_FOR_TABLES, schemas.size()));
 		){
-			ps.setString(1, schema);
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
 			LinkedList<String> tables = new LinkedList<>();
 			while(rs.next()){
@@ -86,11 +86,11 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 	}
 
-	public LinkedList<String> sequences(String schema){
+	public LinkedList<String> sequences(Set<String> schemas){
 		try(
-			PreparedStatement ps = conn.prepareStatement(DatasourceFactorySqlserver.SQL_FOR_SEQUENCES);
+			PreparedStatement ps = conn.prepareStatement(CommonHelpers.addInParameter(DatasourceFactorySqlserver.SQL_FOR_SEQUENCES, schemas.size()));
 		){
-			ps.setString(1, schema);
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
 			LinkedList<String> seqs = new LinkedList<>();
 			while(rs.next()){
@@ -169,10 +169,10 @@ public class DDLServiceSqlserver implements DDLService{
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
 		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.srcQualifiedName()));
-		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchema()));
+		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
 		for(String tableName : dbModel.orderedTableNames()){
 			if(existingTables.contains(tableName)){
-				log.info("table {} already exists in schema {} skipping", tableName, dbModel.getSchema());
+				log.info("table {} already exists in schema {} skipping", tableName, dbModel.getSchemas());
 				continue;
 			}
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
@@ -221,9 +221,6 @@ public class DDLServiceSqlserver implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
-					if(!ref.getSrcSchema().equals(dbModel.getSchema()) || !ref.getRefSchema().equals(dbModel.getSchema())){
-						continue;
-					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
 						Iterator<String> cIt = ref.getSrcColumnNames().iterator();
@@ -275,7 +272,7 @@ public class DDLServiceSqlserver implements DDLService{
 						if("rowguid".equals(ic)){
 							withRowguid = true;
 						}
-						indBuilder.append(ic);
+						indBuilder.append("[").append(ic).append("]");
 						if(icIt.hasNext()){
 							indBuilder.append(", ");
 						}
@@ -307,7 +304,7 @@ public class DDLServiceSqlserver implements DDLService{
 			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
 			while(cIt.hasNext()){
 				String cName = cIt.next();
-				sb.append(cName);
+				sb.append("[").append(cName).append("]");
 				if(cIt.hasNext()){
 					sb.append(", ");
 				}
@@ -321,7 +318,7 @@ public class DDLServiceSqlserver implements DDLService{
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
 			scripts.add(sb);
 		}
-		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchema()));
+		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
 		if(!dbModel.getSequences().isEmpty()){
 			for(DbSequence seq : dbModel.getSequences()){
 				if(sequences.contains(seq.qualifiedName())){
@@ -363,10 +360,12 @@ public class DDLServiceSqlserver implements DDLService{
 			}
 		}
 		try{
-			if(!checkSchema(dbModel.getSchema())){
-				StringBuilder csSql = new StringBuilder("create schema ").append(dbModel.getSchema()).append(";");
-				Statement css = conn.createStatement();
-				css.execute(csSql.toString());
+			for(String schema : dbModel.getSchemas()){
+				if(!checkSchema(schema)){
+				StringBuilder csSql = new StringBuilder("create schema ").append(schema).append(";");
+					Statement css = conn.createStatement();
+					css.execute(csSql.toString());
+				}
 			}
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){

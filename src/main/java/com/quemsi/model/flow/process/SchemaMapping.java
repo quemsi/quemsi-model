@@ -3,8 +3,11 @@ package com.quemsi.model.flow.process;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -32,39 +35,72 @@ public class SchemaMapping extends AbstractStep{
         private String targetSchema;
         @Override
         public void process(DbModel dbModel) {
-            if(dbModel.getSchema().equalsIgnoreCase(sourceSchema)){
-                dbModel.setSchema(targetSchema);
+            Set<String> schemas = dbModel.getSchemas();
+            if(schemas == null || schemas.isEmpty()){
+                return;
             }
+            
+            // Find the actual schema string in the set (case-insensitive match)
+            Optional<String> matchingSchema = schemas.stream()
+                .filter(s -> StringUtils.equalsIgnoreCase(s, sourceSchema))
+                .findFirst();
+            
+            // Early return if sourceSchema doesn't exist
+            if(!matchingSchema.isPresent()){
+                return;
+            }
+            
+            // Remove the matching schema and add targetSchema if not already present
+            String actualSchema = matchingSchema.get();
+            schemas.remove(actualSchema);
+            if(!schemas.stream().anyMatch(s -> StringUtils.equalsIgnoreCase(s, targetSchema))){
+                schemas.add(targetSchema);
+            }
+            
+            // Update all schema references
             Map<String, DbTable> updatedTables = dbModel.getTables().values().stream().map( t-> {
-                if(t.getSchema().equalsIgnoreCase(sourceSchema)){
+                if(StringUtils.equalsIgnoreCase(t.getSchema(), sourceSchema)){
                     t.setSchema(targetSchema);
                 }
                 t.getReferencedBy().stream().forEach(r -> {
-                    if(r.getSchema().equalsIgnoreCase(sourceSchema)){
+                    if(StringUtils.equalsIgnoreCase(r.getSchema(), sourceSchema)){
                         r.setSchema(targetSchema);
                     }
                 });
                 t.getReferences().stream().forEach(r -> {
-                    if(r.getRefSchema().equalsIgnoreCase(sourceSchema)){
+                    if(StringUtils.equalsIgnoreCase(r.getRefSchema(), sourceSchema)){
                         r.setRefSchema(targetSchema);
                     }
                 });
                 return t;
             }).collect(Collectors.toMap(t -> t.qualifiedName(), t -> t));
             dbModel.setTables(updatedTables);
-            dbModel.getCircularIgnore().stream().filter(r -> r.getSrcSchema().equalsIgnoreCase(sourceSchema)).forEach(r -> {
+            
+            dbModel.getCircularIgnore().stream().filter(r -> StringUtils.equalsIgnoreCase(r.getSrcSchema(), sourceSchema)).forEach(r -> {
                 r.setSrcSchema(targetSchema);
             });
-            dbModel.getReferenceInfos().stream().filter(r -> r.getSrcSchema().equalsIgnoreCase(sourceSchema)).forEach(r -> {
+            
+            dbModel.getReferenceInfos().stream().filter(r -> StringUtils.equalsIgnoreCase(r.getSrcSchema(), sourceSchema)).forEach(r -> {
                 r.setSrcSchema(targetSchema);
             });
-            dbModel.getReferenceInfos().stream().filter(r -> r.getRefSchema().equalsIgnoreCase(sourceSchema)).forEach(r -> {
+            
+            dbModel.getReferenceInfos().stream().filter(r -> StringUtils.equalsIgnoreCase(r.getRefSchema(), sourceSchema)).forEach(r -> {
                 r.setRefSchema(targetSchema);
             });
-            dbModel.getSequences().stream().filter(s -> s.getSchema().equalsIgnoreCase(sourceSchema)).forEach(s -> {
+            
+            dbModel.getContraintInfos().stream().filter(c -> StringUtils.equalsIgnoreCase(c.getSchema(), sourceSchema)).forEach(c -> {
+                c.setSchema(targetSchema);
+            });
+            
+            dbModel.getCheckConstraints().stream().filter(c -> StringUtils.equalsIgnoreCase(c.getSchema(), sourceSchema)).forEach(c -> {
+                c.setSchema(targetSchema);
+            });
+            
+            dbModel.getSequences().stream().filter(s -> StringUtils.equalsIgnoreCase(s.getSchema(), sourceSchema)).forEach(s -> {
                 s.setSchema(targetSchema);
             });
-            dbModel.getIndexes().values().stream().flatMap(i -> i.values().stream()).filter(i -> i.getSchemaName().equalsIgnoreCase(sourceSchema)).forEach(i ->{
+            
+            dbModel.getIndexes().values().stream().flatMap(i -> i.values().stream()).filter(i -> StringUtils.equalsIgnoreCase(i.getSchemaName(), sourceSchema)).forEach(i ->{
                 i.setSchemaName(targetSchema);
             });
         }

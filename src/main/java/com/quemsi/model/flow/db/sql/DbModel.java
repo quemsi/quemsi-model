@@ -26,7 +26,7 @@ import lombok.Singular;
 public class DbModel {
     private String format;
     private String sourceType;
-    private String schema;
+    private Set<String>schemas;
     protected Map<String, DbTable> tables;
     private List<ReferenceInfo> referenceInfos;
     private List<ContraintInfo> contraintInfos;
@@ -45,7 +45,7 @@ public class DbModel {
         sequences = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
-        return addTable(tableName, this.schema);
+        return addTable(tableName, null);
     }
     public DbTable addTable(String tableName, String schema){
         DbTable table = new DbTable(schema, tableName);
@@ -56,7 +56,7 @@ public class DbModel {
         return Optional.ofNullable(tables.get(qualifiedName));
     }
     public DbTable crateIfAbsent(String tableName){
-        return crateIfAbsent(tableName, this.schema);
+        return crateIfAbsent(tableName, null);
     }
     public DbTable crateIfAbsent(String tableName, String schema){
         Object qualifiedName = CommonHelpers.qualifiedName(schema, tableName);
@@ -73,9 +73,9 @@ public class DbModel {
 
     public void addReferenceInfosToColumns(){
         for(ReferenceInfo refInfo : this.referenceInfos){
-            if(!StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getSrcSchema()) || !StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getRefSchema())){
-                continue;
-            }
+            // if(!StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getSrcSchema()) || !StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getRefSchema())){
+            //     continue;
+            // }
             DbTable sTable = this.findTable(refInfo.srcQualifiedName()).orElseThrow(Exceptions.server("invalid-src-table").withExtra("tableName", refInfo.getSrcTableName()).supplier());
             DbTable rTable = this.findTable(refInfo.refQualifiedName()).orElseThrow(Exceptions.server("unknow-table-in-fk")
                     .withExtra("schema", refInfo.getSrcSchema()).withExtra("tableName", refInfo.getSrcTableName()).withExtra("columnNames", refInfo.getSrcColumnNames()).withExtra("refSchema", refInfo.getRefSchema()).withExtra("refTable", refInfo.getRefTableName()).withExtra("refColumnNames", refInfo.getRefColumnNames()).supplier());

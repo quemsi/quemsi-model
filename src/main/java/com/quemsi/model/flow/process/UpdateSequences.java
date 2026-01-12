@@ -107,7 +107,7 @@ public class UpdateSequences extends AbstractStep {
     private void processCustomMappings(DMLService dmlService, DbModel dbModel, Map<String, DbSequence> existingSequences) {
         for (com.quemsi.model.dto.UpdateSequences.SequenceMapping mapping : config.getCustomMappings()) {
             try {
-                String schema = mapping.getSchema() != null ? mapping.getSchema() : dbModel.getSchema();
+                String schema = mapping.getSchema();
                 String sequenceName = mapping.getSequence();
                 String qualifiedTableName = CommonHelpers.qualifiedName(schema, mapping.getTable());
 
@@ -138,7 +138,7 @@ public class UpdateSequences extends AbstractStep {
                 }
 
                 // Update sequence to 1 + max value
-                dmlService.updateSequence(sequenceName, maxValue + 1);
+                dmlService.updateSequence(CommonHelpers.qualifiedName(schema, sequenceName), maxValue + 1);
                 log.info("Updated sequence {} to value {} for custom mapping (table: {}, column: {})", 
                     sequenceName, maxValue + 1, qualifiedTableName, mapping.getColumn());
             } catch (Exception e) {

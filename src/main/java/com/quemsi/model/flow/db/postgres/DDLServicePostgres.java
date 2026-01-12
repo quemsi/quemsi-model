@@ -200,9 +200,6 @@ public class DDLServicePostgres implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
-					if(!ref.getSrcSchema().equals(dbModel.getSchema()) || !ref.getRefSchema().equals(dbModel.getSchema())){
-						continue;
-					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
@@ -275,11 +272,13 @@ public class DDLServicePostgres implements DDLService{
             scripts.add(sb);
         }
 		try{
-            if(!checkSchema(dbModel.getSchema())){
-				StringBuilder csSql = new StringBuilder("create schema ").append(dbModel.getSchema()).append(";");
-				Statement css = conn.createStatement();
-				css.execute(csSql.toString());
-			}
+            for(String schema : dbModel.getSchemas()){
+                if(!checkSchema(schema)){
+                    StringBuilder csSql = new StringBuilder("create schema ").append(schema).append(";");
+                    Statement css = conn.createStatement();
+                    css.execute(csSql.toString());
+                }
+            }
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
                 log.info("ddl : {}", sb.toString());

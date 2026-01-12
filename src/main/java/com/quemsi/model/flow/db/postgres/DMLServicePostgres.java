@@ -45,8 +45,8 @@ public class DMLServicePostgres implements DMLService{
     public TableDataPage getTableDataPage(Request request) {
         try(Connection conn = dataSource.getConnection()){
 			String sortColumnNames = !CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames()) ? request.getTable().getPkColumnNames().stream().map(c -> "\"" + c + "\"").collect(Collectors.joining(", ")) : request.getTable().getColumns().keySet().stream().map(c -> "\"" + c + "\"").collect(Collectors.joining(", "));
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), sortColumnNames);
-			log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
+			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().qualifiedName(), sortColumnNames);
+			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageSize());
 			ps.setInt(2, request.getPageNum() * request.getPageSize());
