@@ -170,6 +170,47 @@ public class DDLServiceSqlserver implements DDLService{
         LinkedList<StringBuilder> scripts = new LinkedList<>();
 		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.srcQualifiedName()));
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
+		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
+		if(!dbModel.getSequences().isEmpty()){
+			for(DbSequence seq : dbModel.getSequences()){
+				if(sequences.contains(seq.qualifiedName())){
+					continue;
+				}
+				StringBuilder seqBuilder = new StringBuilder("CREATE SEQUENCE ");
+				seqBuilder.append(seq.getSchema()).append(".").append(seq.getName());
+				seqBuilder.append(" START WITH ");
+				if(seq.getLastValue() == null){
+					seqBuilder.append(seq.getStartValue());
+				}else{
+					seqBuilder.append(seq.getLastValue() + 1L);
+				}
+				seqBuilder.append(" INCREMENT BY ").append(seq.getIncrementBy());
+				if(seq.getMinValue() != null && seq.getMinValue() > Long.MIN_VALUE){
+					seqBuilder.append(" MINVALUE ").append(seq.getMinValue());
+				}else{
+					seqBuilder.append(" NO MINVALUE");
+				}
+				if(seq.getMaxValue() != null && seq.getMaxValue() < Long.MAX_VALUE){
+					seqBuilder.append(" MAXVALUE ").append(seq.getMaxValue());
+				}else{
+					seqBuilder.append(" NO MAXVALUE");
+				}
+				if(seq.isCycle()){
+					seqBuilder.append(" CYCLE");
+				}else{
+					seqBuilder.append(" NO CYCLE");
+				}
+				if(seq.getCacheSize() != null && seq.getCacheSize() > 0L){
+					seqBuilder.append(" CACHE ").append(seq.getCacheSize());
+				}else{
+					seqBuilder.append(" NO CACHE");
+				}
+				seqBuilder.append(";");
+
+				log.info("sequence sql : {}", seqBuilder);
+				scripts.add(seqBuilder);
+			}
+		}
 		for(String tableName : dbModel.orderedTableNames()){
 			if(existingTables.contains(tableName)){
 				log.info("table {} already exists in schema {} skipping", tableName, dbModel.getSchemas());
@@ -317,47 +358,6 @@ public class DDLServiceSqlserver implements DDLService{
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" WITH CHECK ADD CONSTRAINT ").append(checkConstraint.getConstraintName()).append(" CHECK ").append(checkConstraint.getCondef()).append(";");
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
 			scripts.add(sb);
-		}
-		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
-		if(!dbModel.getSequences().isEmpty()){
-			for(DbSequence seq : dbModel.getSequences()){
-				if(sequences.contains(seq.qualifiedName())){
-					continue;
-				}
-				StringBuilder seqBuilder = new StringBuilder("CREATE SEQUENCE ");
-				seqBuilder.append(seq.getSchema()).append(".").append(seq.getName());
-				seqBuilder.append(" START WITH ");
-				if(seq.getLastValue() == null){
-					seqBuilder.append(seq.getStartValue());
-				}else{
-					seqBuilder.append(seq.getLastValue() + 1L);
-				}
-				seqBuilder.append(" INCREMENT BY ").append(seq.getIncrementBy());
-				if(seq.getMinValue() != null && seq.getMinValue() > Long.MIN_VALUE){
-					seqBuilder.append(" MINVALUE ").append(seq.getMinValue());
-				}else{
-					seqBuilder.append(" NO MINVALUE");
-				}
-				if(seq.getMaxValue() != null && seq.getMaxValue() < Long.MAX_VALUE){
-					seqBuilder.append(" MAXVALUE ").append(seq.getMaxValue());
-				}else{
-					seqBuilder.append(" NO MAXVALUE");
-				}
-				if(seq.isCycle()){
-					seqBuilder.append(" CYCLE");
-				}else{
-					seqBuilder.append(" NO CYCLE");
-				}
-				if(seq.getCacheSize() != null && seq.getCacheSize() > 0L){
-					seqBuilder.append(" CACHE ").append(seq.getCacheSize());
-				}else{
-					seqBuilder.append(" NO CACHE");
-				}
-				seqBuilder.append(";");
-
-				log.info("sequence sql : {}", seqBuilder);
-				scripts.add(seqBuilder);
-			}
 		}
 		try{
 			for(String schema : dbModel.getSchemas()){
