@@ -325,6 +325,7 @@ public class DDLServicePostgres implements DDLService{
      * @param diff The database model diff containing operations to convert
      * @return List of SQL statements as strings
      */
+    @Override
     public List<String> ddlFrom(DbModelDiff diff) {
         List<String> statements = new ArrayList<>();
         
