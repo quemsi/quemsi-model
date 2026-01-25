@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
@@ -42,13 +43,15 @@ public class DDLServiceSqlserverTest {
     @Test
     public void givenEmptyDiff_whenDdlFrom_thenReturnEmptyList() {
         DbModelDiff diff = new DbModelDiff();
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         assertThat(statements, is(empty()));
     }
 
     @Test
     public void givenNullDiff_whenDdlFrom_thenReturnEmptyList() {
-        List<String> statements = ddlService.ddlFrom(null);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(null, dbModel);
         assertThat(statements, is(empty()));
     }
 
@@ -65,7 +68,8 @@ public class DDLServiceSqlserverTest {
             .newTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE TABLE test_table"));
@@ -85,7 +89,8 @@ public class DDLServiceSqlserverTest {
             .oldTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS old_table;"));
@@ -104,7 +109,8 @@ public class DDLServiceSqlserverTest {
             .newColumn(column)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ADD"));
@@ -125,7 +131,8 @@ public class DDLServiceSqlserverTest {
             .oldColumn(createColumn("old_col", "varchar", true))
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("ALTER TABLE test_table DROP COLUMN [old_col];"));
@@ -146,7 +153,8 @@ public class DDLServiceSqlserverTest {
             .newColumn(newColumn)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ALTER COLUMN [col]"));
@@ -172,7 +180,8 @@ public class DDLServiceSqlserverTest {
             .newReference(ref)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT fk_test"));
@@ -197,7 +206,8 @@ public class DDLServiceSqlserverTest {
             .newConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE users ADD CONSTRAINT uk_email UNIQUE"));
@@ -220,7 +230,8 @@ public class DDLServiceSqlserverTest {
             .newConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE products WITH CHECK ADD CONSTRAINT ck_price"));
@@ -240,7 +251,8 @@ public class DDLServiceSqlserverTest {
             .newIndex(index)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE NONCLUSTERED INDEX idx_email"));
@@ -268,7 +280,8 @@ public class DDLServiceSqlserverTest {
             .newSequence(seq)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE SEQUENCE dbo.seq_test"));
@@ -300,7 +313,8 @@ public class DDLServiceSqlserverTest {
             .newColumn(column)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(2));
         assertThat(statements.get(0), containsString("DROP TABLE"));
@@ -308,6 +322,19 @@ public class DDLServiceSqlserverTest {
     }
 
     // Helper methods
+    private DbModel createEmptyDbModel() {
+        return new DbModel();
+    }
+
+    private DbModel createDbModelWithTable(String tableName) {
+        DbModel dbModel = new DbModel();
+        DbTable table = createTable(tableName);
+        // Add table to model using qualified name
+        String qualifiedName = table.qualifiedName();
+        dbModel.getTables().put(qualifiedName, table);
+        return dbModel;
+    }
+
     private DbTable createTable(String name) {
         return createTable(null, name);
     }

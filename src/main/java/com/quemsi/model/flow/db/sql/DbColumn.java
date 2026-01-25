@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import lombok.Setter;
 
 @Data
 @NoArgsConstructor
@@ -34,6 +35,9 @@ public class DbColumn {
     private String columnKey;
     @Getter
     private String columnDefault;
+    @Getter
+    @Setter
+    private String defaultConstraintName;
     @Getter
     private boolean nullable;
     @Getter

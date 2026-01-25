@@ -343,7 +343,7 @@ public class DDLServiceMysql implements DDLService{
      * @return List of SQL statements as strings
      */
     @Override
-    public List<String> ddlFrom(DbModelDiff diff) {
+    public List<String> ddlFrom(DbModelDiff diff, DbModel dbModel) {
         List<String> statements = new ArrayList<>();
         
         if (diff == null || diff.getOperations() == null || diff.getOperations().isEmpty()) {
@@ -751,5 +751,20 @@ public class DDLServiceMysql implements DDLService{
         sb.append(");");
         
         return sb.toString();
+    }
+    
+    @Override
+    public void executeSql(String sql) throws SQLException {
+        if (sql == null || sql.trim().isEmpty()) {
+            return;
+        }
+        try (Connection conn = dataSource.getConnection()) {
+            Statement s = conn.createStatement();
+            s.execute(sql);
+            log.debug("Executed SQL: {}", sql);
+        } catch (SQLException e) {
+            log.error("Failed to execute SQL: {}", sql, e);
+            throw e;
+        }
     }
 }

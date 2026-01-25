@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
@@ -42,13 +43,15 @@ public class DDLServiceMysqlTest {
     @Test
     public void givenEmptyDiff_whenDdlFrom_thenReturnEmptyList() {
         DbModelDiff diff = new DbModelDiff();
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         assertThat(statements, is(empty()));
     }
 
     @Test
     public void givenNullDiff_whenDdlFrom_thenReturnEmptyList() {
-        List<String> statements = ddlService.ddlFrom(null);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(null, dbModel);
         assertThat(statements, is(empty()));
     }
 
@@ -65,7 +68,8 @@ public class DDLServiceMysqlTest {
             .newTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE TABLE IF NOT EXISTS test_table"));
@@ -85,7 +89,8 @@ public class DDLServiceMysqlTest {
             .oldTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS old_table;"));
@@ -104,7 +109,8 @@ public class DDLServiceMysqlTest {
             .newColumn(column)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ADD COLUMN"));
@@ -125,7 +131,8 @@ public class DDLServiceMysqlTest {
             .oldColumn(createColumn("old_col", "varchar", true))
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("ALTER TABLE test_table DROP COLUMN `old_col`;"));
@@ -146,7 +153,8 @@ public class DDLServiceMysqlTest {
             .newColumn(newColumn)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table MODIFY COLUMN `col`"));
@@ -173,7 +181,8 @@ public class DDLServiceMysqlTest {
             .newReference(ref)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT fk_test"));
@@ -198,7 +207,8 @@ public class DDLServiceMysqlTest {
             .newConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE users ADD CONSTRAINT uk_email UNIQUE"));
@@ -221,7 +231,8 @@ public class DDLServiceMysqlTest {
             .newConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE products ADD CONSTRAINT ck_price"));
@@ -241,7 +252,8 @@ public class DDLServiceMysqlTest {
             .newIndex(index)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE INDEX idx_email"));
@@ -264,7 +276,8 @@ public class DDLServiceMysqlTest {
             .newSequence(seq)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         // MySQL doesn't support sequences, so it should be ignored
         assertThat(statements, is(empty()));
@@ -292,7 +305,8 @@ public class DDLServiceMysqlTest {
             .newColumn(column)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(2));
         assertThat(statements.get(0), containsString("DROP TABLE"));
@@ -300,6 +314,19 @@ public class DDLServiceMysqlTest {
     }
 
     // Helper methods
+    private DbModel createEmptyDbModel() {
+        return new DbModel();
+    }
+
+    private DbModel createDbModelWithTable(String tableName) {
+        DbModel dbModel = new DbModel();
+        DbTable table = createTable(tableName);
+        // Add table to model using qualified name
+        String qualifiedName = table.qualifiedName();
+        dbModel.getTables().put(qualifiedName, table);
+        return dbModel;
+    }
+
     private DbTable createTable(String name) {
         return createTable(null, name);
     }

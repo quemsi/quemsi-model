@@ -22,5 +22,13 @@ public interface DDLService extends AutoCloseable {
 	 * @param diff The database model diff containing operations to convert
 	 * @return List of SQL statements as strings
 	 */
-	List<String> ddlFrom(DbModelDiff diff);
+	List<String> ddlFrom(DbModelDiff diff, DbModel dbModel);
+	
+	/**
+	 * Executes a single SQL statement.
+	 * 
+	 * @param sql The SQL statement to execute
+	 * @throws SQLException if the SQL statement execution fails
+	 */
+	void executeSql(String sql) throws SQLException;
 }

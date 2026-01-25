@@ -139,11 +139,11 @@ public class DDLServiceSqlserver implements DDLService{
     public void enableContraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcSchema()) .append(refInfo.getSrcTableName()).append("WITH CHECK CHECK CONSTRAINT ")
+            sb.append(refInfo.srcQualifiedName()).append(" WITH CHECK CHECK CONSTRAINT ")
             .append(refInfo.getConstraintName()).append(";");
             try{
                 String dropConstraintSql = sb.toString();
-                log.info("drop constraint sql :{}", dropConstraintSql);
+                log.info("enable constraint sql :{}", dropConstraintSql);
                 Statement s = conn.createStatement();
                 s.executeUpdate(dropConstraintSql);
             }catch(SQLException ignore){
@@ -152,7 +152,7 @@ public class DDLServiceSqlserver implements DDLService{
         }
     }
 
-    private String columnType(String type, Integer maxLength){
+    private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
         if("varchar".equals(type) && maxLength != null){
             return new StringBuffer(type).append("(").append(maxLength).append(")").toString();
         } else if(Set.of("varbinary", "nvarchar", "nchar").contains(type)){
@@ -167,6 +167,8 @@ public class DDLServiceSqlserver implements DDLService{
                 sb.append(")");
                 return sb.toString();
             }
+        } else if(Set.of("decimal", "numeric").contains(type)){
+            return new StringBuffer(type).append("(").append(precision).append(",").append(scale).append(")").toString();
         }
         return type;
     }
@@ -196,7 +198,7 @@ public class DDLServiceSqlserver implements DDLService{
 			DbColumn[] columns = table.orderedColumns();
 			for(DbColumn c : columns){
 				sb.append("  [");
-				escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength()));
+				escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
                 if(c.isIdentity()){
                     sb.append(" IDENTITY(1,1)");
                 }
@@ -206,12 +208,10 @@ public class DDLServiceSqlserver implements DDLService{
                 if(!c.isNullable()){
 					sb.append(" NOT NULL");
 				} else if(c.getColumnDefault() == null){
-                    if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"
-                        ,"XML", "VARBINARY", "NVARCHAR").contains(c.getColumnType().toUpperCase())){
-						sb.append(" DEFAULT NULL");
-					}else{
-                        sb.append(" NULL");
-                    }
+                    // if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"
+                    //     ,"XML", "VARBINARY", "NVARCHAR").contains(c.getColumnType().toUpperCase())){
+					// 	sb.append(" DEFAULT NULL");
+					// }
                 }
 				sb.append(",").append(System.lineSeparator());
 			}
@@ -414,7 +414,7 @@ public class DDLServiceSqlserver implements DDLService{
      * @return List of SQL statements as strings
      */
 	@Override
-    public List<String> ddlFrom(DbModelDiff diff) {
+    public List<String> ddlFrom(DbModelDiff diff, DbModel dbModel) {
         List<String> statements = new ArrayList<>();
         
         if (diff == null || diff.getOperations() == null || diff.getOperations().isEmpty()) {
@@ -422,14 +422,14 @@ public class DDLServiceSqlserver implements DDLService{
         }
         
         for (DbModelDiffOp operation : diff.getOperations()) {
-            List<String> opStatements = generateSqlForOperation(operation);
+            List<String> opStatements = generateSqlForOperation(operation, dbModel);
             statements.addAll(opStatements);
         }
         
         return statements;
     }
     
-    private List<String> generateSqlForOperation(DbModelDiffOp operation) {
+    private List<String> generateSqlForOperation(DbModelDiffOp operation, DbModel dbModel) {
         List<String> statements = new ArrayList<>();
         
         DiffEntityType entityType = operation.getEntityType();
@@ -437,7 +437,7 @@ public class DDLServiceSqlserver implements DDLService{
         
         switch (entityType) {
             case TABLE:
-                statements.addAll(generateTableSql((DbTableDiffOp) operation, opType));
+                statements.addAll(generateTableSql((DbTableDiffOp) operation, opType, dbModel));
                 break;
             case COLUMN:
                 statements.addAll(generateColumnSql((DbColumnDiffOp) operation, opType));
@@ -462,13 +462,13 @@ public class DDLServiceSqlserver implements DDLService{
         return statements;
     }
     
-    private List<String> generateTableSql(DbTableDiffOp operation, DiffOpType opType) {
+    private List<String> generateTableSql(DbTableDiffOp operation, DiffOpType opType, DbModel dbModel) {
         List<String> statements = new ArrayList<>();
         
         switch (opType) {
             case CREATE:
                 if (operation.getNewTable() != null) {
-                    statements.add(generateCreateTableSql(operation.getNewTable()));
+                    statements.add(generateCreateTableSql(operation.getNewTable(), dbModel));
                 }
                 break;
             case DROP:
@@ -482,7 +482,7 @@ public class DDLServiceSqlserver implements DDLService{
                     statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
                 }
                 if (operation.getNewTable() != null) {
-                    statements.add(generateCreateTableSql(operation.getNewTable()));
+                    statements.add(generateCreateTableSql(operation.getNewTable(), dbModel));
                 }
                 break;
         }
@@ -490,51 +490,79 @@ public class DDLServiceSqlserver implements DDLService{
         return statements;
     }
     
-    private String generateCreateTableSql(DbTable table) {
-        StringBuilder sb = new StringBuilder("CREATE TABLE ").append(table.qualifiedName()).append(" (").append(System.lineSeparator());
-        DbColumn[] columns = table.orderedColumns();
-        
-        for (DbColumn c : columns) {
-            sb.append("  [");
-            escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength()));
-            
-            if (c.isIdentity()) {
-                sb.append(" IDENTITY(1,1)");
-            }
-            
-            if (c.getColumnDefault() != null) {
-                sb.append(" DEFAULT ").append(StringUtils.trimSymetric(c.getColumnDefault(), "(", ")"));
-            } else if (c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT", "XML", "VARBINARY", "NVARCHAR").contains(c.getColumnType().toUpperCase())) {
-                sb.append(" DEFAULT NULL");
-            }
-            
-            if (!c.isNullable()) {
-                sb.append(" NOT NULL");
-            } else if (c.getColumnDefault() == null) {
-                if (!Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT", "XML", "VARBINARY", "NVARCHAR").contains(c.getColumnType().toUpperCase())) {
-                    sb.append(" DEFAULT NULL");
-                } else {
-                    sb.append(" NULL");
-                }
-            }
-            
-            sb.append(",").append(System.lineSeparator());
-        }
-        
-        if (table.getPkColumnNames().size() > 0) {
-            sb.append("  CONSTRAINT ").append(table.getPkConstraintName()).append(" PRIMARY KEY (");
-            Iterator<String> cIt = table.getPkColumnNames().iterator();
-            while (cIt.hasNext()) {
-                String cName = cIt.next();
-                sb.append(cName);
-                if (cIt.hasNext()) {
-                    sb.append(", ");
-                }
-            }
-            sb.append(")");
-        }
-        
-        sb.append(System.lineSeparator()).append(");");
+    private String generateCreateTableSql(DbTable table, DbModel dbModel) {
+        String tableName = table.qualifiedName();
+		boolean hasClustedIndex = CommonOps.getOrDefault(dbModel.getIndexes(), tableName, () -> new HashMap<>())
+				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
+		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.srcQualifiedName()));
+		
+		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
+		DbColumn[] columns = table.orderedColumns();
+		for(DbColumn c : columns){
+			sb.append("  [");
+			escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+			if(c.isIdentity()){
+				sb.append(" IDENTITY(1,1)");
+			}
+			if(c.getColumnDefault() != null){
+				sb.append(" DEFAULT " + StringUtils.trimSymetric(c.getColumnDefault(), "(", ")"));
+			}
+			if(!c.isNullable()){
+				sb.append(" NOT NULL");
+			} else if(c.getColumnDefault() == null){
+				// if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT"
+				//     ,"XML", "VARBINARY", "NVARCHAR").contains(c.getColumnType().toUpperCase())){
+				// 	sb.append(" DEFAULT NULL");
+				// }
+			}
+			sb.append(",").append(System.lineSeparator());
+		}
+		if(table.getPkColumnNames().size() > 0){
+			sb.append("  CONSTRAINT ").append(table.getPkConstraintName()).append(" PRIMARY KEY ");
+			if(hasClustedIndex){
+				sb.append("NONCLUSTERED ");
+			}
+			sb.append("(");
+			Iterator<String> cIt = table.getPkColumnNames().iterator();
+			while(cIt.hasNext()){
+				String cName = cIt.next();
+				sb.append(cName);
+				if(cIt.hasNext()){
+					sb.append(", ");
+				}
+			}
+			sb.append(")");
+		}
+		if(tableReferences.containsKey(tableName)){
+			Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
+			while(refIt.hasNext()){
+				ReferenceInfo ref = refIt.next();
+				sb.append(",").append(System.lineSeparator())
+					.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+					Iterator<String> cIt = ref.getSrcColumnNames().iterator();
+					while(cIt.hasNext()){
+						String cName = cIt.next();
+						sb.append(cName);
+						if(cIt.hasNext()){
+							sb.append(", ");
+						}
+					}
+					sb.append(") REFERENCES ")
+					.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (");
+					cIt = ref.getRefColumnNames().iterator();
+					while(cIt.hasNext()){
+						String cName = cIt.next();
+						sb.append(cName);
+						if(cIt.hasNext()){
+							sb.append(", ");
+						}
+					}
+					sb.append(")");
+					;
+			}
+		}
+		sb.append(System.lineSeparator()).append(");");
+		log.info("create script for {} : {}", tableName, sb.toString());
         return sb.toString();
     }
     
@@ -564,7 +592,7 @@ public class DDLServiceSqlserver implements DDLService{
     
     private String generateAddColumnSql(String tableName, DbColumn column) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD [");
-        escape(sb, column.getName()).append("] ").append(columnType(column.getDataType(), column.getMaxLength()));
+        escape(sb, column.getName()).append("] ").append(columnType(column.getDataType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale()));
         
         if (column.isIdentity()) {
             sb.append(" IDENTITY(1,1)");
@@ -592,7 +620,7 @@ public class DDLServiceSqlserver implements DDLService{
             !Objects.equals(oldColumn.getMaxLength(), newColumn.getMaxLength())) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
                 .append(" ALTER COLUMN [").append(newColumn.getName()).append("] ")
-                .append(columnType(newColumn.getDataType(), newColumn.getMaxLength()));
+                .append(columnType(newColumn.getDataType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale()));
             
             if (!newColumn.isNullable()) {
                 sb.append(" NOT NULL");
@@ -616,15 +644,13 @@ public class DDLServiceSqlserver implements DDLService{
                 statements.add(sb.toString());
             }
         }
-        
         // Default change (separate statement)
         if (!Objects.equals(oldColumn.getColumnDefault(), newColumn.getColumnDefault())) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
-                .append(" ALTER COLUMN [").append(newColumn.getName()).append("] ");
-            if (newColumn.getColumnDefault() == null) {
-                sb.append("DROP DEFAULT");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName);
+			if (newColumn.getColumnDefault() == null) {
+                sb.append(" DROP CONSTRAINT ").append(oldColumn.getDefaultConstraintName());
             } else {
-                sb.append("SET DEFAULT ").append(StringUtils.trimSymetric(newColumn.getColumnDefault(), "(", ")"));
+                sb.append(" ADD DEFAULT ").append(StringUtils.trimSymetric(newColumn.getColumnDefault(), "(", ")")).append(" FOR [").append(newColumn.getName()).append("];");
             }
             sb.append(";");
             statements.add(sb.toString());
@@ -782,8 +808,7 @@ public class DDLServiceSqlserver implements DDLService{
             case DROP:
                 if (operation.getOldIndex() != null) {
                     IndexInfo index = operation.getOldIndex();
-                    String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
-                    statements.add("DROP INDEX " + qualifiedIndexName + " ON " + operation.getTableQualifiedName() + ";");
+                    statements.add("DROP INDEX " + index.getIndexName() + " ON " + operation.getTableQualifiedName() + ";");
                 }
                 break;
             case MODIFY:
@@ -967,5 +992,20 @@ public class DDLServiceSqlserver implements DDLService{
         }
         
         return statements;
+    }
+    
+    @Override
+    public void executeSql(String sql) throws SQLException {
+        if (sql == null || sql.trim().isEmpty()) {
+            return;
+        }
+        try {
+            Statement s = conn.createStatement();
+            s.execute(sql);
+            log.debug("Executed SQL: {}", sql);
+        } catch (SQLException e) {
+            log.error("Failed to execute SQL: {}", sql, e);
+            throw e;
+        }
     }
 }

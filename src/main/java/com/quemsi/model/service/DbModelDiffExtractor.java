@@ -29,6 +29,9 @@ import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DiffOpType;
 import com.quemsi.model.util.CommonHelpers;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public class DbModelDiffExtractor {
     public DbModelDiff extract(DbModel source, DbModel target) {
         DbModelDiff diff = new DbModelDiff();
@@ -122,7 +125,7 @@ public class DbModelDiffExtractor {
         for (String columnName : commonColumns) {
             DbColumn sourceColumn = sourceColumns.get(columnName);
             DbColumn targetColumn = targetColumns.get(columnName);
-            if (!sameColumn(sourceColumn, targetColumn)) {
+            if (!sameColumn(sourceColumn, targetColumn, tableQualifiedName, columnName)) {
                 diff.getOperations().add(DbColumnDiffOp.builder()
                     .opType(DiffOpType.MODIFY)
                     .qualifiedName(columnQualifiedName(tableQualifiedName, columnName))
@@ -400,17 +403,57 @@ public class DbModelDiffExtractor {
         }
     }
 
-    private boolean sameColumn(DbColumn left, DbColumn right) {
-        return Objects.equals(left.getName(), right.getName())
-            && Objects.equals(left.getDataType(), right.getDataType())
-            && Objects.equals(left.getMaxLength(), right.getMaxLength())
-            && Objects.equals(left.getColumnType(), right.getColumnType())
-            && Objects.equals(left.getNumPrecision(), right.getNumPrecision())
-            && Objects.equals(left.getNumScale(), right.getNumScale())
-            && Objects.equals(left.getColumnKey(), right.getColumnKey())
-            && Objects.equals(left.getColumnDefault(), right.getColumnDefault())
-            && left.isNullable() == right.isNullable()
-            && left.isIdentity() == right.isIdentity();
+    private boolean sameColumn(DbColumn left, DbColumn right, String tableQualifiedName, String columnName) {
+        boolean same = true;
+        List<String> differences = new ArrayList<>();
+        
+        if (!Objects.equals(left.getName(), right.getName())) {
+            same = false;
+            differences.add(String.format("name: '%s' -> '%s'", left.getName(), right.getName()));
+        }
+        if (!Objects.equals(left.getDataType(), right.getDataType())) {
+            same = false;
+            differences.add(String.format("dataType: '%s' -> '%s'", left.getDataType(), right.getDataType()));
+        }
+        if (!Objects.equals(left.getMaxLength(), right.getMaxLength())) {
+            same = false;
+            differences.add(String.format("maxLength: %s -> %s", left.getMaxLength(), right.getMaxLength()));
+        }
+        if (!Objects.equals(left.getColumnType(), right.getColumnType())) {
+            same = false;
+            differences.add(String.format("columnType: '%s' -> '%s'", left.getColumnType(), right.getColumnType()));
+        }
+        if (!Objects.equals(left.getNumPrecision(), right.getNumPrecision())) {
+            same = false;
+            differences.add(String.format("numPrecision: %s -> %s", left.getNumPrecision(), right.getNumPrecision()));
+        }
+        if (!Objects.equals(left.getNumScale(), right.getNumScale())) {
+            same = false;
+            differences.add(String.format("numScale: %s -> %s", left.getNumScale(), right.getNumScale()));
+        }
+        if (!Objects.equals(left.getColumnKey(), right.getColumnKey())) {
+            same = false;
+            differences.add(String.format("columnKey: '%s' -> '%s'", left.getColumnKey(), right.getColumnKey()));
+        }
+        if (!Objects.equals(left.getColumnDefault(), right.getColumnDefault())) {
+            same = false;
+            differences.add(String.format("columnDefault: '%s' -> '%s'", left.getColumnDefault(), right.getColumnDefault()));
+        }
+        if (left.isNullable() != right.isNullable()) {
+            same = false;
+            differences.add(String.format("nullable: %s -> %s", left.isNullable(), right.isNullable()));
+        }
+        if (left.isIdentity() != right.isIdentity()) {
+            same = false;
+            differences.add(String.format("identity: %s -> %s", left.isIdentity(), right.isIdentity()));
+        }
+        
+        if (!same) {
+            log.info("Column difference detected in {}.{}: {}", 
+                tableQualifiedName, columnName, String.join(", ", differences));
+        }
+        
+        return same;
     }
 
     private boolean sameReference(ReferenceInfo left, ReferenceInfo right) {

@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
@@ -41,13 +42,15 @@ public class DDLServicePostgresTest {
     @Test
     public void givenEmptyDiff_whenDdlFrom_thenReturnEmptyList() {
         DbModelDiff diff = new DbModelDiff();
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         assertThat(statements, is(empty()));
     }
 
     @Test
     public void givenNullDiff_whenDdlFrom_thenReturnEmptyList() {
-        List<String> statements = ddlService.ddlFrom(null);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(null, dbModel);
         assertThat(statements, is(empty()));
     }
 
@@ -64,7 +67,8 @@ public class DDLServicePostgresTest {
             .newTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE TABLE IF NOT EXISTS test_table"));
@@ -84,7 +88,8 @@ public class DDLServicePostgresTest {
             .oldTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS old_table;"));
@@ -103,7 +108,8 @@ public class DDLServicePostgresTest {
             .newColumn(column)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ADD COLUMN"));
@@ -124,7 +130,8 @@ public class DDLServicePostgresTest {
             .oldColumn(createColumn("old_col", "varchar", true))
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("ALTER TABLE test_table DROP COLUMN \"old_col\";"));
@@ -145,7 +152,8 @@ public class DDLServicePostgresTest {
             .newColumn(newColumn)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ALTER COLUMN \"col\" TYPE text"));
@@ -166,7 +174,8 @@ public class DDLServicePostgresTest {
             .newColumn(newColumn)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ALTER COLUMN \"col\" SET NOT NULL"));
@@ -188,7 +197,8 @@ public class DDLServicePostgresTest {
             .newColumn(newColumn)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE test_table ALTER COLUMN \"col\" SET DEFAULT 'default_value'"));
@@ -213,7 +223,8 @@ public class DDLServicePostgresTest {
             .newReference(ref)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT fk_test"));
@@ -240,7 +251,8 @@ public class DDLServicePostgresTest {
             .oldReference(ref)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("ALTER TABLE child DROP CONSTRAINT fk_test;"));
@@ -262,7 +274,8 @@ public class DDLServicePostgresTest {
             .newConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE ONLY users ADD CONSTRAINT uk_email UNIQUE"));
@@ -285,7 +298,8 @@ public class DDLServicePostgresTest {
             .oldConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("ALTER TABLE ONLY users DROP CONSTRAINT uk_email;"));
@@ -307,7 +321,8 @@ public class DDLServicePostgresTest {
             .newConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER TABLE products ADD CONSTRAINT ck_price"));
@@ -330,7 +345,8 @@ public class DDLServicePostgresTest {
             .oldConstraint(constraint)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("ALTER TABLE products DROP CONSTRAINT ck_price;"));
@@ -349,7 +365,8 @@ public class DDLServicePostgresTest {
             .newIndex(index)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE INDEX IF NOT EXISTS idx_email"));
@@ -371,7 +388,8 @@ public class DDLServicePostgresTest {
             .newIndex(index)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE UNIQUE INDEX IF NOT EXISTS idx_email"));
@@ -390,7 +408,8 @@ public class DDLServicePostgresTest {
             .oldIndex(index)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("DROP INDEX idx_email;"));
@@ -416,7 +435,8 @@ public class DDLServicePostgresTest {
             .newSequence(seq)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE SEQUENCE IF NOT EXISTS seq_test"));
@@ -442,7 +462,8 @@ public class DDLServicePostgresTest {
             .oldSequence(seq)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), equalTo("DROP SEQUENCE IF EXISTS seq_test;"));
@@ -474,7 +495,8 @@ public class DDLServicePostgresTest {
             .newSequence(newSeq)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("ALTER SEQUENCE seq_test"));
@@ -515,7 +537,8 @@ public class DDLServicePostgresTest {
             .newIndex(index)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createDbModelWithTable("test_table");
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(3));
         assertThat(statements.get(0), containsString("DROP TABLE"));
@@ -538,7 +561,8 @@ public class DDLServicePostgresTest {
             .newTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CONSTRAINT pk_test_table PRIMARY KEY"));
@@ -575,7 +599,8 @@ public class DDLServicePostgresTest {
             .newReference(newRef)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(2));
         assertThat(statements.get(0), containsString("DROP CONSTRAINT"));
@@ -595,13 +620,27 @@ public class DDLServicePostgresTest {
             .newTable(table)
             .build());
 
-        List<String> statements = ddlService.ddlFrom(diff);
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("public.test_table"));
     }
 
     // Helper methods
+    private DbModel createEmptyDbModel() {
+        return new DbModel();
+    }
+
+    private DbModel createDbModelWithTable(String tableName) {
+        DbModel dbModel = new DbModel();
+        DbTable table = createTable(tableName);
+        // Add table to model using qualified name
+        String qualifiedName = table.qualifiedName();
+        dbModel.getTables().put(qualifiedName, table);
+        return dbModel;
+    }
+
     private DbTable createTable(String name) {
         return createTable(null, name);
     }
