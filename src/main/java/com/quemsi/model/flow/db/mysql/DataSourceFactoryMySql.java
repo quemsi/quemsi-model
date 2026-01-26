@@ -212,14 +212,14 @@ WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
 			while (irs.next()) {
-				String schemaName = irs.getString("SCHEMA_NAME");
+				String schemaName = null; 
 				String tableName = irs.getString("TABLE_NAME");
 				String indexName = irs.getString("INDEX_NAME");
 				String columnName = irs.getString("COLUMN_NAME");
 				boolean nonUnique = irs.getBoolean("NON_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
-				String qualifiedTableName = new StringBuilder(schemaName).append(".").append(tableName).toString();
-				if(cur == null || !qualifiedTableName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
+				String fullIndexName = new StringBuilder(dbName).append(".").append(tableName).toString();
+				if(cur == null || !fullIndexName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
 						CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
 					}
@@ -233,7 +233,7 @@ WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
 			ckps.setString(1, dbName);
 			ResultSet ckrs = ckps.executeQuery();
 			while (ckrs.next()) {
-				String schemaName = ckrs.getString("TABLE_SCHEMA");
+				String schemaName = null;
 				String tableName = ckrs.getString("TABLE_NAME");
 				String constraintName = ckrs.getString("CONSTRAINT_NAME");
 				String condef = ckrs.getString("CONDEF");

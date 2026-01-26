@@ -523,7 +523,13 @@ public class DDLServiceMysql implements DDLService{
         }
         
         if (newColumn.getColumnDefault() != null) {
-            sb.append(" DEFAULT ").append(newColumn.getColumnDefault());
+            sb.append(" DEFAULT ");
+            String dataType = newColumn.getColumnType().toUpperCase();
+            if(dataType.contains("VARCHAR")){
+                sb.append(  "'").append(newColumn.getColumnDefault()).append("'");
+            } else {
+                sb.append(newColumn.getColumnDefault());
+            }
         } else if (newColumn.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(newColumn.getColumnType().toUpperCase())) {
             sb.append(" DEFAULT NULL");
         }

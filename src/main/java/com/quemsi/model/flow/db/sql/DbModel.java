@@ -291,7 +291,7 @@ public class DbModel {
             this.extraColumns = new LinkedList<>();
         }
         public String qualifiedTableName(){
-            return new StringBuilder(this.schemaName).append(".").append(this.tableName).toString();
+            return CommonHelpers.qualifiedName(schemaName, indexName);
         }
     }
 }
