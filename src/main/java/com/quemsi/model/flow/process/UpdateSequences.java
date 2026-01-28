@@ -110,10 +110,10 @@ public class UpdateSequences extends AbstractStep {
                 String schema = mapping.getSchema();
                 String sequenceName = mapping.getSequence();
                 String qualifiedTableName = CommonHelpers.qualifiedName(schema, mapping.getTable());
-
+                String qualifiedSequenceName = CommonHelpers.qualifiedName(schema, sequenceName);
                 // Check if sequence exists in database
-                if (!existingSequences.containsKey(sequenceName)) {
-                    log.debug("Custom mapping: Sequence {} does not exist in database, skipping", sequenceName);
+                if (!existingSequences.containsKey(qualifiedSequenceName)) {
+                    log.debug("Custom mapping: Sequence {} does not exist in database, skipping", qualifiedSequenceName);
                     continue;
                 }
 
@@ -138,7 +138,7 @@ public class UpdateSequences extends AbstractStep {
                 }
 
                 // Update sequence to 1 + max value
-                dmlService.updateSequence(CommonHelpers.qualifiedName(schema, sequenceName), maxValue + 1);
+                dmlService.updateSequence(qualifiedSequenceName, maxValue + 1);
                 log.info("Updated sequence {} to value {} for custom mapping (table: {}, column: {})", 
                     sequenceName, maxValue + 1, qualifiedTableName, mapping.getColumn());
             } catch (Exception e) {

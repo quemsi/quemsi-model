@@ -46,7 +46,8 @@ from information_schema.columns c
 where c.table_schema in {inValues}
 	and not exists (select v.table_name from INFORMATION_SCHEMA.views v where v.table_catalog = c.table_catalog and v.table_name = c.table_name )
 order by c.table_catalog, c.table_schema, c.table_name, c.ordinal_position
-;            """;
+;
+""";
 
 	private static final String SQL_FOR_CONSTRAINTS = """
 select
@@ -111,7 +112,8 @@ select
 	s.schemaname as schema_name, s.sequencename as sequence_name, s.start_value, s.min_value, s.max_value, 
 	s.increment_by, s.cycle, s.cache_size, s.last_value
 from pg_sequences s
-where s.schemaname in {inValues};
+where s.schemaname in {inValues}
+;
 			""";
 
 	private static final String SQL_FOR_CHECK_CONSTRAINTS = """

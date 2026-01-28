@@ -128,9 +128,11 @@ public class DDLServicePostgres implements DDLService{
             }
         }
     }
-    private String columnType(String type, Integer maxLength){
-        if("varchar".equals(type) && maxLength != null){
+    private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
+        if(Set.of("varchar", "bpchar", "character varying", "character", "char").contains(type) && maxLength != null){
             return new StringBuffer(type).append("(").append(maxLength).append(")").toString();
+        } else if(Set.of("numeric", "decimal", "real", "double precision").contains(type) && precision != null && scale != null){
+            return new StringBuffer(type).append("(").append(precision).append(",").append(scale).append(")").toString();
         }
         return type;
     }
@@ -138,7 +140,7 @@ public class DDLServicePostgres implements DDLService{
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
         for(DbSequence seq : dbModel.getSequences()){
-            StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(seq.getName());
+            StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(CommonHelpers.qualifiedName(seq.getSchema(), seq.getName()));
             if(seq.getIncrementBy() != null){
                 seqStringBuilder.append(" INCREMENT BY ").append(seq.getIncrementBy());
             }
@@ -173,7 +175,7 @@ public class DDLServicePostgres implements DDLService{
 			DbColumn[] columns = table.orderedColumns();
 			int index = 0;
             for(DbColumn c : columns){
-				sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength()));
+				sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 				if(c.getColumnDefault() == null){
 					if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())){
 						sb.append(" DEFAULT NULL");
@@ -408,7 +410,7 @@ public class DDLServicePostgres implements DDLService{
         int index = 0;
         
         for (DbColumn c : columns) {
-            sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength()));
+            sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
             
             if (c.getColumnDefault() == null) {
                 if (c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())) {
@@ -481,7 +483,7 @@ public class DDLServicePostgres implements DDLService{
     
     private String generateAddColumnSql(String tableName, DbColumn column) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD COLUMN \"").append(column.getName()).append("\" ");
-        sb.append(columnType(column.getColumnType(), column.getMaxLength()));
+        sb.append(columnType(column.getColumnType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale()));
         
         if (column.getColumnDefault() != null) {
             sb.append(" DEFAULT ").append(column.getColumnDefault().replaceAll("::regclass", ""));
@@ -503,7 +505,7 @@ public class DDLServicePostgres implements DDLService{
             !Objects.equals(oldColumn.getMaxLength(), newColumn.getMaxLength())) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
                 .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" TYPE ")
-                .append(columnType(newColumn.getColumnType(), newColumn.getMaxLength())).append(";");
+                .append(columnType(newColumn.getColumnType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale())).append(";");
             statements.add(sb.toString());
         }
         
@@ -712,7 +714,7 @@ public class DDLServicePostgres implements DDLService{
         }
         sb.append("INDEX IF NOT EXISTS ");
         
-        String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
+        String qualifiedIndexName = index.getIndexName();
         sb.append(qualifiedIndexName).append(" ON ").append(tableQualifiedName);
         
         if (index.getIndexType() != null && !index.getIndexType().isEmpty()) {

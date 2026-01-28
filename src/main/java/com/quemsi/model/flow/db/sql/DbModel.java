@@ -228,19 +228,49 @@ public class DbModel {
         private String constraintName;
         private String schema;
         private String tableName;
-        @Singular
-        private Set<String> columnNames;
+        private LinkedList<String> columnNames;
         
         public ContraintInfo(
             String constraintName,
             String schema,
             String tableName,
-            Set<String> columnNames
+            List<String> columnNames
         ) {
             this.constraintName = constraintName;
             this.schema = schema;
             this.tableName = tableName;
-            this.columnNames = new LinkedHashSet<>(columnNames);
+            this.columnNames = columnNames != null ? new LinkedList<>(columnNames) : new LinkedList<>();
+        }
+        
+        public static class ContraintInfoBuilder {
+            private LinkedList<String> columnNames = new LinkedList<>();
+            
+            public ContraintInfoBuilder columnName(String columnName) {
+                if (this.columnNames == null) {
+                    this.columnNames = new LinkedList<>();
+                }
+                this.columnNames.add(columnName);
+                return this;
+            }
+            
+            public ContraintInfoBuilder columnNames(java.util.Collection<? extends String> columnNames) {
+                if (this.columnNames == null) {
+                    this.columnNames = new LinkedList<>();
+                }
+                if (columnNames != null) {
+                    this.columnNames.addAll(columnNames);
+                }
+                return this;
+            }
+            
+            public ContraintInfo build() {
+                return new ContraintInfo(
+                    this.constraintName,
+                    this.schema,
+                    this.tableName,
+                    this.columnNames != null ? new LinkedList<>(this.columnNames) : new LinkedList<>()
+                );
+            }
         }
 
         public String qualifiedConstraintName(){
