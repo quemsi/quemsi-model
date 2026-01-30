@@ -30,6 +30,9 @@ public class Zip extends AbstractStep {
                 IOUtils.copy(dp.getInputStream(), archive);
                 archive.closeArchiveEntry();
             }));
+            if(context.getDataPackages() != null){
+                context = null;
+            }
             archive.finish();
             
             String fileName = context.getFlow().getData().getName() + ".zip";

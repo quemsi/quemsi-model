@@ -27,6 +27,13 @@ public class FlowContext {
 	private Map<String, String> tags;
 	private List<DbModelProcessor> dbModelProcessors;
 	
+	@FunctionalInterface
+	public interface LogWriter {
+		void log(Long agentId, Long flowExecutionId, Long flowExecutionStepId, String level, String message);
+	}
+	
+	private LogWriter logWriter;
+	
 	public FlowContext(Flow flow, Long flowExecutionId) {
 		execution = new FlowExecution();
 		execution.setId(flowExecutionId);
@@ -59,6 +66,9 @@ public class FlowContext {
 			StringWriter sw = step.logWriter();
 			e.printStackTrace(new PrintWriter(sw));
 			step.setLogs(sw.toString());
+			if (logWriter != null && execution != null && execution.getId() != null && step.getId() != null) {
+				logWriter.log(null, execution.getId(), step.getId(), "ERROR", tag + ": " + e.getMessage());
+			}
 		}
 	}
 	public void logError(String tag, Throwable e) {
@@ -67,5 +77,44 @@ public class FlowContext {
 		StringWriter sw = execution.logWriter();
 		e.printStackTrace(new PrintWriter(sw));
 		execution.setLogs(sw.toString());
+		if (logWriter != null && execution.getId() != null) {
+			logWriter.log(null, execution.getId(), null, "ERROR", tag + ": " + e.getMessage());
+		}
+	}
+	
+	public void logInfo(String message) {
+		if (logWriter != null && execution != null && execution.getId() != null) {
+			logWriter.log(null, execution.getId(), null, "INFO", message);
+		}
+	}
+	
+	public void logWarn(String message) {
+		if (logWriter != null && execution != null && execution.getId() != null) {
+			logWriter.log(null, execution.getId(), null, "WARN", message);
+		}
+	}
+	
+	public void logError(String message) {
+		if (logWriter != null && execution != null && execution.getId() != null) {
+			logWriter.log(null, execution.getId(), null, "ERROR", message);
+		}
+	}
+	
+	public void logStepInfo(FlowExecutionStep step, String message) {
+		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
+			logWriter.log(null, execution.getId(), step.getId(), "INFO", message);
+		}
+	}
+	
+	public void logStepWarn(FlowExecutionStep step, String message) {
+		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
+			logWriter.log(null, execution.getId(), step.getId(), "WARN", message);
+		}
+	}
+	
+	public void logStepError(FlowExecutionStep step, String message) {
+		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
+			logWriter.log(null, execution.getId(), step.getId(), "ERROR", message);
+		}
 	}
 }

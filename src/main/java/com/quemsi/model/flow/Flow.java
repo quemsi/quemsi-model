@@ -45,6 +45,9 @@ public class Flow {
 	@JsonIgnore
 	protected ReentrantLock lock = new ReentrantLock();
 	
+	@JsonIgnore
+	private FlowContext.LogWriter logWriter;
+	
 	public void initialize() {
 		steps.forEach(s -> s.init(this));
 	}
@@ -85,36 +88,46 @@ public class Flow {
 					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
 				}
 				apiClient.saveFlowExecution(execution);
+				fc.logInfo("flow execution started");
 				if(!this.isReady()) {
 					log.info("{} flow initialization is not completed yet", this.getName());
 					fc.logError("failed-to-execute-flow", Exceptions.server("flow initialization is not completed yet").get());
 					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
+					fc.logWarn("flow execution skipped");
 				} else {
 					try {
 						for(Step s : steps) {
 							FlowExecutionStep fes = null;
 							try {
 								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd() , LocalDateTime.now());
+								fc.logStepInfo(fes, "step started");
 								s.execute(fc);
+								fc.logStepInfo(fes, "step finished");
 								sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 							}catch(Exception bre) {
 								fc.logError(fes, "error in step", bre);
+								fc.logStepError(fes, "step failed");
 								sendStepFinished(fes, FlowExecutionStatus.FAILED);
 								throw bre;
 							}
 						}
 						fc.getExecution().setStatus(FlowExecutionStatus.SUCCESS);
+						fc.logInfo("flow execution succeeded");
 					}catch(BaseRuntimeException bre) {
 						fc.logError("execution error", bre);
+						fc.logError("flow execution failed");
 					}catch(Exception e) {
-						fc.logError("general error", e);
+						fc.logError("general error", e);	
+						fc.logError("flow execution failed");
 					}
 				}
 				fc.getExecution().setFinishedAt(LocalDateTime.now());
 				fc.getExecution().setVersion(fc.getDataVersion());
+				fc.logInfo("flow execution finished");
 				return fc.getExecution();
 			}else {
 				log.info("{} flow is already running", this.getName());
+				fc.logWarn("flow is already running");
 				return null;
 			}
 		}finally{
@@ -132,6 +145,9 @@ public class Flow {
 		FlowContext fc = new FlowContext(this, executionId);
 		fc.setTags(tags);
 		fc.setDataVersion(DataVersion.builder().id(versionId).files(files).data(NamedEntityReference.builder().id(data.getId()).name(data.getName()).build()).build());
+		if (logWriter != null) {
+			fc.setLogWriter(logWriter);
+		}
 		return execute(fc);
 	}
 
