@@ -63,22 +63,22 @@ public class FlowContext {
 		log.error(tag, e);
 		if(step != null){
 			step.setStatus(FlowExecutionStatus.FAILED);
-			StringWriter sw = step.logWriter();
+			StringWriter sw = new StringWriter();
 			e.printStackTrace(new PrintWriter(sw));
-			step.setLogs(sw.toString());
 			if (logWriter != null && execution != null && execution.getId() != null && step.getId() != null) {
 				logWriter.log(null, execution.getId(), step.getId(), "ERROR", tag + ": " + e.getMessage());
+				logWriter.log(null, execution.getId(), step.getId(), "ERROR", sw.toString());
 			}
 		}
 	}
 	public void logError(String tag, Throwable e) {
 		log.error(tag, e);
 		execution.setStatus(FlowExecutionStatus.FAILED);
-		StringWriter sw = execution.logWriter();
+		StringWriter sw = new StringWriter();
 		e.printStackTrace(new PrintWriter(sw));
-		execution.setLogs(sw.toString());
 		if (logWriter != null && execution.getId() != null) {
 			logWriter.log(null, execution.getId(), null, "ERROR", tag + ": " + e.getMessage());
+			logWriter.log(null, execution.getId(), null, "ERROR", sw.toString());
 		}
 	}
 	
@@ -115,6 +115,13 @@ public class FlowContext {
 	public void logStepError(FlowExecutionStep step, String message) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
 			logWriter.log(null, execution.getId(), step.getId(), "ERROR", message);
+		}
+	}public void logStepError(FlowExecutionStep step, String tag, Throwable e) {
+		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
+			logWriter.log(null, execution.getId(), step.getId(), "ERROR", tag + ": " + e.getMessage());
+			StringWriter sw = new StringWriter();
+			e.printStackTrace(new PrintWriter(sw));
+			logWriter.log(null, execution.getId(), step.getId(), "ERROR", sw.toString());
 		}
 	}
 }

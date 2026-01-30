@@ -1,6 +1,5 @@
 package com.quemsi.model.dto;
 
-import java.io.StringWriter;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -29,15 +28,6 @@ public class FlowExecution extends BaseDto<Long>{
     private Duration duration;
     private DataVersion version;
 	private List<FlowExecutionStep> steps;
-    private String logs;
-	
-    public StringWriter logWriter() {
-        StringWriter sw = new StringWriter();
-        if(logs != null) {
-            sw.write(logs);
-        }
-        return sw;
-    }
     
     @Data
     @EqualsAndHashCode(callSuper = true)
@@ -50,16 +40,7 @@ public class FlowExecution extends BaseDto<Long>{
         private LocalDateTime startedAt;
         private LocalDateTime finishedAt;
         private Duration duration;
-        private String logs;
-	
-        public StringWriter logWriter() {
-            StringWriter sw = new StringWriter();
-            if(logs != null) {
-                sw.write(logs);
-            }
-            return sw;
-        }
-
+        
         @Builder
         private FlowExecutionStep(Long id, Boolean active, Long flowExecutionId, String type, Integer ord, FlowExecutionStatus status, LocalDateTime startedAt, LocalDateTime finishedAt, Duration duration, String logs){
             super(id, active==null?true:active.booleanValue());
@@ -70,7 +51,6 @@ public class FlowExecution extends BaseDto<Long>{
             this.startedAt = startedAt;
             this.finishedAt = finishedAt;
             this.duration = duration;
-            this.logs = logs;
         }
     }
 }

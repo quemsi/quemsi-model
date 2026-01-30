@@ -22,6 +22,7 @@ import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.dto.NamedEntityReference;
 import com.quemsi.model.dto.Tag;
+import com.quemsi.model.exception.FlowExecutionAbortedException;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -105,14 +106,16 @@ public class Flow {
 								fc.logStepInfo(fes, "step finished");
 								sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 							}catch(Exception bre) {
-								fc.logError(fes, "error in step", bre);
-								fc.logStepError(fes, "step failed");
+								fc.logStepError(fes, "step failed", bre);
 								sendStepFinished(fes, FlowExecutionStatus.FAILED);
-								throw bre;
+								throw new FlowExecutionAbortedException("step failed", bre);
 							}
 						}
 						fc.getExecution().setStatus(FlowExecutionStatus.SUCCESS);
 						fc.logInfo("flow execution succeeded");
+					}
+					catch(FlowExecutionAbortedException bre) {
+						fc.getExecution().setStatus(FlowExecutionStatus.FAILED);
 					}catch(BaseRuntimeException bre) {
 						fc.logError("execution error", bre);
 						fc.logError("flow execution failed");
