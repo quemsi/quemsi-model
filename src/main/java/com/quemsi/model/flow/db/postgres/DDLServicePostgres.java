@@ -502,7 +502,10 @@ public class DDLServicePostgres implements DDLService{
         
         // Type change
         if (!Objects.equals(oldColumn.getColumnType(), newColumn.getColumnType()) || 
-            !Objects.equals(oldColumn.getMaxLength(), newColumn.getMaxLength())) {
+            !Objects.equals(oldColumn.getMaxLength(), newColumn.getMaxLength()) ||
+            !Objects.equals(oldColumn.getNumPrecision(), newColumn.getNumPrecision()) ||
+            !Objects.equals(oldColumn.getNumScale(), newColumn.getNumScale())
+        ) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
                 .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" TYPE ")
                 .append(columnType(newColumn.getColumnType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale())).append(";");

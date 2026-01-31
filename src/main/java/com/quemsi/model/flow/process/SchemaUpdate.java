@@ -65,7 +65,7 @@ public class SchemaUpdate extends AbstractStep {
             log.info("Found {} schema differences to apply", operationCount);
             
             if (operationCount == 0) {
-                log.info("No schema changes detected, nothing to update");
+                context.logStepInfo(context.getCurrentStep(), "No schema changes detected, nothing to update");
                 return;
             }
             
