@@ -74,9 +74,20 @@ public class SchemaUpdate extends AbstractStep {
                 List<String> sqlStatements = ddlService.ddlFrom(diff, sourceModel);
                 
                 log.info("Generated {} SQL statements for schema migration", sqlStatements.size());
-                
-                // Execute DDL statements
-                executeStatements(ddlService, sqlStatements, context);
+                if(sqlStatements.isEmpty()) {
+                    context.logStepInfo(context.getCurrentStep(), "No schema changes detected, nothing to update");
+                    return;
+                }
+                String label = "";
+                if(config != null && Boolean.TRUE.equals(config.getDryRun())) {
+                    label = "DRY RUN: ";
+                }
+                context.logStepInfo(context.getCurrentStep(), label + "created but did not execute " + sqlStatements.size() + " SQL statements");
+                context.logStepInfo(context.getCurrentStep(), label + "SQL statements: " + sqlStatements.stream().collect(Collectors.joining(System.lineSeparator())));
+                if(config == null || !Boolean.TRUE.equals(config.getDryRun())){
+                    // Execute DDL statements
+                    executeStatements(ddlService, sqlStatements, context);
+                }
             }
             
             log.info("Schema update completed successfully");

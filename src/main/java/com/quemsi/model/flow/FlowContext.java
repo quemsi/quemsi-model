@@ -26,6 +26,7 @@ public class FlowContext {
 	private Flow flow;
 	private Map<String, String> tags;
 	private List<DbModelProcessor> dbModelProcessors;
+	private FlowExecutionStep currentStep;
 	
 	@FunctionalInterface
 	public interface LogWriter {

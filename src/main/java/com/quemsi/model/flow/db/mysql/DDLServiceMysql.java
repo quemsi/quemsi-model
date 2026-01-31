@@ -138,7 +138,11 @@ public class DDLServiceMysql implements DDLService{
 						sb.append(" DEFAULT NULL");
 					}
 				}else{
-					sb.append(" DEFAULT " + c.getColumnDefault());
+                    if(c.getColumnType().toUpperCase().contains("VARCHAR")){
+                        sb.append(" DEFAULT '" + c.getColumnDefault() + "'");
+                    } else {
+                        sb.append(" DEFAULT " + c.getColumnDefault());
+                    }
 				}
                 if(index < columns.length - 1){
                     sb.append(",").append(System.lineSeparator());
@@ -441,7 +445,11 @@ public class DDLServiceMysql implements DDLService{
                     sb.append(" DEFAULT NULL");
                 }
             } else {
-                sb.append(" DEFAULT ").append(c.getColumnDefault());
+                String defValue = c.getColumnDefault();
+                if(c.getColumnType().toUpperCase().contains("VARCHAR")){
+                    defValue = "'" + defValue + "'";
+                }
+                sb.append(" DEFAULT ").append(defValue);
             }
             
             if (index < columns.length - 1) {

@@ -101,6 +101,7 @@ public class Flow {
 							FlowExecutionStep fes = null;
 							try {
 								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd() , LocalDateTime.now());
+								fc.setCurrentStep(fes);
 								fc.logStepInfo(fes, "step started");
 								s.execute(fc);
 								fc.logStepInfo(fes, "step finished");
