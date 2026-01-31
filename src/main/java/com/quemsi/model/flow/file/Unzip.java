@@ -42,7 +42,7 @@ public class Unzip extends AbstractStep {
                     while (i.hasNext()) {
                         ZipArchiveEntry entry = i.next();
                         if (!zipFile.canReadEntryData(entry)) {
-                            log.info("unreadable arhive entry {}", entry);
+                            context.logStepWarn(context.getCurrentStep(), "unreadable arhive entry " + entry);
                             continue;
                         }
                         if (entry.isDirectory()) {

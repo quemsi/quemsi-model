@@ -92,7 +92,6 @@ public class Flow {
 				apiClient.saveFlowExecution(execution);
 				fc.logInfo("flow execution started");
 				if(!this.isReady()) {
-					log.info("{} flow initialization is not completed yet", this.getName());
 					fc.logError("failed-to-execute-flow", Exceptions.server("flow initialization is not completed yet").get());
 					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
 					fc.logWarn("flow execution skipped");
@@ -131,7 +130,6 @@ public class Flow {
 				fc.logInfo("flow execution finished");
 				return fc.getExecution();
 			}else {
-				log.info("{} flow is already running", this.getName());
 				fc.logWarn("flow is already running");
 				return null;
 			}

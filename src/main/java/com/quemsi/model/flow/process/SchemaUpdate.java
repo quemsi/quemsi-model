@@ -50,7 +50,7 @@ public class SchemaUpdate extends AbstractStep {
             String targetModelJson = objectMapper.writeValueAsString(targetModel);
             log.info("Target model: {}", targetModelJson);
 
-            log.info("Calculating schema differences between source model and target database");
+            context.logStepInfo(context.getCurrentStep(), LogMessage.info("Calculating schema differences between source model and target database"));
             
             // Calculate difference
             DbModelDiffExtractor extractor = new DbModelDiffExtractor();
@@ -59,11 +59,11 @@ public class SchemaUpdate extends AbstractStep {
             // Filter out sequence operations if skipSequences is true
             if (config != null && Boolean.TRUE.equals(config.getSkipSequences())) {
                 diff.getOperations().removeIf(op -> op.getEntityType() == DiffEntityType.SEQUENCE);
-                log.info("Skipping sequence operations as per configuration");
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("Skipping sequence operations as per configuration"));
             }
             
             int operationCount = diff.getOperations().size();
-            log.info("Found {} schema differences to apply", operationCount);
+            context.logStepInfo(context.getCurrentStep(), LogMessage.info("Found {} schema differences to apply", operationCount));
             
             if (operationCount == 0) {
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("No schema changes detected, nothing to update"));
@@ -74,7 +74,7 @@ public class SchemaUpdate extends AbstractStep {
             try (DDLService ddlService = datasourceFactory.ddlService()) {
                 List<String> sqlStatements = ddlService.ddlFrom(diff, sourceModel);
                 
-                log.info("Generated {} SQL statements for schema migration", sqlStatements.size());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("Generated {} SQL statements for schema migration", sqlStatements.size()));
                 if(sqlStatements.isEmpty()) {
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("No schema changes detected, nothing to update"));
                     return;
@@ -91,7 +91,7 @@ public class SchemaUpdate extends AbstractStep {
                 }
             }
             
-            log.info("Schema update completed successfully");
+            context.logStepInfo(context.getCurrentStep(), LogMessage.info("Schema update completed successfully"));
         } catch (Exception e) {
             throw Exceptions.server("exception-in-schema-update").withCause(e).get();
         }
@@ -124,7 +124,7 @@ public class SchemaUpdate extends AbstractStep {
                 Charset.forName("UTF-8")
             );
             DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
-            log.info("Loaded DbModel from data file with {} tables", dbModel.getTables().size());
+            context.logStepInfo(context.getCurrentStep(), LogMessage.info("Loaded DbModel from data file with {} tables", dbModel.getTables().size()));
             return dbModel;
         } catch (IOException e) {
             throw Exceptions.server("io-exception-reading-db-model").withCause(e).get();
@@ -140,10 +140,10 @@ public class SchemaUpdate extends AbstractStep {
         
         for (int i = 0; i < sqlStatements.size(); i++) {
             String sql = sqlStatements.get(i);
-            log.info("Executing statement {}/{}: {}", i + 1, sqlStatements.size(), sql);
+            context.logStepInfo(context.getCurrentStep(), LogMessage.info("Executing statement {}/{}: {}", i + 1, sqlStatements.size(), sql));
             
             if (dryRun) {
-                log.info("DRY RUN: Would execute: {}", sql);
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("DRY RUN: Would execute: {}", sql));
                 successCount++;
                 continue;
             }
@@ -151,13 +151,13 @@ public class SchemaUpdate extends AbstractStep {
             try {
                 ddlService.executeSql(sql);
                 successCount++;
-                log.debug("Successfully executed statement {}/{}", i + 1, sqlStatements.size());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.debug("Successfully executed statement {}/{}", i + 1, sqlStatements.size()));
             } catch (SQLException e) {
                 errorCount++;
                 String errorMessage = String.format("Failed to execute SQL statement %d/%d: %s", 
                     i + 1, sqlStatements.size(), e.getMessage());
-                log.error(errorMessage, e);
-                log.error("Failed SQL: {}", sql);
+                context.logStepError(context.getCurrentStep(), errorMessage);
+                context.logStepError(context.getCurrentStep(), "Failed SQL: " + sql);
                 
                 // Send error to API
                 context.logError("schema-update-sql-error", 
@@ -179,8 +179,8 @@ public class SchemaUpdate extends AbstractStep {
             }
         }
         
-        log.info("Schema update execution summary: {} successful, {} failed out of {} total statements", 
-            successCount, errorCount, sqlStatements.size());
+        context.logStepInfo(context.getCurrentStep(), LogMessage.info("Schema update execution summary: {} successful, {} failed out of {} total statements", 
+            successCount, errorCount, sqlStatements.size()));
         
         if (errorCount > 0 && !continueOnError) {
             throw Exceptions.server("schema-update-completed-with-errors")

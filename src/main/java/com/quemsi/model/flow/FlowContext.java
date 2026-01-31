@@ -15,10 +15,8 @@ import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.flow.process.DbModelProcessor;
 
 import lombok.Data;
-import lombok.extern.slf4j.Slf4j;
 
 @Data
-@Slf4j
 public class FlowContext {
 	private boolean deleteAfterwards;
 	private FlowExecution execution;
@@ -62,7 +60,6 @@ public class FlowContext {
 		return this.dataVersion.getId();
 	}
 	public void logError(FlowExecutionStep step, String tag, Throwable e) {
-		log.error(tag, e);
 		if(step != null){
 			step.setStatus(FlowExecutionStatus.FAILED);
 			StringWriter sw = new StringWriter();
@@ -74,7 +71,6 @@ public class FlowContext {
 		}
 	}
 	public void logError(String tag, Throwable e) {
-		log.error(tag, e);
 		execution.setStatus(FlowExecutionStatus.FAILED);
 		StringWriter sw = new StringWriter();
 		e.printStackTrace(new PrintWriter(sw));
