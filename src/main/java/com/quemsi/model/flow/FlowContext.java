@@ -7,6 +7,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DataVersion;
 import com.quemsi.model.dto.FlowExecution;
 import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
@@ -30,7 +31,7 @@ public class FlowContext {
 	
 	@FunctionalInterface
 	public interface LogWriter {
-		void log(Long agentId, Long flowExecutionId, Long flowExecutionStepId, String level, String message);
+		void log(Long agentId, Long flowExecutionId, Long flowExecutionStepId, LogMessage message);
 	}
 	
 	private LogWriter logWriter;
@@ -67,8 +68,8 @@ public class FlowContext {
 			StringWriter sw = new StringWriter();
 			e.printStackTrace(new PrintWriter(sw));
 			if (logWriter != null && execution != null && execution.getId() != null && step.getId() != null) {
-				logWriter.log(null, execution.getId(), step.getId(), "ERROR", tag + ": " + e.getMessage());
-				logWriter.log(null, execution.getId(), step.getId(), "ERROR", sw.toString());
+				logWriter.log(null, execution.getId(), step.getId(), LogMessage.error("{}: {}", tag, e.getMessage()));
+				logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(sw.toString()));
 			}
 		}
 	}
@@ -78,51 +79,51 @@ public class FlowContext {
 		StringWriter sw = new StringWriter();
 		e.printStackTrace(new PrintWriter(sw));
 		if (logWriter != null && execution.getId() != null) {
-			logWriter.log(null, execution.getId(), null, "ERROR", tag + ": " + e.getMessage());
-			logWriter.log(null, execution.getId(), null, "ERROR", sw.toString());
+			logWriter.log(null, execution.getId(), null, LogMessage.error("{}: {}", tag, e.getMessage()));
+			logWriter.log(null, execution.getId(), null, LogMessage.error(sw.toString()));
 		}
 	}
 	
 	public void logInfo(String message) {
 		if (logWriter != null && execution != null && execution.getId() != null) {
-			logWriter.log(null, execution.getId(), null, "INFO", message);
+			logWriter.log(null, execution.getId(), null, LogMessage.info(message));
 		}
 	}
 	
 	public void logWarn(String message) {
 		if (logWriter != null && execution != null && execution.getId() != null) {
-			logWriter.log(null, execution.getId(), null, "WARN", message);
+			logWriter.log(null, execution.getId(), null, LogMessage.warn(message));
 		}
 	}
 	
 	public void logError(String message) {
 		if (logWriter != null && execution != null && execution.getId() != null) {
-			logWriter.log(null, execution.getId(), null, "ERROR", message);
+			logWriter.log(null, execution.getId(), null, LogMessage.error(message));
 		}
 	}
 	
-	public void logStepInfo(FlowExecutionStep step, String message) {
+	public void logStepInfo(FlowExecutionStep step, LogMessage message) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
-			logWriter.log(null, execution.getId(), step.getId(), "INFO", message);
+			logWriter.log(null, execution.getId(), step.getId(), LogMessage.info(message));
 		}
 	}
 	
 	public void logStepWarn(FlowExecutionStep step, String message) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
-			logWriter.log(null, execution.getId(), step.getId(), "WARN", message);
+			logWriter.log(null, execution.getId(), step.getId(), LogMessage.warn(message));
 		}
 	}
 	
 	public void logStepError(FlowExecutionStep step, String message) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
-			logWriter.log(null, execution.getId(), step.getId(), "ERROR", message);
+			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(message));
 		}
 	}public void logStepError(FlowExecutionStep step, String tag, Throwable e) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
-			logWriter.log(null, execution.getId(), step.getId(), "ERROR", tag + ": " + e.getMessage());
+			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error("{}: {}", tag, e.getMessage()));
 			StringWriter sw = new StringWriter();
 			e.printStackTrace(new PrintWriter(sw));
-			logWriter.log(null, execution.getId(), step.getId(), "ERROR", sw.toString());
+			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(sw.toString()));
 		}
 	}
 }

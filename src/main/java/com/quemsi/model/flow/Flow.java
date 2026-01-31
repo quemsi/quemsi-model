@@ -12,6 +12,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.DateUtils;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.api.ApiClient;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DataGroup;
@@ -102,9 +103,9 @@ public class Flow {
 							try {
 								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd() , LocalDateTime.now());
 								fc.setCurrentStep(fes);
-								fc.logStepInfo(fes, "step started");
+								fc.logStepInfo(fes, LogMessage.info("step started"));
 								s.execute(fc);
-								fc.logStepInfo(fes, "step finished");
+								fc.logStepInfo(fes, LogMessage.info("step finished"));
 								sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 							}catch(Exception bre) {
 								fc.logStepError(fes, "step failed", bre);

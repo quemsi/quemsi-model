@@ -13,6 +13,7 @@ import org.apache.commons.io.IOUtils;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.SchemaUpdateConfig;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.DataPackage;
@@ -65,7 +66,7 @@ public class SchemaUpdate extends AbstractStep {
             log.info("Found {} schema differences to apply", operationCount);
             
             if (operationCount == 0) {
-                context.logStepInfo(context.getCurrentStep(), "No schema changes detected, nothing to update");
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("No schema changes detected, nothing to update"));
                 return;
             }
             
@@ -75,15 +76,15 @@ public class SchemaUpdate extends AbstractStep {
                 
                 log.info("Generated {} SQL statements for schema migration", sqlStatements.size());
                 if(sqlStatements.isEmpty()) {
-                    context.logStepInfo(context.getCurrentStep(), "No schema changes detected, nothing to update");
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("No schema changes detected, nothing to update"));
                     return;
                 }
                 String label = "";
                 if(config != null && Boolean.TRUE.equals(config.getDryRun())) {
                     label = "DRY RUN: ";
                 }
-                context.logStepInfo(context.getCurrentStep(), label + "created but did not execute " + sqlStatements.size() + " SQL statements");
-                context.logStepInfo(context.getCurrentStep(), label + "SQL statements: " + sqlStatements.stream().collect(Collectors.joining(System.lineSeparator())));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info(label + "created but did not execute {} SQL statements", sqlStatements.size()));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info(label + "SQL statements: {}", sqlStatements.stream().collect(Collectors.joining(System.lineSeparator()))));
                 if(config == null || !Boolean.TRUE.equals(config.getDryRun())){
                     // Execute DDL statements
                     executeStatements(ddlService, sqlStatements, context);
