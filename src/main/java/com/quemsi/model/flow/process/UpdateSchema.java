@@ -14,7 +14,7 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.LogMessage;
-import com.quemsi.model.dto.SchemaUpdateConfig;
+import com.quemsi.model.dto.UpdateSchemaConfig;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.FlowContext;
@@ -30,11 +30,11 @@ import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public class SchemaUpdate extends AbstractStep {
+public class UpdateSchema extends AbstractStep {
     @Setter
     private ObjectMapper objectMapper;
     @Setter
-    private SchemaUpdateConfig config;
+    private UpdateSchemaConfig config;
     @Setter
     private DataSourceFactory datasourceFactory;
 
@@ -194,7 +194,7 @@ public class SchemaUpdate extends AbstractStep {
     @Override
     public void fillDetails(List<Map<String, Object>> steps) {
         Map<String, Object> props = new HashMap<>();
-        props.put("type", SchemaUpdate.class.getSimpleName());
+        props.put("type", UpdateSchema.class.getSimpleName());
         props.put("datasource", datasourceFactory.getName());
         if (config != null) {
             props.put("config", objectMapper.convertValue(config, new TypeReference<Map<String, Object>>() {}));

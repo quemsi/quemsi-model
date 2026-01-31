@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SchemaUpdateConfig implements Serializable {
+public class UpdateSchemaConfig implements Serializable {
     private static final long serialVersionUID = 1L;
     
     /**

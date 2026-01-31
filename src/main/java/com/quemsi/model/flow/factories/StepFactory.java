@@ -27,7 +27,7 @@ import com.quemsi.model.flow.file.Zip;
 import com.quemsi.model.flow.out.Storage;
 import com.quemsi.model.flow.process.MaskColumns;
 import com.quemsi.model.flow.process.SchemaMapping;
-import com.quemsi.model.flow.process.SchemaUpdate;
+import com.quemsi.model.flow.process.UpdateSchema;
 import com.quemsi.model.flow.process.UpdateSequences;
 
 import lombok.Getter;
@@ -150,18 +150,18 @@ public class StepFactory extends AbstractFactory<Step>{
 				}
 				return updateSequences;
 			}),
-			Map.entry("SchemaUpdate", (Function<JsonNode, Step>) node -> {
-				SchemaUpdate schemaUpdate = new SchemaUpdate();
+			Map.entry("UpdateSchema", (Function<JsonNode, Step>) node -> {
+				UpdateSchema updateSchema = new UpdateSchema();
 				ObjectMapper objectMapper = context.getBean(ObjectMapper.class);
-				schemaUpdate.setObjectMapper(objectMapper);
+				updateSchema.setObjectMapper(objectMapper);
 				String datasource = node.findValue("datasource").asText(null);
-				schemaUpdate.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
+				updateSchema.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
 				JsonNode configNode = node.get("config");
 				if(configNode != null) {
-					com.quemsi.model.dto.SchemaUpdateConfig config = objectMapper.convertValue(configNode, com.quemsi.model.dto.SchemaUpdateConfig.class);
-					schemaUpdate.setConfig(config);
+					com.quemsi.model.dto.UpdateSchemaConfig config = objectMapper.convertValue(configNode, com.quemsi.model.dto.UpdateSchemaConfig.class);
+					updateSchema.setConfig(config);
 				}
-				return schemaUpdate;
+				return updateSchema;
 			})
 			);
 }
