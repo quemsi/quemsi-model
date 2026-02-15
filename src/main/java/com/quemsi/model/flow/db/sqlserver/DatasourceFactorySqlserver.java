@@ -136,6 +136,16 @@ where SCHEMA_NAME(t.schema_id) in {inValues}
 ;
 			""";
 
+	private static final String SQL_FOR_DEFAULT_CONSTRAINTS = """
+select schema_name(t.schema_id) as schema_name, t.name as table_name, ac.name as column_name, 
+	dc.name as constraint_name, dc.definition
+from sys.default_constraints dc 
+	inner join sys.all_columns ac ON ac.default_object_id = dc.object_id
+	inner join sys.tables t ON ac.object_id = t.object_id
+where schema_name(t.schema_id) in {inValues}
+;
+			""";
+
 	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
 
 	private String name;
@@ -199,6 +209,7 @@ where SCHEMA_NAME(t.schema_id) in {inValues}
 			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, schemas.size()));
 			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, schemas.size()));
 			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
+			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DEFAULT_CONSTRAINTS, schemas.size()));
 		){
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -221,6 +232,19 @@ where SCHEMA_NAME(t.schema_id) in {inValues}
 
 				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 			}
+
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
+			ResultSet dcrs = dcps.executeQuery();
+			while(dcrs.next()){
+				String schemaName = dcrs.getString("SCHEMA_NAME");
+				String tableName = dcrs.getString("TABLE_NAME");
+				String columnName = dcrs.getString("COLUMN_NAME");
+				String constraintName = dcrs.getString("CONSTRAINT_NAME");
+				DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
+				DbColumn column = table.findColumn(columnName).orElseThrow(Exceptions.server("unknow-column").withExtra("schemaName", schemaName).withExtra("tableName", tableName).withExtra("columnName", columnName).supplier());
+				column.setDefaultConstraintName(constraintName);
+			}
+
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();

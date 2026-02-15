@@ -21,6 +21,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileResource;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.flow.DataPackageFileResource;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DMLService;
@@ -60,7 +61,9 @@ public class RdbmsBackup implements Source{
         firstFailure.set(null);
         taskRegistry.clear();
         try(ForkJoinPool pool = new ForkJoinPool(parallelism)) {
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("creating db model from datasource"));
             DbModel dbModel = datasource.getDbModel();
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("db model created from datasource"));
             dbModel.setFormat(format);
             String dbModelJson = dataMapper.writeValueAsString(dbModel);
             byte[] bytes = dbModelJson.getBytes();
@@ -70,14 +73,15 @@ public class RdbmsBackup implements Source{
                 .size(Long.valueOf(bytes.length))
                 .data(bytes)
                 .build();
-            
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Created db model file {}", modelFile.getName()));
             context.getDataPackages().add(new DataPackageFileResource(modelFile.getName(), modelFile));
 
             TableDataPersister tableDataPersister = new TableDataPersister();
             tableDataPersister.setObjectMapper(dataMapper);
 
             List<DbTable> tables = dbModel.orderedTables();
-            List<ForkJoinTask<Boolean>> tasks = tables.stream().map(table -> new RdmsBackupTask(table, tableDataPersister)).map(t -> {
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Created {} tables will be backed up", tables.size()));
+            List<ForkJoinTask<Boolean>> tasks = tables.stream().map(table -> new RdmsBackupTask(table, tableDataPersister, context)).map(t -> {
                 ForkJoinTask<Boolean> task = pool.submit(t);
                 taskRegistry.put(t.getTable().getName(), task);
                 return task;
@@ -88,7 +92,7 @@ public class RdbmsBackup implements Source{
                 throw Exceptions.server("backup-failed").withCause(firstFailure.get()).get();
             }else{
                 context.getDataPackages().addAll(tableDataPersister.getDataPackages());
-                log.info("{} data packages created", context.getDataPackages().size());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} data packages created", context.getDataPackages().size()));
             }
         } catch (BaseRuntimeException e) {
             throw e;
@@ -110,22 +114,24 @@ public class RdbmsBackup implements Source{
         @Getter
         private DbTable table;
         private TableDataPersister tableDataPersister;
-        public RdmsBackupTask(DbTable table, TableDataPersister tableDataPersister){
+        private FlowContext context;
+        public RdmsBackupTask(DbTable table, TableDataPersister tableDataPersister, FlowContext context){
             this.table = table;
             this.tableDataPersister = tableDataPersister;
+            this.context = context;
         }
         
         @Override
         public Boolean call() throws Exception {
             try(DMLService dmlService = datasource.dmlService()){
-                log.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getRefTableName()).toList());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getRefTableName()).toList()));
                 for(ReferenceInfo tr : table.getReferences()){
                     if(!tr.getRefTableName().equals(table.getName())){
                         boolean dependency = false;
                         while(!dependency){
                             try{
                                 dependency = taskRegistry.get(tr.getRefTableName()).get(1, TimeUnit.SECONDS);
-                                log.info("future of {} completed for {} result {}", tr.getRefTableName(), table.getName(), dependency);
+                                context.logStepInfo(context.getCurrentStep(), LogMessage.info("future of {} completed for {} result {}", tr.getRefTableName(), table.getName(), dependency));
                                 if(!dependency || globalCancellationFlag.get()){
                                     return false;
                                 }
@@ -137,7 +143,7 @@ public class RdbmsBackup implements Source{
                         }
                     }
                 }
-                log.info("all dependencies are processed for {}", table.getName());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("all dependencies are processed for {}", table.getName()));
                 Request request = new Request();
                 request.setSeqGenerator(new AtomicLong(1));
                 request.setPageNum(0);
@@ -154,10 +160,10 @@ public class RdbmsBackup implements Source{
                     tableDataPersister.persist(dataPage);
                     request = request.toBuilder().pageNum(request.getPageNum() + 1).build();
                 }
-                log.info("{} pages are completed for {}", counter.get(), table.getName());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} pages are completed for {}", counter.get(), table.getName()));
                 return true;
             }catch(Exception e){
-                log.error("failed process " + table.getName(), e);
+                context.logStepError(context.getCurrentStep(), "failed process " + table.getName(), e);
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
             }

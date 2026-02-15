@@ -17,6 +17,7 @@ import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.FileResource;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFileResource;
@@ -33,6 +34,7 @@ public class Unzip extends AbstractStep {
     @Override
     public void execute(FlowContext context) {
 		try{
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Unzipping {} data packages", context.getDataPackages().size()));
 			List<DataPackage> unzipped = context.getDataPackages().stream().flatMap(dp -> {
                 try(ZipFile zipFile = ZipFile.builder().setSeekableByteChannel(new SeekableInMemoryByteChannel(dp.getInputStream().readAllBytes())).get()){
                     List<DataPackage> resultList = new LinkedList<>();
@@ -40,7 +42,7 @@ public class Unzip extends AbstractStep {
                     while (i.hasNext()) {
                         ZipArchiveEntry entry = i.next();
                         if (!zipFile.canReadEntryData(entry)) {
-                            log.info("unreadable arhive entry {}", entry);
+                            context.logStepWarn(context.getCurrentStep(), "unreadable arhive entry " + entry);
                             continue;
                         }
                         if (entry.isDirectory()) {
