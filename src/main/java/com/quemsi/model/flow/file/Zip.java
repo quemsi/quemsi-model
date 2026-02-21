@@ -33,6 +33,7 @@ public class Zip extends AbstractStep {
                 archive.closeArchiveEntry();
             }));
             archive.finish();
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Zipped {} data packages", context.getDataPackages().size()));
             
             String fileName = context.getFlow().getData().getName() + ".zip";
             context.logStepInfo( context.getCurrentStep(), LogMessage.info("Zipped data package to {}", fileName));
