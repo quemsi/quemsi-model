@@ -122,8 +122,9 @@ public class DDLServiceSqlserver implements DDLService{
     public void disableConstraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcSchema()) .append(refInfo.getSrcTableName()).append("NOCHECK CONSTRAINT ")
-            .append(refInfo.getConstraintName()).append(";");
+            sb.append(refInfo.getSrcSchema()) .append(refInfo.getSrcTableName()).append("NOCHECK CONSTRAINT ");
+            appendBracketQuoted(sb, refInfo.getConstraintName());
+            sb.append(";");
             try{
                 String dropConstraintSql = sb.toString();
                 log.info("disable constraint sql :{}", dropConstraintSql);
@@ -139,8 +140,9 @@ public class DDLServiceSqlserver implements DDLService{
     public void enableContraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.srcQualifiedName()).append(" WITH CHECK CHECK CONSTRAINT ")
-            .append(refInfo.getConstraintName()).append(";");
+            sb.append(refInfo.srcQualifiedName()).append(" WITH CHECK CHECK CONSTRAINT ");
+            appendBracketQuoted(sb, refInfo.getConstraintName());
+            sb.append(";");
             try{
                 String dropConstraintSql = sb.toString();
                 log.info("enable constraint sql :{}", dropConstraintSql);
@@ -179,6 +181,17 @@ public class DDLServiceSqlserver implements DDLService{
 			sb.append(columnName);
 		}
 		return sb;
+	}
+
+	/** T-SQL bracket identifier; escape ] as ]]. */
+	private static void appendBracketQuoted(StringBuilder sb, String name) {
+		sb.append('[').append(name.replace("]", "]]")).append(']');
+	}
+
+	private static String bracketQuoted(String name) {
+		StringBuilder sb = new StringBuilder();
+		appendBracketQuoted(sb, name);
+		return sb.toString();
 	}
 
     @Override
@@ -257,7 +270,9 @@ public class DDLServiceSqlserver implements DDLService{
 				sb.append(",").append(System.lineSeparator());
 			}
 			if(table.getPkColumnNames().size() > 0){
-				sb.append("  CONSTRAINT ").append(table.getPkConstraintName()).append(" PRIMARY KEY ");
+				sb.append("  CONSTRAINT ");
+				appendBracketQuoted(sb, table.getPkConstraintName());
+				sb.append(" PRIMARY KEY ");
 				if(hasClustedIndex){
 					sb.append("NONCLUSTERED ");
 				}
@@ -277,7 +292,9 @@ public class DDLServiceSqlserver implements DDLService{
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+						.append("  CONSTRAINT ");
+					appendBracketQuoted(sb, ref.getConstraintName());
+					sb.append(" FOREIGN KEY (");
 						Iterator<String> cIt = ref.getSrcColumnNames().iterator();
 						while(cIt.hasNext()){
 							String cName = cIt.next();
@@ -355,7 +372,9 @@ public class DDLServiceSqlserver implements DDLService{
 			}
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append(contraintInfo.getConstraintName()).append(" UNIQUE").append(" (");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ");
+			appendBracketQuoted(sb, contraintInfo.getConstraintName());
+			sb.append(" UNIQUE").append(" (");
 			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
 			while(cIt.hasNext()){
 				String cName = cIt.next();
@@ -369,7 +388,9 @@ public class DDLServiceSqlserver implements DDLService{
 			scripts.add(sb);
 		}
 		for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" WITH CHECK ADD CONSTRAINT ").append(checkConstraint.getConstraintName()).append(" CHECK ").append(checkConstraint.getCondef()).append(";");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" WITH CHECK ADD CONSTRAINT ");
+			appendBracketQuoted(sb, checkConstraint.getConstraintName());
+			sb.append(" CHECK ").append(checkConstraint.getCondef()).append(";");
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
 			scripts.add(sb);
 		}
@@ -518,7 +539,9 @@ public class DDLServiceSqlserver implements DDLService{
 			sb.append(",").append(System.lineSeparator());
 		}
 		if(table.getPkColumnNames().size() > 0){
-			sb.append("  CONSTRAINT ").append(table.getPkConstraintName()).append(" PRIMARY KEY ");
+			sb.append("  CONSTRAINT ");
+			appendBracketQuoted(sb, table.getPkConstraintName());
+			sb.append(" PRIMARY KEY ");
 			if(hasClustedIndex){
 				sb.append("NONCLUSTERED ");
 			}
@@ -538,7 +561,9 @@ public class DDLServiceSqlserver implements DDLService{
 			while(refIt.hasNext()){
 				ReferenceInfo ref = refIt.next();
 				sb.append(",").append(System.lineSeparator())
-					.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+					.append("  CONSTRAINT ");
+				appendBracketQuoted(sb, ref.getConstraintName());
+				sb.append(" FOREIGN KEY (");
 					Iterator<String> cIt = ref.getSrcColumnNames().iterator();
 					while(cIt.hasNext()){
 						String cName = cIt.next();
@@ -648,7 +673,8 @@ public class DDLServiceSqlserver implements DDLService{
         if (!Objects.equals(oldColumn.getColumnDefault(), newColumn.getColumnDefault())) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName);
 			if (newColumn.getColumnDefault() == null) {
-                sb.append(" DROP CONSTRAINT ").append(oldColumn.getDefaultConstraintName());
+                sb.append(" DROP CONSTRAINT ");
+                appendBracketQuoted(sb, oldColumn.getDefaultConstraintName());
             } else {
                 sb.append(" ADD DEFAULT ").append(StringUtils.trimSymetric(newColumn.getColumnDefault(), "(", ")")).append(" FOR [").append(newColumn.getName()).append("];");
             }
@@ -671,14 +697,14 @@ public class DDLServiceSqlserver implements DDLService{
             case DROP:
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + ref.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + bracketQuoted(ref.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + ref.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + bracketQuoted(ref.getConstraintName()) + ";");
                 }
                 if (operation.getNewReference() != null) {
                     statements.add(generateAddForeignKeySql(operation.getNewReference()));
@@ -691,8 +717,9 @@ public class DDLServiceSqlserver implements DDLService{
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
-            .append(" ADD CONSTRAINT ").append(ref.getConstraintName())
-            .append(" FOREIGN KEY (");
+            .append(" ADD CONSTRAINT ");
+        appendBracketQuoted(sb, ref.getConstraintName());
+        sb.append(" FOREIGN KEY (");
         
         Iterator<String> cIt = ref.getSrcColumnNames().iterator();
         while (cIt.hasNext()) {
@@ -729,14 +756,14 @@ public class DDLServiceSqlserver implements DDLService{
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
@@ -749,7 +776,9 @@ public class DDLServiceSqlserver implements DDLService{
     
     private String generateAddUniqueConstraintSql(ContraintInfo constraint) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(constraint.qualifiedTableName())
-            .append(" ADD CONSTRAINT ").append(constraint.getConstraintName()).append(" UNIQUE (");
+            .append(" ADD CONSTRAINT ");
+        appendBracketQuoted(sb, constraint.getConstraintName());
+        sb.append(" UNIQUE (");
         
         Iterator<String> cIt = constraint.getColumnNames().iterator();
         while (cIt.hasNext()) {
@@ -771,24 +800,24 @@ public class DDLServiceSqlserver implements DDLService{
             case CREATE:
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " WITH CHECK ADD CONSTRAINT " + constraint.getConstraintName() + " CHECK " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
                 }
                 break;
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " WITH CHECK ADD CONSTRAINT " + constraint.getConstraintName() + " CHECK " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
                 }
                 break;
         }

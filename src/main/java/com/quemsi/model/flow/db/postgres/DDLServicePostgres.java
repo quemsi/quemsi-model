@@ -201,7 +201,7 @@ public class DDLServicePostgres implements DDLService{
 					if(pkConst.length() == 0){
                         pkConst.append("  ").append("CONSTRAINT ");
                         if(pkConstraintName != null){
-                            pkConst.append(pkConstraintName).append(" PRIMARY KEY (");
+                            pkConst.append("\"").append(pkConstraintName).append("\"").append(" PRIMARY KEY (");
                         }
                     }
                     pkConst.append("\"").append(cName).append("\"");
@@ -217,7 +217,7 @@ public class DDLServicePostgres implements DDLService{
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+						.append("  CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" FOREIGN KEY (");
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
@@ -251,8 +251,8 @@ public class DDLServicePostgres implements DDLService{
                     if(indCols.isUnique()){
                         indBuilder.append("UNIQUE ");
                     }
-                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append(indName);
-                    indBuilder.append(" ON ").append(tableName).append(" USING ").append(indCols.getIndexType()).append(" (");
+                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append("\"").append(indName).append("\"");
+                    indBuilder.append(" ON ").append("\"").append(tableName).append("\"").append(" USING ").append(indCols.getIndexType()).append(" (");
                     Iterator<String> icIt = indCols.getColumns().iterator();
                     while(icIt.hasNext()){
                         String ic = icIt.next();
@@ -269,7 +269,7 @@ public class DDLServicePostgres implements DDLService{
 			
 		}
         for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
-            StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append(contraintInfo.getConstraintName()).append(" UNIQUE").append(" (");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(contraintInfo.getConstraintName()).append("\"").append(" UNIQUE").append(" (");
             Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
@@ -283,14 +283,14 @@ public class DDLServicePostgres implements DDLService{
             scripts.add(sb);
         }
         for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ").append(checkConstraint.getConstraintName()).append(" ").append(checkConstraint.getCondef()).append(";");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(checkConstraint.getConstraintName()).append("\"").append(" ").append(checkConstraint.getCondef()).append(";");
             log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
             scripts.add(sb);
         }
 		try{
             for(String schema : dbModel.getSchemas()){
                 if(!checkSchema(schema)){
-                    StringBuilder csSql = new StringBuilder("create schema ").append(schema).append(";");
+                    StringBuilder csSql = new StringBuilder("create schema ").append("\"").append(schema).append("\"").append(";");
                     Statement css = conn.createStatement();
                     css.execute(csSql.toString());
                 }
@@ -441,7 +441,7 @@ public class DDLServicePostgres implements DDLService{
                 if (pkConst.length() == 0) {
                     pkConst.append("  ").append("CONSTRAINT ");
                     if (pkConstraintName != null) {
-                        pkConst.append(pkConstraintName).append(" PRIMARY KEY (");
+                        pkConst.append("\"").append(pkConstraintName).append("\"").append(" PRIMARY KEY (");
                     }
                 }
                 pkConst.append("\"").append(cName).append("\"");
@@ -506,7 +506,7 @@ public class DDLServicePostgres implements DDLService{
             !Objects.equals(oldColumn.getNumPrecision(), newColumn.getNumPrecision()) ||
             !Objects.equals(oldColumn.getNumScale(), newColumn.getNumScale())
         ) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
                 .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" TYPE ")
                 .append(columnType(newColumn.getColumnType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale())).append(";");
             statements.add(sb.toString());
@@ -514,7 +514,7 @@ public class DDLServicePostgres implements DDLService{
         
         // Nullable change
         if (oldColumn.isNullable() != newColumn.isNullable()) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
                 .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" ");
             if (newColumn.isNullable()) {
                 sb.append("DROP NOT NULL");
@@ -527,7 +527,7 @@ public class DDLServicePostgres implements DDLService{
         
         // Default change
         if (!Objects.equals(oldColumn.getColumnDefault(), newColumn.getColumnDefault())) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
                 .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" ");
             if (newColumn.getColumnDefault() == null) {
                 sb.append("DROP DEFAULT");
@@ -553,14 +553,14 @@ public class DDLServicePostgres implements DDLService{
             case DROP:
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + ref.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT \"" + ref.getConstraintName() + "\";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + ref.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT \"" + ref.getConstraintName() + "\";");
                 }
                 if (operation.getNewReference() != null) {
                     statements.add(generateAddForeignKeySql(operation.getNewReference()));
@@ -573,7 +573,7 @@ public class DDLServicePostgres implements DDLService{
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
-            .append(" ADD CONSTRAINT ").append(ref.getConstraintName())
+            .append(" ADD CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" ")
             .append(" FOREIGN KEY (");
         
         Iterator<String> cIt = ref.getSrcColumnNames().iterator();
@@ -611,14 +611,14 @@ public class DDLServicePostgres implements DDLService{
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
                 }
                 if (operation.getNewConstraint() != null) {
                     statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
@@ -631,7 +631,7 @@ public class DDLServicePostgres implements DDLService{
     
     private String generateAddUniqueConstraintSql(ContraintInfo constraint) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(constraint.qualifiedTableName())
-            .append(" ADD CONSTRAINT ").append(constraint.getConstraintName()).append(" UNIQUE (");
+            .append(" ADD CONSTRAINT ").append("\"").append(constraint.getConstraintName()).append("\"").append(" UNIQUE (");
         
         Iterator<String> cIt = constraint.getColumnNames().iterator();
         while (cIt.hasNext()) {
@@ -653,24 +653,24 @@ public class DDLServicePostgres implements DDLService{
             case CREATE:
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT " + constraint.getConstraintName() + " " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT \"" + constraint.getConstraintName() + "\" " + constraint.getCondef() + ";");
                 }
                 break;
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
                 }
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT " + constraint.getConstraintName() + " " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT \"" + constraint.getConstraintName() + "\" " + constraint.getCondef() + ";");
                 }
                 break;
         }

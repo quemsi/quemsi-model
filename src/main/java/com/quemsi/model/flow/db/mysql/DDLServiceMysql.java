@@ -44,6 +44,17 @@ import lombok.extern.slf4j.Slf4j;
 @NoArgsConstructor
 public class DDLServiceMysql implements DDLService{
     private DataSource dataSource;
+
+	/** MySQL identifier quoting; escape ` as ``. */
+	private static void appendBacktickQuoted(StringBuilder sb, String name) {
+		sb.append('`').append(name.replace("`", "``")).append('`');
+	}
+
+	private static String backtickQuoted(String name) {
+		StringBuilder sb = new StringBuilder();
+		appendBacktickQuoted(sb, name);
+		return sb.toString();
+	}
     
     @Override
 	public boolean dropTables(String... tableNames) {
@@ -70,7 +81,7 @@ public class DDLServiceMysql implements DDLService{
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
             sb.append(refInfo.getSrcTableName()).append(" DROP FOREIGN KEY ")
-            .append(refInfo.getConstraintName()).append(";");
+            .append(backtickQuoted(refInfo.getConstraintName())).append(";");
             try(Connection conn = dataSource.getConnection()){
                 String dropConstraintSql = sb.toString();
                 log.info("drop constraint sql :{}", dropConstraintSql);
@@ -86,9 +97,9 @@ public class DDLServiceMysql implements DDLService{
     public void enableContraints(Set<ReferenceInfo> constraints){
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ")
-            .append(refInfo.getConstraintName())
-        	.append(" FOREIGN KEY (");
+            sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ");
+            appendBacktickQuoted(sb, refInfo.getConstraintName());
+        	sb.append(" FOREIGN KEY (");
             Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
@@ -190,7 +201,9 @@ public class DDLServiceMysql implements DDLService{
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+						.append("  CONSTRAINT ");
+					appendBacktickQuoted(sb, ref.getConstraintName());
+					sb.append(" FOREIGN KEY (");
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
@@ -216,7 +229,9 @@ public class DDLServiceMysql implements DDLService{
 			scripts.add(sb);
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ").append(contraintInfo.getConstraintName()).append(" UNIQUE").append(" (");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ");
+			appendBacktickQuoted(sb, contraintInfo.getConstraintName());
+			sb.append(" UNIQUE").append(" (");
 			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
 			while(cIt.hasNext()){
 				String cName = cIt.next();
@@ -239,13 +254,7 @@ public class DDLServiceMysql implements DDLService{
 				sb.append(tableName);
 			}
 			sb.append(" ADD CONSTRAINT ");
-			// Backtick constraint name if it contains special characters (like dots)
-			String constraintName = checkConstraint.getConstraintName();
-			if(constraintName.contains(".") || constraintName.contains("`") || constraintName.contains("-") || constraintName.contains(" ")){
-				sb.append("`").append(constraintName.replace("`", "``")).append("`");
-			} else {
-				sb.append(constraintName);
-			}
+			appendBacktickQuoted(sb, checkConstraint.getConstraintName());
 			String convertedCondef = convertCheckClause(checkConstraint.getCondef());
 			sb.append(" CHECK (").append(convertedCondef).append(");");
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.getTableName(), sb.toString());
@@ -560,14 +569,14 @@ public class DDLServiceMysql implements DDLService{
             case DROP:
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP FOREIGN KEY " + ref.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP FOREIGN KEY " + backtickQuoted(ref.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP FOREIGN KEY " + ref.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP FOREIGN KEY " + backtickQuoted(ref.getConstraintName()) + ";");
                 }
                 if (operation.getNewReference() != null) {
                     statements.add(generateAddForeignKeySql(operation.getNewReference()));
@@ -580,8 +589,9 @@ public class DDLServiceMysql implements DDLService{
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
-            .append(" ADD CONSTRAINT ").append(ref.getConstraintName())
-            .append(" FOREIGN KEY (");
+            .append(" ADD CONSTRAINT ");
+        appendBacktickQuoted(sb, ref.getConstraintName());
+        sb.append(" FOREIGN KEY (");
         
         Iterator<String> cIt = ref.getSrcColumnNames().iterator();
         while (cIt.hasNext()) {
@@ -618,14 +628,14 @@ public class DDLServiceMysql implements DDLService{
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP INDEX " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP INDEX " + backtickQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP INDEX " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP INDEX " + backtickQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
@@ -638,7 +648,9 @@ public class DDLServiceMysql implements DDLService{
     
     private String generateAddUniqueConstraintSql(ContraintInfo constraint) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(constraint.qualifiedTableName())
-            .append(" ADD CONSTRAINT ").append(constraint.getConstraintName()).append(" UNIQUE (");
+            .append(" ADD CONSTRAINT ");
+        appendBacktickQuoted(sb, constraint.getConstraintName());
+        sb.append(" UNIQUE (");
         
         Iterator<String> cIt = constraint.getColumnNames().iterator();
         while (cIt.hasNext()) {
@@ -668,12 +680,7 @@ public class DDLServiceMysql implements DDLService{
                         sb.append(tableName);
                     }
                     sb.append(" ADD CONSTRAINT ");
-                    String constraintName = constraint.getConstraintName();
-                    if (constraintName.contains(".") || constraintName.contains("`") || constraintName.contains("-") || constraintName.contains(" ")) {
-                        sb.append("`").append(constraintName.replace("`", "``")).append("`");
-                    } else {
-                        sb.append(constraintName);
-                    }
+                    appendBacktickQuoted(sb, constraint.getConstraintName());
                     String convertedCondef = convertCheckClause(constraint.getCondef());
                     sb.append(" CHECK (").append(convertedCondef).append(");");
                     statements.add(sb.toString());
@@ -682,14 +689,14 @@ public class DDLServiceMysql implements DDLService{
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + backtickQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + constraint.getConstraintName() + ";");
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + backtickQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
@@ -701,12 +708,7 @@ public class DDLServiceMysql implements DDLService{
                         sb.append(tableName);
                     }
                     sb.append(" ADD CONSTRAINT ");
-                    String constraintName = constraint.getConstraintName();
-                    if (constraintName.contains(".") || constraintName.contains("`") || constraintName.contains("-") || constraintName.contains(" ")) {
-                        sb.append("`").append(constraintName.replace("`", "``")).append("`");
-                    } else {
-                        sb.append(constraintName);
-                    }
+                    appendBacktickQuoted(sb, constraint.getConstraintName());
                     String convertedCondef = convertCheckClause(constraint.getCondef());
                     sb.append(" CHECK (").append(convertedCondef).append(");");
                     statements.add(sb.toString());

@@ -185,7 +185,7 @@ public class DDLServiceMysqlTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT fk_test"));
+        assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT `fk_test`"));
         assertThat(statements.get(0), containsString("FOREIGN KEY"));
         assertThat(statements.get(0), containsString("REFERENCES parent"));
         assertThat(statements.get(0), containsString("`parent_id`"));
@@ -211,7 +211,7 @@ public class DDLServiceMysqlTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE users ADD CONSTRAINT uk_email UNIQUE"));
+        assertThat(statements.get(0), containsString("ALTER TABLE users ADD CONSTRAINT `uk_email` UNIQUE"));
         assertThat(statements.get(0), containsString("`email`"));
     }
 
@@ -235,7 +235,7 @@ public class DDLServiceMysqlTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE products ADD CONSTRAINT ck_price"));
+        assertThat(statements.get(0), containsString("ALTER TABLE products ADD CONSTRAINT `ck_price`"));
         assertThat(statements.get(0), containsString("CHECK"));
     }
 
