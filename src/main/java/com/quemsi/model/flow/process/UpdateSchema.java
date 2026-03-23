@@ -43,73 +43,73 @@ public class UpdateSchema extends AbstractStep {
         try {
             // Get DbModel from data file
             DbModel sourceModel = getDbModelFromDataFile(context);
-            
+
             // Get DbModel from datasource
             DbModel targetModel = datasourceFactory.getDbModel();
-            
+
             String targetModelJson = objectMapper.writeValueAsString(targetModel);
             log.info("Target model: {}", targetModelJson);
 
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Calculating schema differences between source model and target database"));
-            
+
             // Calculate difference
             DbModelDiffExtractor extractor = new DbModelDiffExtractor();
             DbModelDiff diff = extractor.extract(sourceModel, targetModel);
-            
+
             // Filter out sequence operations if skipSequences is true
             if (config != null && Boolean.TRUE.equals(config.getSkipSequences())) {
                 diff.getOperations().removeIf(op -> op.getEntityType() == DiffEntityType.SEQUENCE);
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("Skipping sequence operations as per configuration"));
             }
-            
+
             int operationCount = diff.getOperations().size();
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Found {} schema differences to apply", operationCount));
-            
+
             if (operationCount == 0) {
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("No schema changes detected, nothing to update"));
                 return;
             }
-            
+
             // Generate migration DDL
             try (DDLService ddlService = datasourceFactory.ddlService()) {
                 List<String> sqlStatements = ddlService.ddlFrom(diff, sourceModel);
-                
+
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("Generated {} SQL statements for schema migration", sqlStatements.size()));
-                if(sqlStatements.isEmpty()) {
+                if (sqlStatements.isEmpty()) {
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("No schema changes detected, nothing to update"));
                     return;
                 }
                 String label = "";
-                if(config != null && Boolean.TRUE.equals(config.getDryRun())) {
+                if (config != null && Boolean.TRUE.equals(config.getDryRun())) {
                     label = "DRY RUN: ";
                 }
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info(label + "created but did not execute {} SQL statements", sqlStatements.size()));
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info(label + "SQL statements: {}", sqlStatements.stream().collect(Collectors.joining(System.lineSeparator()))));
-                if(config == null || !Boolean.TRUE.equals(config.getDryRun())){
+                if (config == null || !Boolean.TRUE.equals(config.getDryRun())) {
                     // Execute DDL statements
                     executeStatements(ddlService, sqlStatements, context);
                 }
             }
-            
+
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Schema update completed successfully"));
         } catch (Exception e) {
             throw Exceptions.server("exception-in-schema-update").withCause(e).get();
         }
     }
-    
+
     private DbModel getDbModelFromDataFile(FlowContext context) {
         List<DataPackage> dataPackages = context.getDataPackages();
         if (dataPackages == null || dataPackages.isEmpty()) {
             throw Exceptions.notFound("unable-to-find-data-packages").get();
         }
-        
+
         Map<String, DataPackage> namedPackages = dataPackages.stream()
             .collect(Collectors.toMap(DataPackage::getName, dp -> dp));
-        
+
         if (!namedPackages.containsKey(CommonConstants.DB_MODEL_FILE_NAME)) {
             throw Exceptions.notFound("unable-to-find-db-model").get();
         }
-        
+
         DataPackage dbModelPackage = namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME);
         if (!"application/json".equals(dbModelPackage.getContentType())) {
             throw Exceptions.badRequest("unsupported-content-type-for-db-model")
@@ -117,10 +117,10 @@ public class UpdateSchema extends AbstractStep {
                 .withExtra("supported", "application/json")
                 .get();
         }
-        
+
         try {
             String dbModelJsonStr = IOUtils.toString(
-                dbModelPackage.getInputStream(), 
+                dbModelPackage.getInputStream(),
                 Charset.forName("UTF-8")
             );
             DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
@@ -130,44 +130,44 @@ public class UpdateSchema extends AbstractStep {
             throw Exceptions.server("io-exception-reading-db-model").withCause(e).get();
         }
     }
-    
+
     private void executeStatements(DDLService ddlService, List<String> sqlStatements, FlowContext context) {
         boolean dryRun = config != null && Boolean.TRUE.equals(config.getDryRun());
         boolean continueOnError = config == null || Boolean.TRUE.equals(config.getContinueOnError());
-        
+
         int successCount = 0;
         int errorCount = 0;
-        
+
         for (int i = 0; i < sqlStatements.size(); i++) {
             String sql = sqlStatements.get(i);
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Executing statement {}/{}: {}", i + 1, sqlStatements.size(), sql));
-            
+
             if (dryRun) {
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("DRY RUN: Would execute: {}", sql));
                 successCount++;
                 continue;
             }
-            
+
             try {
                 ddlService.executeSql(sql);
                 successCount++;
                 context.logStepInfo(context.getCurrentStep(), LogMessage.debug("Successfully executed statement {}/{}", i + 1, sqlStatements.size()));
             } catch (SQLException e) {
                 errorCount++;
-                String errorMessage = String.format("Failed to execute SQL statement %d/%d: %s", 
+                String errorMessage = String.format("Failed to execute SQL statement %d/%d: %s",
                     i + 1, sqlStatements.size(), e.getMessage());
                 context.logStepError(context.getCurrentStep(), errorMessage);
                 context.logStepError(context.getCurrentStep(), "Failed SQL: " + sql);
-                
+
                 // Send error to API
-                context.logError("schema-update-sql-error", 
+                context.logError("schema-update-sql-error",
                     Exceptions.server("sql-execution-failed")
                         .withCause(e)
                         .withExtra("statementNumber", i + 1)
                         .withExtra("totalStatements", sqlStatements.size())
                         .withExtra("sql", sql)
                         .get());
-                
+
                 if (!continueOnError) {
                     throw Exceptions.server("schema-update-failed-on-statement")
                         .withCause(e)
@@ -178,10 +178,10 @@ public class UpdateSchema extends AbstractStep {
                 }
             }
         }
-        
-        context.logStepInfo(context.getCurrentStep(), LogMessage.info("Schema update execution summary: {} successful, {} failed out of {} total statements", 
+
+        context.logStepInfo(context.getCurrentStep(), LogMessage.info("Schema update execution summary: {} successful, {} failed out of {} total statements",
             successCount, errorCount, sqlStatements.size()));
-        
+
         if (errorCount > 0 && !continueOnError) {
             throw Exceptions.server("schema-update-completed-with-errors")
                 .withExtra("successCount", successCount)
@@ -202,4 +202,3 @@ public class UpdateSchema extends AbstractStep {
         steps.add(props);
     }
 }
-

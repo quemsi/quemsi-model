@@ -12,6 +12,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.dto.MaskColumn;
+import com.quemsi.model.dto.UpdateSchemaConfig;
 import com.quemsi.model.flow.From;
 import com.quemsi.model.flow.Step;
 import com.quemsi.model.flow.To;
@@ -158,7 +159,7 @@ public class StepFactory extends AbstractFactory<Step>{
 				updateSchema.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
 				JsonNode configNode = node.get("config");
 				if(configNode != null) {
-					com.quemsi.model.dto.UpdateSchemaConfig config = objectMapper.convertValue(configNode, com.quemsi.model.dto.UpdateSchemaConfig.class);
+					UpdateSchemaConfig config = objectMapper.convertValue(configNode, UpdateSchemaConfig.class);
 					updateSchema.setConfig(config);
 				}
 				return updateSchema;
