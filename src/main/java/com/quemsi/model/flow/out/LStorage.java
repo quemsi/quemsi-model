@@ -13,11 +13,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileNameUtil;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFile;
 import com.quemsi.model.flow.Flow;
 import com.quemsi.model.flow.FlowContext;
+import com.quemsi.model.flow.FlowContext.LogWriter;
 
 import lombok.Getter;
 import lombok.Setter;
@@ -42,6 +44,10 @@ public class LStorage extends  AbstractStorage{
     @Setter
 	@Getter
 	private String retentionPolicy;
+	@Setter
+	private LogWriter logWriter;
+	@Setter
+	private Long agentId;
 	
 	@Override
 	public void init(Flow f) {
@@ -49,6 +55,7 @@ public class LStorage extends  AbstractStorage{
 		dirPath = Paths.get(localDrive.getStorageRoot(), rootPath);
 		if(!Files.exists(dirPath)) {
 			try {
+				logWriter.log(agentId, null, null, LogMessage.info("creating folders {}", dirPath));
 				log.info("creating folders {}", dirPath);
 				Files.createDirectories(dirPath);
 			} catch (IOException e) {
@@ -66,16 +73,18 @@ public class LStorage extends  AbstractStorage{
 		Path dataFolder = Path.of(this.dirPath.toString() ,dataName);
 		if(!dataFolder.toFile().exists()){
 			try {
+				context.logStepInfo(context.getCurrentStep(), LogMessage.info("creating folders {}", dataFolder));
 				Files.createDirectories(dataFolder);
 			} catch (IOException e) {
 				throw Exceptions.server("io-exception").withCause(e).get();
 			}
 		}
 		
+		context.logStepInfo(context.getCurrentStep(), LogMessage.info("storing {} files", dataPackages.size()));
 		dataPackages.forEach(dp -> {
-			log.debug("storin java.io.File file :{}", dp.getName());
+			context.logStepInfo(context.getCurrentStep(), LogMessage.debug("storing java.io.File file :{}", dp.getName()));
 			String destPath = dirPath + File.separator + dataName + File.separator + util.versionedFileName(dp.getName(), version);
-			log.debug("destination :{}", destPath);
+			context.logStepInfo(context.getCurrentStep(), LogMessage.debug("destination :{}", destPath));
 			localDrive.checkForCapacity(dp.getLength());
 			try {
 				FileUtils.copyInputStreamToFile(dp.getInputStream(), new File(destPath));
@@ -87,7 +96,7 @@ public class LStorage extends  AbstractStorage{
 
 	@Override
 	public List<DataPackage> getFiles(FlowContext context, List<DataFile> files) throws IOException {
-		return files.stream().peek(f -> log.info("adding {}", dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion()))).map(f -> (DataPackage)new DataPackageFile(f.getName(), new File(dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())), f.getSize(), f.getContentType())).toList();
+		return files.stream().peek(f -> context.logStepInfo(context.getCurrentStep(), LogMessage.info("adding {}", dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())))).map(f -> (DataPackage)new DataPackageFile(f.getName(), new File(dirPath +  File.separator + f.getDir() + File.separator + util.versionedFileName(f.getName(), f.getVersion())), f.getSize(), f.getContentType())).toList();
 	}
 
 	@Override

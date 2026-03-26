@@ -186,7 +186,7 @@ public class RdbmsTarget extends AbstractStorage{
                 
                 String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
                 TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
-                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName()));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("there are{} pages for {}", tableData.getDataPages().size(), tableData.getTableName()));
                 
                 List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage, context))
                     .map(t -> forkJoinPool.submit(t)).toList();
@@ -223,7 +223,9 @@ public class RdbmsTarget extends AbstractStorage{
             }
             
             try(DMLService dmlService = datasourceFactory.dmlService()){
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restoring page {} for {}", dataPage.getPageNum(), table.getName()));
                 dmlService.writePageData(table, dataPage);
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restored page {} for {}", dataPage.getPageNum(), table.getName()));
                 /* Check for global cancellation after processing */
                 if (globalCancellationFlag.get()) {
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("Page restore task for table {} cancelled after processing", table.getName()));
