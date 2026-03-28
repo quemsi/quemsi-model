@@ -42,6 +42,8 @@ public class Flow {
 	private boolean back;
 	private DataGroup data;
 	private String timerName;
+	/** From flow definition JSON; merged with timer tags when scheduled. */
+	private Map<String, String> defaultExecutionTags;
 	private List<Step> steps;
 	
 	@JsonIgnore

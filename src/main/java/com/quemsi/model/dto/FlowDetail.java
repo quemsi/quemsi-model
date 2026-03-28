@@ -28,6 +28,8 @@ public class FlowDetail extends BaseDto<Long>{
 	private DataGroup data;
 	private boolean back;
 	private String timer;
+	/** Optional key/value tags to pre-fill (forward flows) or merge on timer runs. Stored inside serialized model JSON. */
+	private Map<String, String> defaultExecutionTags;
 	private List<Map<String, Object>> steps;
 	@NotEmpty
 	private String model;
