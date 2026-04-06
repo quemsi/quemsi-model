@@ -34,6 +34,7 @@ public class MySqlScript extends AbstractStep{
 
     @Override
 	public void execute(FlowContext context) {
+		datasourceFactory.assertWritable();
 		try (Connection conn = datasourceFactory.getDataSource().getConnection()){
             List<SqlToken> tokens = sqlParser.split(script);
             Statement statement = conn.createStatement();

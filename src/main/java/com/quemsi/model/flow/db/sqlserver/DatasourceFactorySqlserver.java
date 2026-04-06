@@ -153,6 +153,7 @@ where schema_name(t.schema_id) in {inValues}
 	private String url;
 	private String username;
 	private String password;
+	private boolean readOnly;
 	private Set<String> schemas;
 	private HikariDataSource instance;
 	private ReentrantLock globalLock;

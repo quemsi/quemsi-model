@@ -13,6 +13,7 @@ import com.quemsi.commons.util.FileResource;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFileResource;
 import com.quemsi.model.flow.in.TableData;
+import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.util.CommonHelpers;
 
@@ -29,6 +30,7 @@ public class TableDataPersister {
         tableDataMap.compute(tableDataPage.getRequest().getTable().qualifiedName(), (key, td) -> {
             if(td == null){
                 td = new TableData(tableDataPage.getRequest().getTable().qualifiedName());
+                td.setPageSize(tableDataPage.getRequest().getPageSize());
             }
             td.getDataPages().add(new TableData.DataPage(tableDataPage.getRequest().getPageNum(), tableDataPage.getTableData()));
             return td;
@@ -40,6 +42,8 @@ public class TableDataPersister {
         tableDataMap.entrySet().forEach(Exceptions.wrapConsumer(e -> {
             log.info("serializing table data for {}", e.getKey());
             TableData tableData = e.getValue();
+            tableData.setTotalPages(tableData.getDataPages().size());
+            tableData.setTotalRecords(tableData.getDataPages().stream().map(DataPage::getSize).reduce(0, Integer::sum));
             String tableDataJson = objectMapper.writeValueAsString(tableData);
             log.info("table data json size: {}", tableDataJson.length());
             byte[] dataPagesJsonBytes = tableDataJson.getBytes();

@@ -26,6 +26,7 @@ public class ClearTables extends AbstractStep {
 	
     @Override
     public void execute(FlowContext context) {
+        datasource.assertWritable();
         try(
             Connection conn = datasource.getDataSource().getConnection();
             DMLService dmlService = datasource.dmlService();

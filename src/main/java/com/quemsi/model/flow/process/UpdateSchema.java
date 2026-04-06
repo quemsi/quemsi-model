@@ -41,6 +41,7 @@ public class UpdateSchema extends AbstractStep {
     @Override
     public void execute(FlowContext context) {
         try {
+            datasourceFactory.assertWritable();
             // Get DbModel from data file
             DbModel sourceModel = getDbModelFromDataFile(context);
 

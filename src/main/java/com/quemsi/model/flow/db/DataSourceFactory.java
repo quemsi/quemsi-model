@@ -30,7 +30,15 @@ public interface DataSourceFactory {
 	void setUsername(String username);
 	String getPassword();
 	void setPassword(String password);
-	
+	boolean isReadOnly();
+	void setReadOnly(boolean readOnly);
+
+	default void assertWritable() {
+		if (isReadOnly()) {
+			throw Exceptions.badRequest("datasource-read-only").withExtra("name", getName()).get();
+		}
+	}
+
 	DataSource getDataSource();
 	DbModel getDbModel();
 	DDLService ddlService() throws SQLException;

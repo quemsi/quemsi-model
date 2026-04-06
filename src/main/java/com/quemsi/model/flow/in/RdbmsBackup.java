@@ -147,7 +147,8 @@ public class RdbmsBackup implements Source{
                 Request request = new Request();
                 request.setSeqGenerator(new AtomicLong(1));
                 request.setPageNum(0);
-                request.setPageSize(batchSize);
+                int expectedPageSize = dmlService.getTablePageSize(batchSize, table);
+                request.setPageSize(expectedPageSize);   
                 request.setTable(table);
                 TableDataPage dataPage = null;
                 AtomicInteger counter = new AtomicInteger(0);

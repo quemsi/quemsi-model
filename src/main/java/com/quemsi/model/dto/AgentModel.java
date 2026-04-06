@@ -63,6 +63,7 @@ public class AgentModel implements Serializable{
         private String username;
         private String password;
         private boolean useEnvVar;
+        private boolean readOnly;
         private boolean active;
     }
 

@@ -60,6 +60,7 @@ public class RdbmsTarget extends AbstractStorage{
     @Override
     public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
         if(!dataPackages.isEmpty()){
+            datasourceFactory.assertWritable();
             /* Reset global state */
             globalCancellationFlag.set(false);
             firstFailure.set(null);

@@ -88,6 +88,7 @@ WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
 	private String url;
 	private String username;
 	private String password;
+	private boolean readOnly;
 	private DataSource instance;
 
 	@Override

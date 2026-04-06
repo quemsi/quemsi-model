@@ -37,6 +37,7 @@ public class DropTables extends AbstractStep{
 
     @Override
 	public void execute(FlowContext context) {
+		datasource.assertWritable();
 		try (DDLService ddlService = datasource.ddlService()){
             DbModel dbModel = datasource.getDbModel();
 			if(all){

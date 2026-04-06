@@ -39,7 +39,26 @@ public class DMLServicePostgres implements DMLService{
 	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(\"%s\") as max_val FROM %s";
 	private static final String UPDATE_SEQUENCE_SQL = "SELECT setval(?, ?, false)";
 
-    private DataSource dataSource;
+	private static final int maxPages = 10;
+	private static final int maxRowsPerPage = 100000;
+	private DataSource dataSource;
+
+	@Override
+	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
+		int totalRows = 0;
+		try (Connection conn = dataSource.getConnection();
+			 Statement stmt = conn.createStatement();
+			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", table.qualifiedName()))) {
+			if (rs.next()) {
+				totalRows = rs.getInt(1);
+			}
+		} catch (SQLException e) {
+			log.warn("Could not determine row count for {}. Using expectedPageSize {}", table.qualifiedName(), expectedPageSize, e);
+			return expectedPageSize;
+		}
+		int calculatedPageSize = (int) Math.ceil((double) totalRows / maxPages);
+		return Math.min(maxRowsPerPage, Math.max(expectedPageSize, calculatedPageSize));
+	}
 
     @Override
     public TableDataPage getTableDataPage(Request request) {
