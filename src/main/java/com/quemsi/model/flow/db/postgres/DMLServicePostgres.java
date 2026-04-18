@@ -6,6 +6,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
+import com.quemsi.model.flow.in.CustomSerializedColumn;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
 import com.quemsi.model.util.CommonHelpers;
@@ -94,6 +96,19 @@ public class DMLServicePostgres implements DMLService{
 							val = pgClob.toString();
 						} else if (val instanceof PGobject pGobject){
 							val = pGobject.getValue();
+						} else if (!rs.wasNull() && request.getTable().column(columnName).getColumnType().equals("oid")){
+							long oid = rs.getLong(columnName);
+							byte[] data = null;
+							if(!rs.wasNull()){
+								data = getBinaryData(conn, oid);
+							}
+							if(data != null){
+								val = CustomSerializedColumn.BinaryColumn.builder().dbType(request.getTable().column(columnName).getColumnType()).dataId(Long.toString(oid))
+									.data(data)
+									.build();
+							}else{
+								val = null;
+							}
 						}
 						log.trace("{} column {} value {}", request.getTable().getName(), columnName, val);
 						cellValues[columnIndex++] = val;
@@ -134,6 +149,18 @@ public class DMLServicePostgres implements DMLService{
 		}
     }
 
+	private byte[] getBinaryData(Connection conn, Long oid){
+		try(PreparedStatement ps = conn.prepareStatement("SELECT lo_get(" + oid + ")")){
+			ResultSet rs = ps.executeQuery();
+			if(rs.next()){
+				return rs.getBytes(1);
+			}			
+		}catch(Exception e){
+			log.info("unable to get binary data for oid {}", oid, e);
+		}
+		return null;
+	}
+
     @Override
     public int writePageData(DbTable table, DataPage dataPage) {
         try(Connection conn = dataSource.getConnection()){
@@ -142,7 +169,11 @@ public class DMLServicePostgres implements DMLService{
 			int counter = 0;
  			for(String columnName : table.columnNames()){
 				sqlBuilder.append("\"").append(columnName).append("\"");
-				paramsBuilder.append("?");
+				if(table.column(columnName).getColumnType().equals("oid")){
+					paramsBuilder.append("lo_from_bytea(0, ?)");
+				}else{
+					paramsBuilder.append("?");	
+				}
 				counter++;
 				if(counter < table.columnNames().size()){
 					sqlBuilder.append(", ");
@@ -157,15 +188,25 @@ public class DMLServicePostgres implements DMLService{
 			PreparedStatement ps = conn.prepareStatement(insertSql);
 			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
 				for(int i=0; i < orderedColumns.length; i++){
-					if(e.getValue()[i] instanceof List listVal){
+					if(e.getValue()[i] == null){
+						ps.setNull(i + 1, java.sql.Types.NULL);
+					} else if(e.getValue()[i] instanceof List listVal){
 						Array arrVal = conn.createArrayOf("varchar", listVal.toArray());
 						ps.setArray(i + 1, arrVal);
 					} else if(e.getValue()[i] instanceof Map mapVal){
 						if("tsvector".equals(mapVal.get("type"))){
 							ps.setString(i + 1, (String)mapVal.get("value"));
+						} else if("oid".equals(mapVal.get("dbType"))){
+							String encodedData = (String)mapVal.get("data");
+							byte[] binaryData = Base64.getDecoder().decode(encodedData);
+							ps.setBytes(i + 1, binaryData);
+						} else{
+							log.error("type {} is not a valid map type", mapVal.get("type"));
+							throw Exceptions.server("column-type-not-supported").withExtra("table", table.getName()).withExtra("columnIndex", i + 1).withExtra("column", table.column(orderedColumns[i].getName())).withExtra(mapVal).get();
 						}
-					}
-					else{
+					} else if(e.getValue()[i] instanceof CustomSerializedColumn serializedColumn){
+						ps.setBytes(i + 1, serializedColumn.getData());
+					} else{
 						ps.setObject(i + 1, e.getValue()[i], java.sql.Types.OTHER);
 					}
 				}
