@@ -202,7 +202,7 @@ public class DMLServicePostgres implements DMLService{
 							ps.setBytes(i + 1, binaryData);
 						} else{
 							log.error("type {} is not a valid map type", mapVal.get("type"));
-							throw Exceptions.server("column-type-not-supported").withExtra("table", table.getName()).withExtra("columnIndex", i + 1).withExtra("column", table.column(orderedColumns[i].getName())).withExtra(mapVal).get();
+							throw Exceptions.server("column-type-not-supported").withExtra("table", table.getName()).withExtra("columnIndex", i + 1).withExtra("column", table.column(orderedColumns[i].getName())).withExtra("value", mapVal).get();
 						}
 					} else if(e.getValue()[i] instanceof CustomSerializedColumn serializedColumn){
 						ps.setBytes(i + 1, serializedColumn.getData());
