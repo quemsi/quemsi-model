@@ -11,9 +11,11 @@ import java.util.Map;
 import org.apache.commons.io.FileUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 
+import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.LogMessage;
+import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.DataPackageFile;
@@ -70,7 +72,8 @@ public class LStorage extends  AbstractStorage{
 		if(dataPackages.isEmpty()){
 			throw Exceptions.badRequest("datapackages-empty").withExtra("versionId", version).get();
 		}
-		Path dataFolder = Path.of(this.dirPath.toString() ,dataName);
+		String senitized = CommonOps.sanitizePath(this.dirPath.toString());
+		Path dataFolder = Path.of(senitized ,dataName);
 		if(!dataFolder.toFile().exists()){
 			try {
 				context.logStepInfo(context.getCurrentStep(), LogMessage.info("creating folders {}", dataFolder));
@@ -83,7 +86,7 @@ public class LStorage extends  AbstractStorage{
 		context.logStepInfo(context.getCurrentStep(), LogMessage.info("storing {} files", dataPackages.size()));
 		dataPackages.forEach(dp -> {
 			context.logStepInfo(context.getCurrentStep(), LogMessage.debug("storing java.io.File file :{}", dp.getName()));
-			String destPath = dirPath + File.separator + dataName + File.separator + util.versionedFileName(dp.getName(), version);
+			String destPath = senitized + File.separator + dataName + File.separator + util.versionedFileName(dp.getName(), version);
 			context.logStepInfo(context.getCurrentStep(), LogMessage.debug("destination :{}", destPath));
 			localDrive.checkForCapacity(dp.getLength());
 			try {
