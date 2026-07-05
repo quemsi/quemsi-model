@@ -31,6 +31,7 @@ public class Zip extends AbstractStep {
                 archive.putArchiveEntry(new ZipArchiveEntry(dp.getName()));
                 IOUtils.copy(dp.getInputStream(), archive);
                 archive.closeArchiveEntry();
+                context.logStepInfo( context.getCurrentStep(), LogMessage.info("zipped {}", dp.getName()));
             }));
             archive.finish();
             context.logStepInfo( context.getCurrentStep(), LogMessage.info("Zipped {} data packages", context.getDataPackages().size()));

@@ -148,6 +148,7 @@ public class RdbmsBackup implements Source{
                 request.setSeqGenerator(new AtomicLong(1));
                 request.setPageNum(0);
                 int expectedPageSize = dmlService.getTablePageSize(batchSize, table);
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("expected page size for {} is {}", table.getName(), expectedPageSize));
                 request.setPageSize(expectedPageSize);   
                 request.setTable(table);
                 TableDataPage dataPage = null;
@@ -159,6 +160,7 @@ public class RdbmsBackup implements Source{
                     dataPage = dmlService.getTableDataPage(request);
                     counter.incrementAndGet();
                     tableDataPersister.persist(dataPage);
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("page {} are persisted for {}", counter.get(), table.getName()));
                     request = request.toBuilder().pageNum(request.getPageNum() + 1).build();
                 }
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} pages are completed for {}", counter.get(), table.getName()));
