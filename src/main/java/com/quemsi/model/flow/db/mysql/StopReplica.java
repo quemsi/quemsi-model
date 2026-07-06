@@ -24,6 +24,7 @@ public class StopReplica extends AbstractStep{
 	
 	@Override
 	public void execute(FlowContext context) {
+		datasource.assertWritable();
 		if(!context.inError()) {
 			try(Connection conn = datasource.getDataSource().getConnection();
 					PreparedStatement ps = conn.prepareStatement(SQL_STOP_REPLICA);){

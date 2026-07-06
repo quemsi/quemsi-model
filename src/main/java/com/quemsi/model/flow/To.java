@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.flow.out.Storage;
 
@@ -21,8 +22,11 @@ public class To extends AbstractStep {
 	public void execute(FlowContext context) {
 		try {
 			targets.stream().forEach(t -> {
+				context.logStepInfo( context.getCurrentStep(), LogMessage.info("Storing files in {} storage", t.getName()));
 				t.store(context, context.getFlow().getData().getName(), context.getDataPackages(), context.executionVersion());
+				context.logStepInfo( context.getCurrentStep(), LogMessage.info("Stored files in {} storage", t.getName()));
 				if(t.recordFiles()){
+					context.logStepInfo( context.getCurrentStep(), LogMessage.info("Recording files in {} storage", t.getName()));
 					context.getExecution().getVersion().setFiles(context.getDataPackages().stream().map(dp -> {
 						DataFile df = new DataFile();
 						df.setActive(true);
@@ -33,10 +37,13 @@ public class To extends AbstractStep {
 						df.addStorage(t.getName());
 						return df;
 					}).toList());
+					context.logStepInfo( context.getCurrentStep(), LogMessage.info("Recorded files in {} storage", t.getName()));
 				}
 			});
 			if(context.isDeleteAfterwards()) {
+				context.logStepInfo( context.getCurrentStep(), LogMessage.info("Clearing data packages"));
 				context.getDataPackages().stream().forEach(dp-> dp.clear());
+				context.logStepInfo( context.getCurrentStep(), LogMessage.info("Cleared data packages"));
 			}
 		}catch(Exception e) {
 			throw Exceptions.server("error-storing-file").withCause(e).get();

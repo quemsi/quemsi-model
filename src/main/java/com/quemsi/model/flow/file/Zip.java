@@ -14,6 +14,7 @@ import org.apache.commons.io.IOUtils;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.FileResource;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.DataPackageFileResource;
 import com.quemsi.model.flow.FlowContext;
@@ -25,15 +26,18 @@ public class Zip extends AbstractStep {
             ZipArchiveOutputStream archive = new ZipArchiveOutputStream(output);) {
             archive.setMethod(ZipEntry.DEFLATED);
             archive.setLevel(Deflater.BEST_COMPRESSION);
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Zipping {} data packages", context.getDataPackages().size()));
             context.getDataPackages().forEach(Exceptions.wrapConsumer(dp -> {
                 archive.putArchiveEntry(new ZipArchiveEntry(dp.getName()));
                 IOUtils.copy(dp.getInputStream(), archive);
                 archive.closeArchiveEntry();
+                context.logStepInfo( context.getCurrentStep(), LogMessage.info("zipped {}", dp.getName()));
             }));
             archive.finish();
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Zipped {} data packages", context.getDataPackages().size()));
             
             String fileName = context.getFlow().getData().getName() + ".zip";
-
+            context.logStepInfo( context.getCurrentStep(), LogMessage.info("Zipped data package to {}", fileName));
             FileResource fileResource = new FileResource(null, fileName, fileName, "application/zip", false, output.size(), output.toByteArray());
             context.setDataPackages(List.of(new DataPackageFileResource(fileName, fileResource)));
         } catch(BaseRuntimeException bre) {

@@ -22,6 +22,8 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
@@ -41,7 +43,7 @@ public class DatasourceFactorySqlserver implements DataSourceFactory{
 	protected static final String SQL_FOR_TABLES = """
 select SCHEMA_NAME(t.schema_id) as schema_name, t.name as table_name
 from sys.tables t
-where SCHEMA_NAME(t.schema_id) = ?
+where SCHEMA_NAME(t.schema_id) in {inValues}
 ;
 			""";
 
@@ -57,7 +59,7 @@ from sys.columns c
 	inner JOIN sys.tables t ON c.object_id = t.object_id
 	inner join sys.types st on c.system_type_id = st.system_type_id
 	inner join sys.types ut on c.user_type_id = ut.user_type_id 
-where schema_name(t.schema_id) = ? and t.[type] = 'U'
+where schema_name(t.schema_id) in {inValues} and t.[type] = 'U'
 	and st.user_type_id = (select min(itq.user_type_id) from sys.types itq where itq.system_type_id  = st.system_type_id)
 order by t.schema_id, t.name, c.column_id
 ;
@@ -84,8 +86,15 @@ select * from (
 	            AND FKC.referenced_column_id=oReferenceCol.column_id
 	    INNER JOIN sys.tables t ON oParentCol.object_id = t.object_id
 	    INNER JOIN sys.tables tRef ON oReferenceCol.object_id = tRef.object_id
+	UNION
+	SELECT kcu.table_schema, kcu.table_name, kcu.constraint_name, 'u' as con_type, kcu.column_name, kcu.ordinal_position,
+		null as REFERENCED_SCHEMA_NAME, null as REFERENCED_TABLE_NAME, null as REFERENCED_COLUMN_NAME
+	FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE kcu
+	INNER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc ON kcu.constraint_name = tc.constraint_name 
+		AND kcu.table_schema = tc.table_schema AND kcu.table_name = tc.table_name
+	WHERE tc.constraint_type = 'UNIQUE'
 ) cons
-where cons.table_schema = ?
+where cons.table_schema in {inValues}
 order by cons.table_schema, cons.table_name, cons.ordinal_position 
 ;
 			""";
@@ -103,7 +112,7 @@ FROM sys.indexes ind
 INNER JOIN sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id 
 INNER JOIN sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id 
 INNER JOIN sys.tables t ON ind.object_id = t.object_id 
-WHERE ind.is_primary_key = 0 AND t.is_ms_shipped = 0 and schema_name(t.schema_id ) = ?
+WHERE ind.is_primary_key = 0 AND t.is_ms_shipped = 0 and schema_name(t.schema_id ) in {inValues}
 ORDER BY t.schema_id, t.name, ind.name, ic.is_included_column, ic.key_ordinal
 ;
             """;
@@ -111,9 +120,32 @@ ORDER BY t.schema_id, t.name, ind.name, ic.is_included_column, ic.key_ordinal
 select schema_name(s.schema_id) as schema_name, s.name as sequence_name, s.start_value, s.minimum_value as min_value, s.maximum_value as max_value,
 	s.increment as increment_by, s.is_cycling as cycle, s.cache_size, s.last_used_value as last_value 
 from sys.sequences s
-where schema_name(s.schema_id) = ?
+where schema_name(s.schema_id) in {inValues}
 ;
 			""";
+
+	private static final String SQL_FOR_CHECK_CONSTRAINTS = """
+select 
+	SCHEMA_NAME(t.schema_id) as table_schema,
+	t.name as table_name,
+	cc.name as constraint_name,
+	OBJECT_DEFINITION(cc.object_id) as condef
+from sys.check_constraints cc
+inner join sys.tables t on cc.parent_object_id = t.object_id
+where SCHEMA_NAME(t.schema_id) in {inValues}
+;
+			""";
+
+	private static final String SQL_FOR_DEFAULT_CONSTRAINTS = """
+select schema_name(t.schema_id) as schema_name, t.name as table_name, ac.name as column_name, 
+	dc.name as constraint_name, dc.definition
+from sys.default_constraints dc 
+	inner join sys.all_columns ac ON ac.default_object_id = dc.object_id
+	inner join sys.tables t ON ac.object_id = t.object_id
+where schema_name(t.schema_id) in {inValues}
+;
+			""";
+
 	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
 
 	private String name;
@@ -121,7 +153,8 @@ where schema_name(s.schema_id) = ?
 	private String url;
 	private String username;
 	private String password;
-	private String schema;
+	private boolean readOnly;
+	private Set<String> schemas;
 	private HikariDataSource instance;
 	private ReentrantLock globalLock;
 	
@@ -168,16 +201,18 @@ where schema_name(s.schema_id) = ?
 	@Override
     public DbModel getDbModel() {
         DbModel dbModel = new DbModel();
-		dbModel.setSchema(getSchema());
+		dbModel.setSchemas(getSchemas());
 		dbModel.setSourceType(DatasourceType.SQLSERVER.name());
 		try(
 			Connection con = getDataSource().getConnection();
-			PreparedStatement ps = con.prepareStatement(SQL_FOR_COLUMNS);
-			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
-			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES);
-			PreparedStatement sst = con.prepareStatement(SQL_FOR_SEQUENCES);
+			PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, schemas.size()));
+			PreparedStatement cps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CONSTRAINTS, schemas.size()));
+			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, schemas.size()));
+			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, schemas.size()));
+			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
+			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DEFAULT_CONSTRAINTS, schemas.size()));
 		){
-			ps.setString(1, schema);
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
 			RsHelper rsHelper = new RsHelper(rs);
 			while(rs.next()){
@@ -198,9 +233,23 @@ where schema_name(s.schema_id) = ?
 
 				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 			}
-			cps.setString(1, schema);
+
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
+			ResultSet dcrs = dcps.executeQuery();
+			while(dcrs.next()){
+				String schemaName = dcrs.getString("SCHEMA_NAME");
+				String tableName = dcrs.getString("TABLE_NAME");
+				String columnName = dcrs.getString("COLUMN_NAME");
+				String constraintName = dcrs.getString("CONSTRAINT_NAME");
+				DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
+				DbColumn column = table.findColumn(columnName).orElseThrow(Exceptions.server("unknow-column").withExtra("schemaName", schemaName).withExtra("tableName", tableName).withExtra("columnName", columnName).supplier());
+				column.setDefaultConstraintName(constraintName);
+			}
+
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
+			Map<String, ContraintInfo> contraintInfos = new HashMap<>();
 			while(crs.next()){
 				String schemaName = crs.getString("TABLE_SCHEMA");
 				String tableName = crs.getString("TABLE_NAME");
@@ -226,10 +275,19 @@ where schema_name(s.schema_id) = ?
 						refInfo.getSrcColumnNames().add(columnName);
 						refInfo.getRefColumnNames().add(refColumnName);	
 					}
+				} else if("u".equals(conType)){
+					ContraintInfo contraintInfo = contraintInfos.get(constraintName);
+					if(contraintInfo == null){
+						contraintInfo = ContraintInfo.builder().constraintName(constraintName).schema(schemaName).tableName(tableName).columnName(columnName).build();
+						contraintInfos.put(constraintName, contraintInfo);
+					}else{
+						contraintInfo.getColumnNames().add(columnName);
+					}
 				}
 			}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
-			ist.setString(1, schema);
+			dbModel.getContraintInfos().addAll(contraintInfos.values());
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ist.setString(i, schema)));
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
 			while (irs.next()) {
@@ -256,7 +314,7 @@ where schema_name(s.schema_id) = ?
 			if(cur != null){
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
-			sst.setString(1, dbModel.getSchema());
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
 			ResultSet srs = sst.executeQuery();
 			rsHelper = new RsHelper(srs);
 			while (srs.next()) {
@@ -275,6 +333,21 @@ where schema_name(s.schema_id) = ?
 					.build()
 				;
 				dbModel.getSequences().add(seq);
+			}
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ckps.setString(i, schema)));
+			ResultSet ckrs = ckps.executeQuery();
+			while (ckrs.next()) {
+				String schemaName = ckrs.getString("TABLE_SCHEMA");
+				String tableName = ckrs.getString("TABLE_NAME");
+				String constraintName = ckrs.getString("CONSTRAINT_NAME");
+				String condef = ckrs.getString("CONDEF");
+				CheckConstraint checkConstraint = CheckConstraint.builder()
+					.schema(schemaName)
+					.tableName(tableName)
+					.constraintName(constraintName)
+					.condef(condef)
+					.build();
+				dbModel.getCheckConstraints().add(checkConstraint);
 			}
 			dbModel.build();
 		}catch(Exception e){

@@ -12,6 +12,9 @@ import lombok.NoArgsConstructor;
 @Data
 public class TableData {
     private String tableName;
+    private Integer pageSize;
+    private Integer totalPages;
+    private Integer totalRecords;
     private List<DataPage> dataPages = new CopyOnWriteArrayList<>();
     
     public TableData(String tableName){
@@ -23,6 +26,9 @@ public class TableData {
     @Data
     public static class DataPage {
         private int pageNum;
-        private Map<Object, Object[]> data;    
+        private Map<Object, Object[]> data;
+        public int getSize(){
+            return data == null ? 0 : data.size();
+        }
     }
 }

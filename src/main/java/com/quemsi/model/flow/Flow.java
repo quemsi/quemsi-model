@@ -12,6 +12,7 @@ import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.DateUtils;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.api.ApiClient;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DataGroup;
@@ -22,6 +23,7 @@ import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.dto.NamedEntityReference;
 import com.quemsi.model.dto.Tag;
+import com.quemsi.model.exception.FlowExecutionAbortedException;
 
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -40,10 +42,15 @@ public class Flow {
 	private boolean back;
 	private DataGroup data;
 	private String timerName;
+	/** From flow definition JSON; merged with timer tags when scheduled. */
+	private Map<String, String> defaultExecutionTags;
 	private List<Step> steps;
 	
 	@JsonIgnore
 	protected ReentrantLock lock = new ReentrantLock();
+	
+	@JsonIgnore
+	private FlowContext.LogWriter logWriter;
 	
 	public void initialize() {
 		steps.forEach(s -> s.init(this));
@@ -85,36 +92,47 @@ public class Flow {
 					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
 				}
 				apiClient.saveFlowExecution(execution);
+				fc.logInfo("flow execution started");
 				if(!this.isReady()) {
-					log.info("{} flow initialization is not completed yet", this.getName());
 					fc.logError("failed-to-execute-flow", Exceptions.server("flow initialization is not completed yet").get());
 					fc.getExecution().setStatus(FlowExecutionStatus.SKIPPED);
+					fc.logWarn("flow execution skipped");
 				} else {
 					try {
 						for(Step s : steps) {
 							FlowExecutionStep fes = null;
 							try {
 								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd() , LocalDateTime.now());
+								fc.setCurrentStep(fes);
+								fc.logStepInfo(fes, LogMessage.info("step started"));
 								s.execute(fc);
+								fc.logStepInfo(fes, LogMessage.info("step finished"));
 								sendStepFinished(fes, FlowExecutionStatus.SUCCESS);
 							}catch(Exception bre) {
-								fc.logError(fes, "error in step", bre);
+								fc.logStepError(fes, "step failed", bre);
 								sendStepFinished(fes, FlowExecutionStatus.FAILED);
-								throw bre;
+								throw new FlowExecutionAbortedException("step failed", bre);
 							}
 						}
 						fc.getExecution().setStatus(FlowExecutionStatus.SUCCESS);
+						fc.logInfo("flow execution succeeded");
+					}
+					catch(FlowExecutionAbortedException bre) {
+						fc.getExecution().setStatus(FlowExecutionStatus.FAILED);
 					}catch(BaseRuntimeException bre) {
 						fc.logError("execution error", bre);
+						fc.logError("flow execution failed");
 					}catch(Exception e) {
-						fc.logError("general error", e);
+						fc.logError("general error", e);	
+						fc.logError("flow execution failed");
 					}
 				}
 				fc.getExecution().setFinishedAt(LocalDateTime.now());
 				fc.getExecution().setVersion(fc.getDataVersion());
+				fc.logInfo("flow execution finished");
 				return fc.getExecution();
 			}else {
-				log.info("{} flow is already running", this.getName());
+				fc.logWarn("flow is already running");
 				return null;
 			}
 		}finally{
@@ -132,6 +150,9 @@ public class Flow {
 		FlowContext fc = new FlowContext(this, executionId);
 		fc.setTags(tags);
 		fc.setDataVersion(DataVersion.builder().id(versionId).files(files).data(NamedEntityReference.builder().id(data.getId()).name(data.getName()).build()).build());
+		if (logWriter != null) {
+			fc.setLogWriter(logWriter);
+		}
 		return execute(fc);
 	}
 

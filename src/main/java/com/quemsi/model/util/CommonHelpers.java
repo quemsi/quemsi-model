@@ -1,5 +1,10 @@
 package com.quemsi.model.util;
 
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BiConsumer;
+
 import com.quemsi.commons.util.StringUtils;
 
 public class CommonHelpers {
@@ -10,5 +15,30 @@ public class CommonHelpers {
         }
         sb.append(name);
         return sb.toString();
+    }
+    public static String dataFileName(String qualifiedName){
+        return "data-" + qualifiedName + ".json";
+    }
+
+    public static boolean isEmptyOrNull(List<String> list){
+        return list == null || list.isEmpty();
+    }
+
+    public static String addInParameter(String sql, int count){
+        StringBuilder sb = new StringBuilder("(");
+        for(int i = 0; i < count; i++){
+            sb.append("?");
+            if(i < count - 1){
+                sb.append(", ");
+            }
+        }
+        sb.append(")");
+        String processed = sql.replace("{inValues}", sb.toString());
+        return processed;
+    }
+    public static int consumeIndexed(Set<String> values, int startIndex, BiConsumer<Integer, String> consumer){
+        AtomicInteger i = new AtomicInteger(startIndex);
+        values.forEach(value -> consumer.accept(i.getAndIncrement(), value));
+        return i.get();
     }
 }

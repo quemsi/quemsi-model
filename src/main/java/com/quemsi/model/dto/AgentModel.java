@@ -2,6 +2,7 @@ package com.quemsi.model.dto;
 
 import java.io.Serializable;
 import java.util.List;
+import java.util.Set;
 
 import lombok.Data;
 
@@ -57,11 +58,12 @@ public class AgentModel implements Serializable{
         private DatasourceType type;
         private String name;
         private String dbName;
-        private String schema;
+        private Set<String> schemas;
         private String url;
         private String username;
         private String password;
         private boolean useEnvVar;
+        private boolean readOnly;
         private boolean active;
     }
 

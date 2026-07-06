@@ -3,13 +3,17 @@ package com.quemsi.model.flow.db.sqlserver;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -21,6 +25,7 @@ import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,14 +41,36 @@ select * from (
             """;;
 	private static final String SET_INSERT_IDENTITY_ON = "SET IDENTITY_INSERT %s ON;";
 	private static final String SET_INSERT_IDENTITY_OFF = "SET IDENTITY_INSERT %s OFF;";
-	
-    private DataSource dataSource;
+	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX([%s]) as max_val FROM %s";
+	private static final String UPDATE_SEQUENCE_SQL = "ALTER SEQUENCE %s RESTART WITH %d";
+
+	private static final int maxPages = 10;
+	private static final int maxRowsPerPage = 100000;
+	private DataSource dataSource;
 	private ReentrantLock globalLock;
+
+	@Override
+	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
+		int totalRows = 0;
+		try (Connection conn = dataSource.getConnection();
+			 Statement stmt = conn.createStatement();
+			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", table.qualifiedName()))) {
+			if (rs.next()) {
+				totalRows = rs.getInt(1);
+			}
+		} catch (SQLException e) {
+			log.warn("Could not determine row count for {}. Using expectedPageSize {}", table.qualifiedName(), expectedPageSize, e);
+			return expectedPageSize;
+		}
+		int calculatedPageSize = (int) Math.ceil((double) totalRows / maxPages);
+		return Math.min(maxRowsPerPage, Math.max(expectedPageSize, calculatedPageSize));
+	}
 
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().joinedPkColumnNames(), request.getTable().qualifiedName());
+			String sortColumnNames = !CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames()) ?request.getTable().getPkColumnNames().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", ")) : request.getTable().getColumns().keySet().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", "));
+			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, sortColumnNames, request.getTable().qualifiedName());
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageNum() * request.getPageSize());
@@ -52,24 +79,34 @@ select * from (
 			
 			TableDataPage page = new TableDataPage();
 			page.setRequest(request);
-			
+			String pkNames = request.getTable().joinedPkColumnNames();
+			List<String> pkColumnNames = request.getTable().getPkColumnNames();
+			List<String> allColumnNames = new ArrayList<>(request.getTable().columnNames());
+			int numberOfColumns = allColumnNames.size();
+			if(CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())){
+				pkNames = "[RowNum]";
+				pkColumnNames = List.of("RowNum");
+				allColumnNames.add("RowNum");
+				numberOfColumns++;
+			}
+
 			Map<Object, Object[]> tableData = new HashMap<>();
 			ResultSet rs = ps.executeQuery();
 			while(rs.next()){
-				Object[] cellValues = new Object[request.getTable().getColumns().size()];
+				Object[] cellValues = new Object[numberOfColumns];
 				int columnIndex = 0;
 				Object pk = null;
 				StringBuilder pkBuilder = new StringBuilder();
 				Map<String, Object> pkVals = new HashMap<>();
-				log.trace("{} pk {} for row {}", request.getTable().getName(), request.getTable().joinedPkColumnNames(), pk);
-				for(String columnName : request.getTable().columnNames()){
-					if(!request.getTable().getPkColumnNames().contains(columnName)){
+				log.trace("{} pk {} for row {}", request.getTable().getName(), pkNames, pk);
+				for(String columnName : allColumnNames){
+					if(!pkColumnNames.contains(columnName)){
 						Object val = rs.getObject(columnName);
 						log.trace("{} column {} value {}", request.getTable().getName(), columnName, val);
 						cellValues[columnIndex++] = val;
 					}else{
-						if(request.getTable().getPkColumnNames().size() == 1){
-							String pkName = request.getTable().getPkColumnNames().iterator().next();
+						if(pkColumnNames.size() == 1){
+							String pkName = pkColumnNames.iterator().next();
 							pk = rs.getObject(pkName);
 							cellValues[columnIndex++] = pk;
 						}else{
@@ -83,9 +120,9 @@ select * from (
 						}
 					}
 				}
-				if(request.getTable().getPkColumnNames().size() > 1){
+				if(pk == null){
 					pk = pkBuilder.toString();
-				}
+				}				
 				tableData.put(pk, cellValues);
 			}
 			page.setTableData(tableData);
@@ -113,7 +150,7 @@ select * from (
 			StringBuilder paramsBuilder = new StringBuilder("(");
 			int counter = 0;
  			for(String columnName : table.columnNames()){
-				sqlBuilder.append(escape(columnName));
+				sqlBuilder.append("[").append(escape(columnName)).append("]");
 				paramsBuilder.append("?");
 				counter++;
 				if(counter < table.columnNames().size()){
@@ -178,6 +215,37 @@ select * from (
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
 	}
+
+	@Override
+	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
+        String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);
+        try (Connection conn = dataSource.getConnection();
+			Statement stmt = conn.createStatement();) {
+            ResultSet rs = stmt.executeQuery(sql);
+            if (rs.next()) {
+                Object maxVal = rs.getObject("max_val");
+                if (maxVal != null) {
+                    if (maxVal instanceof Number) {
+                        return ((Number) maxVal).longValue();
+                    }
+                }
+            }
+			rs.close();
+        } catch (Exception e) {
+            log.warn("Error getting max value for column {} in table {}", columnName, qualifiedTableName, e);
+        }
+        return null;
+    }
+
+	@Override
+    public void updateSequence(String qualifiedSequenceName, Long newValue) {
+		try (Connection conn = dataSource.getConnection();
+			PreparedStatement ps = conn.prepareStatement(String.format(UPDATE_SEQUENCE_SQL, qualifiedSequenceName, newValue))) {
+			ps.executeUpdate();
+		} catch (SQLException e) {
+			log.warn("Error updating sequence {} to value {}", qualifiedSequenceName, newValue, e);
+		}
+    }
 
     @Override
     public void close() throws Exception {

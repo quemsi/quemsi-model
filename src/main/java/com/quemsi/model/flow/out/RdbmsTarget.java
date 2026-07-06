@@ -19,6 +19,7 @@ import org.apache.commons.io.IOUtils;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DataFile;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.DataPackage;
@@ -30,14 +31,13 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData;
+import com.quemsi.model.util.CommonConstants;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class RdbmsTarget extends AbstractStorage{
-    public static final String DB_MODEL_FILE_NAME = "db-model.json";
     @Setter
     private DataSourceFactory datasourceFactory;
     @Setter
@@ -60,24 +60,25 @@ public class RdbmsTarget extends AbstractStorage{
     @Override
     public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
         if(!dataPackages.isEmpty()){
+            datasourceFactory.assertWritable();
             /* Reset global state */
             globalCancellationFlag.set(false);
             firstFailure.set(null);
             taskRegistry.clear();
             
             Map<String, DataPackage> namedPackages = dataPackages.stream().collect(Collectors.toMap(dp -> dp.getName(), dp -> dp));
-            if(!namedPackages.containsKey(DB_MODEL_FILE_NAME)){
+            if(!namedPackages.containsKey(CommonConstants.DB_MODEL_FILE_NAME)){
                 throw Exceptions.notFound("unable-to-find-db-model").get();
             }
-            if(!"application/json".equals(namedPackages.get(DB_MODEL_FILE_NAME).getContentType())){
-                throw Exceptions.badRequest("unsupported-content-type-for-db-model").withExtra("contentType", namedPackages.get(DB_MODEL_FILE_NAME).getContentType())
+            if(!"application/json".equals(namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME).getContentType())){
+                throw Exceptions.badRequest("unsupported-content-type-for-db-model").withExtra("contentType", namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME).getContentType())
                     .withExtra("supported", "application/json").get();
             }
             try(
                 ForkJoinPool pool = new ForkJoinPool(parallelism);
                 DDLService ddlService = datasourceFactory.ddlService();
                 ){
-                String dbModelJsonStr = IOUtils.toString(namedPackages.get(DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
+                String dbModelJsonStr = IOUtils.toString(namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME).getInputStream(), Charset.forName("UTF-8"));
                 DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
                 
                 if(!datasourceFactory.type().equals(DatasourceType.valueOf(dbModel.getSourceType()))){
@@ -89,7 +90,7 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.createTables(dbModel);
 
                 ddlService.disableConstraints(dbModel.getCircularIgnore());
-                List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool))
+                List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool, context))
                     .map(t -> {
                         taskRegistry.put(t.getTable().qualifiedName(), new CompletableFuture<>());
                         ForkJoinTask<Boolean> task = pool.submit(t);
@@ -99,14 +100,14 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.enableContraints(dbModel.getCircularIgnore());
 
                 if(result){
-                    log.info("all data is restored successfully");
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("all data is restored successfully"));
                 } else {
                     Exception failure = firstFailure.get();
                     String errorMessage = failure != null ? 
                         "Restore failed due to: " + failure.getMessage() : 
-                        "Restore failed - one or more tasks failed";
-                    log.error(errorMessage);
-                    throw Exceptions.server("restore-failed").withCause(failure).get();
+                        "Restore failed - one or more restore table tasks failed";
+                    context.logStepError(context.getCurrentStep(), errorMessage);
+                    throw Exceptions.server("restore-failed").withExtra("errorMessage", errorMessage).withCause(failure).get();
                 }
             } catch(IOException e){
                 throw Exceptions.server("io-exception-in-rdbms-restore").withCause(e).get();
@@ -144,32 +145,34 @@ public class RdbmsTarget extends AbstractStorage{
         private DbTable table;
         private Map<String, DataPackage> namedPackages;
         private ForkJoinPool forkJoinPool;
+        private FlowContext context;
 
-        public RdmsRestoreTask(DbTable table, Map<String, DataPackage> namedPackages, ForkJoinPool forkJoinPool){
+        public RdmsRestoreTask(DbTable table, Map<String, DataPackage> namedPackages, ForkJoinPool forkJoinPool, FlowContext context){
             this.table = table;
             this.namedPackages = namedPackages;
             this.forkJoinPool = forkJoinPool;
+            this.context = context;
         }
 
         @Override
         public Boolean call() throws Exception {
             try{
                 CompletableFuture<Object> future = taskRegistry.get(table.qualifiedName());
-                log.info("{} will wait for [{}] {}", table.qualifiedName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.refQualifiedName()).toList());
-                String fileName = "data-" + table.getName() + ".json";
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} will wait for [{}] {}", table.qualifiedName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.refQualifiedName()).toList()));
+                String fileName = CommonHelpers.dataFileName(table.qualifiedName());
                 if(!namedPackages.containsKey(fileName)){
-                    log.error("unable to find data file {}", fileName);
+                    context.logStepError(context.getCurrentStep(), "unable to find data file " + fileName);
                     return false;
                 }
                 
                 /* Wait for dependencies with timeout and cancellation support */
                 for(var tr : table.getReferences().stream().filter(r -> !table.qualifiedName().equals(r.refQualifiedName())).toList()) {
-                    log.info("{} waiting for {}", table.qualifiedName(), tr.refQualifiedName());
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} waiting for {}", table.qualifiedName(), tr.refQualifiedName()));
                     boolean dependency = false;
                     while(!dependency){
                         try{
                             dependency = (Boolean) taskRegistry.get(tr.refQualifiedName()).get(1, TimeUnit.SECONDS);
-                            log.info("future of {} completed for {} result {}", tr.refQualifiedName(), table.qualifiedName(), dependency);
+                            context.logStepInfo(context.getCurrentStep(), LogMessage.info("future of {} completed for {} result {}", tr.refQualifiedName(), table.qualifiedName(), dependency));
                             if(!dependency || globalCancellationFlag.get()){
                                 return false;
                             }
@@ -180,19 +183,19 @@ public class RdbmsTarget extends AbstractStorage{
                         }
                     }
                 }
-                log.info("all dependencies are processed for {}", table.getName());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("all dependencies are processed for {}", table.getName()));
                 
                 String tableDataStr = IOUtils.toString(namedPackages.get(fileName).getInputStream(), Charset.forName("UTF-8"));
                 TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
-                log.info("{} pages for {}", tableData.getDataPages().size(), tableData.getTableName());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("there are{} pages for {}", tableData.getDataPages().size(), tableData.getTableName()));
                 
-                List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage))
+                List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage, context))
                     .map(t -> forkJoinPool.submit(t)).toList();
                 boolean allSucceded = pageTaskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (b, n) -> b && n);
                 future.complete(allSucceded);
                 return allSucceded;
             }catch(Exception e){
-                log.error("failed to process " + table.getName(), e);
+                context.logStepError(context.getCurrentStep(), "failed to process " + table.getName(), e);
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
             }
@@ -204,29 +207,33 @@ public class RdbmsTarget extends AbstractStorage{
         private DbTable table;
         @Getter
         private TableData.DataPage dataPage;
+        private FlowContext context;
         
-        public PageRestoreTask(DbTable table, TableData.DataPage dataPage){
+        public PageRestoreTask(DbTable table, TableData.DataPage dataPage, FlowContext context){
             this.table = table;
             this.dataPage = dataPage;
+            this.context = context;
         }
 
         @Override
         public Boolean call() throws Exception {
             /* Check for global cancellation before starting */
             if (globalCancellationFlag.get()) {
-                log.info("Page restore task for table {} cancelled before execution", table.getName());
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("Page restore task for table {} cancelled before execution", table.getName()));
                 return false;
             }
             
             try(DMLService dmlService = datasourceFactory.dmlService()){
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restoring page {} for {}", dataPage.getPageNum(), table.getName()));
                 dmlService.writePageData(table, dataPage);
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restored page {} for {}", dataPage.getPageNum(), table.getName()));
                 /* Check for global cancellation after processing */
                 if (globalCancellationFlag.get()) {
-                    log.info("Page restore task for table {} cancelled after processing", table.getName());
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("Page restore task for table {} cancelled after processing", table.getName()));
                     return false;
                 }
             } catch(Exception e) {
-                log.error("Failed to restore page for table {}: {}", table.getName(), e.getMessage(), e);
+                context.logStepError(context.getCurrentStep(), "Failed to restore page for table " + table.getName() + ": " + e.getMessage(), e);
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
                 return false;

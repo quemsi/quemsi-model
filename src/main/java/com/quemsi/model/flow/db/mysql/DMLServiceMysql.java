@@ -3,9 +3,11 @@ package com.quemsi.model.flow.db.mysql;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
@@ -17,6 +19,7 @@ import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,12 +28,34 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 public class DMLServiceMysql implements DMLService{
     private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ?, ?";
+	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(`%s`) as max_val FROM %s";
+	
+	private static final int maxPages = 10;
+	private static final int maxRowsPerPage = 100000;
 	private DataSource dataSource;
+
+	@Override
+	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
+		int totalRows = 0;
+		try (Connection conn = dataSource.getConnection();
+			 Statement stmt = conn.createStatement();
+			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", table.qualifiedName()))) {
+			if (rs.next()) {
+				totalRows = rs.getInt(1);
+			}
+		} catch (SQLException e) {
+			log.warn("Could not determine row count for {}. Using expectedPageSize {}", table.qualifiedName(), expectedPageSize, e);
+			return expectedPageSize;
+		}
+		int calculatedPageSize = (int) Math.ceil((double) totalRows / maxPages);
+		return Math.min(maxRowsPerPage, Math.max(expectedPageSize, calculatedPageSize));
+	}
 
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), request.getTable().joinedPkColumnNames());
+			String sortColumnNames = !CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames()) ? request.getTable().getPkColumnNames().stream().map(c -> "`" + c + "`").collect(Collectors.joining(", ")) : request.getTable().getColumns().keySet().stream().map(c -> "`" + c + "`").collect(Collectors.joining(", "));
+			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), sortColumnNames);
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageNum() * request.getPageSize());
@@ -48,6 +73,9 @@ public class DMLServiceMysql implements DMLService{
 				StringBuilder pkBuilder = new StringBuilder();
 				Map<String, Object> pkVals = new HashMap<>();
 				log.trace("{} pk {} for row {}", request.getTable().getName(), request.getTable().joinedPkColumnNames(), pk);
+				if(CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())){
+					pk = request.getSeqGenerator().getAndIncrement();
+				}
 				for(String columnName : request.getTable().columnNames()){
 					if(!request.getTable().getPkColumnNames().contains(columnName)){
 						Object val = rs.getObject(columnName);
@@ -91,7 +119,7 @@ public class DMLServiceMysql implements DMLService{
 			StringBuilder paramsBuilder = new StringBuilder("(");
 			int counter = 0;
  			for(String columnName : table.columnNames()){
-				sqlBuilder.append(columnName);
+				sqlBuilder.append("`").append(columnName).append("`");
 				paramsBuilder.append("?");
 				counter++;
 				if(counter < table.columnNames().size()){
@@ -135,7 +163,28 @@ public class DMLServiceMysql implements DMLService{
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
 	}
-
+	@Override
+	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
+		String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);
+        try (Statement stmt = dataSource.getConnection().createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            if (rs.next()) {
+                Object maxVal = rs.getObject("max_val");
+                if (maxVal != null) {
+                    if (maxVal instanceof Number) {
+                        return ((Number) maxVal).longValue();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Error getting max value for column {} in table {}", columnName, qualifiedTableName, e);
+        }
+        return null;
+	}
+	@Override
+	public void updateSequence(String qualifiedSequenceName, Long newValue) {
+		throw Exceptions.server("not-supported-implemented").get();
+	}
     @Override
     public void close() throws Exception {
         

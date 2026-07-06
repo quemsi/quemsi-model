@@ -1,6 +1,7 @@
 package com.quemsi.model.flow.in;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicLong;
 
 import com.quemsi.model.flow.db.sql.DbTable;
 
@@ -20,6 +21,7 @@ public class TableDataPage {
     @Builder(toBuilder = true)
     @Data
     public static class Request{
+        private AtomicLong seqGenerator;
         public int pageNum;
         private DbTable table;
         private int pageSize;

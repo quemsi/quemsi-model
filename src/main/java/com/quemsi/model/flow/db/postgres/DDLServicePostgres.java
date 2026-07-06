@@ -5,10 +5,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -16,10 +18,24 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbIndexDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbModelDiff;
+import com.quemsi.model.flow.db.sql.diff.DbModelDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbSequenceDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbTableDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DiffEntityType;
+import com.quemsi.model.flow.db.sql.diff.DiffOpType;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -47,6 +63,20 @@ public class DDLServicePostgres implements DDLService{
     }
 
     @Override
+    public boolean dropSequences(String... sequenceNames) {
+        try{
+            Statement s = conn.createStatement();
+            for(String sequenceName : sequenceNames){
+                s.addBatch("DROP SEQUENCE IF EXISTS " + sequenceName + ";");
+            }
+            s.executeBatch();
+            return true;
+        }catch(Exception e){
+            e.printStackTrace();
+            throw Exceptions.server("failed-to-clear-sequences").withCause(e).get();
+        }
+    }
+    @Override
     public void disableConstraints(Set<ReferenceInfo> constraints) {
         for(ReferenceInfo refInfo : constraints) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ");
@@ -73,7 +103,7 @@ public class DDLServicePostgres implements DDLService{
             Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("\"").append(cName).append("\"");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -82,7 +112,7 @@ public class DDLServicePostgres implements DDLService{
             cIt = refInfo.getRefColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append(cName);
+                sb.append("\"").append(cName).append("\"");
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -98,9 +128,11 @@ public class DDLServicePostgres implements DDLService{
             }
         }
     }
-    private String columnType(String type, Integer maxLength){
-        if("varchar".equals(type) && maxLength != null){
+    private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
+        if(Set.of("varchar", "bpchar", "character varying", "character", "char").contains(type) && maxLength != null){
             return new StringBuffer(type).append("(").append(maxLength).append(")").toString();
+        } else if(Set.of("numeric", "decimal", "real", "double precision").contains(type) && precision != null && scale != null){
+            return new StringBuffer(type).append("(").append(precision).append(",").append(scale).append(")").toString();
         }
         return type;
     }
@@ -108,7 +140,7 @@ public class DDLServicePostgres implements DDLService{
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
         for(DbSequence seq : dbModel.getSequences()){
-            StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(seq.getName());
+            StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(CommonHelpers.qualifiedName(seq.getSchema(), seq.getName()));
             if(seq.getIncrementBy() != null){
                 seqStringBuilder.append(" INCREMENT BY ").append(seq.getIncrementBy());
             }
@@ -122,7 +154,9 @@ public class DDLServicePostgres implements DDLService{
             }else{
                 seqStringBuilder.append(" NO MAXVALUE ");
             }
-            if(seq.getStartValue() != null){
+            if(seq.getLastValue() != null){
+                seqStringBuilder.append(" START WITH ").append(seq.getLastValue());
+            }else if(seq.getStartValue() != null){
                 seqStringBuilder.append(" START WITH ").append(seq.getStartValue());
             }
             if(seq.getCacheSize() != null){
@@ -139,8 +173,9 @@ public class DDLServicePostgres implements DDLService{
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
-			for(DbColumn c : columns){
-				sb.append("  ").append(c.getName()).append(" ").append(columnType(c.getColumnType(), c.getMaxLength()));
+			int index = 0;
+            for(DbColumn c : columns){
+				sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 				if(c.getColumnDefault() == null){
 					if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())){
 						sb.append(" DEFAULT NULL");
@@ -151,9 +186,13 @@ public class DDLServicePostgres implements DDLService{
 				if(!c.isNullable()){
 					sb.append(" NOT NULL");
 				}
-				sb.append(",").append(System.lineSeparator());
+                if(index < columns.length - 1){
+                    sb.append(",").append(System.lineSeparator());
+                }
+                index++;
 			}
 			if(table.getPkColumnNames().size() > 0){
+                sb.append(",").append(System.lineSeparator());
                 StringBuilder pkConst = new StringBuilder();
                 Iterator<String> cIt = table.getPkColumnNames().iterator();
 				String pkConstraintName = table.getPkConstraintName();
@@ -162,10 +201,10 @@ public class DDLServicePostgres implements DDLService{
 					if(pkConst.length() == 0){
                         pkConst.append("  ").append("CONSTRAINT ");
                         if(pkConstraintName != null){
-                            pkConst.append(pkConstraintName).append(" PRIMARY KEY (");
+                            pkConst.append("\"").append(pkConstraintName).append("\"").append(" PRIMARY KEY (");
                         }
                     }
-                    pkConst.append(cName);
+                    pkConst.append("\"").append(cName).append("\"");
 					if(cIt.hasNext()){
 						pkConst.append(", ");
 					}
@@ -177,15 +216,12 @@ public class DDLServicePostgres implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
-					if(!ref.getSrcSchema().equals(dbModel.getSchema()) || !ref.getRefSchema().equals(dbModel.getSchema())){
-						continue;
-					}
 					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append(ref.getConstraintName()).append(" FOREIGN KEY (");
+						.append("  CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" FOREIGN KEY (");
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
-                        sb.append(cName);
+                        sb.append("\"").append(cName).append("\"");
                         if(cIt.hasNext()){
                             sb.append(", ");
                         }
@@ -194,7 +230,7 @@ public class DDLServicePostgres implements DDLService{
                     cIt = ref.getRefColumnNames().iterator();
                     while(cIt.hasNext()){
                         String cName = cIt.next();
-                        sb.append(cName);
+                        sb.append("\"").append(cName).append("\"");
                         if(cIt.hasNext()){
                             sb.append(", ");
                         }
@@ -215,12 +251,12 @@ public class DDLServicePostgres implements DDLService{
                     if(indCols.isUnique()){
                         indBuilder.append("UNIQUE ");
                     }
-                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append(indName);
-                    indBuilder.append(" ON ").append(tableName).append(" USING ").append(indCols.getIndexType()).append(" (");
+                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append("\"").append(indName).append("\"");
+                    indBuilder.append(" ON ").append("\"").append(tableName).append("\"").append(" USING ").append(indCols.getIndexType()).append(" (");
                     Iterator<String> icIt = indCols.getColumns().iterator();
                     while(icIt.hasNext()){
                         String ic = icIt.next();
-                        indBuilder.append(ic);
+                        indBuilder.append("\"").append(ic).append("\"");
                         if(icIt.hasNext()){
                             indBuilder.append(", ");
                         }
@@ -232,12 +268,33 @@ public class DDLServicePostgres implements DDLService{
 			}
 			
 		}
+        for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
+            StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(contraintInfo.getConstraintName()).append("\"").append(" UNIQUE").append(" (");
+            Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
+            while(cIt.hasNext()){
+                String cName = cIt.next();
+                sb.append("\"").append(cName).append("\"");
+                if(cIt.hasNext()){
+                    sb.append(", ");
+                }
+            }
+            sb.append(");");
+            log.info("create unique constraint {} for table {} : {}", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName(), sb.toString());
+            scripts.add(sb);
+        }
+        for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(checkConstraint.getConstraintName()).append("\"").append(" ").append(checkConstraint.getCondef()).append(";");
+            log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
+            scripts.add(sb);
+        }
 		try{
-            if(!checkSchema(dbModel.getSchema())){
-				StringBuilder csSql = new StringBuilder("create schema ").append(dbModel.getSchema()).append(";");
-				Statement css = conn.createStatement();
-				css.execute(csSql.toString());
-			}
+            for(String schema : dbModel.getSchemas()){
+                if(!checkSchema(schema)){
+                    StringBuilder csSql = new StringBuilder("create schema ").append("\"").append(schema).append("\"").append(";");
+                    Statement css = conn.createStatement();
+                    css.execute(csSql.toString());
+                }
+            }
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
                 log.info("ddl : {}", sb.toString());
@@ -261,6 +318,558 @@ public class DDLServicePostgres implements DDLService{
     public void close() throws Exception {
         if(conn != null){
             conn.close();
+        }
+    }
+
+    /**
+     * Converts a DbModelDiff to a list of PostgreSQL SQL statements.
+     * 
+     * @param diff The database model diff containing operations to convert
+     * @return List of SQL statements as strings
+     */
+    @Override
+    public List<String> ddlFrom(DbModelDiff diff, DbModel dbModel) {
+        List<String> statements = new ArrayList<>();
+        
+        if (diff == null || diff.getOperations() == null || diff.getOperations().isEmpty()) {
+            return statements;
+        }
+        
+        for (DbModelDiffOp operation : diff.getOperations()) {
+            List<String> opStatements = generateSqlForOperation(operation);
+            statements.addAll(opStatements);
+        }
+        
+        return statements;
+    }
+    
+    private List<String> generateSqlForOperation(DbModelDiffOp operation) {
+        List<String> statements = new ArrayList<>();
+        
+        DiffEntityType entityType = operation.getEntityType();
+        DiffOpType opType = operation.getOpType();
+        
+        switch (entityType) {
+            case TABLE:
+                statements.addAll(generateTableSql((DbTableDiffOp) operation, opType));
+                break;
+            case COLUMN:
+                statements.addAll(generateColumnSql((DbColumnDiffOp) operation, opType));
+                break;
+            case FOREIGN_KEY:
+                statements.addAll(generateForeignKeySql((DbForeignKeyDiffOp) operation, opType));
+                break;
+            case UNIQUE_CONSTRAINT:
+                statements.addAll(generateUniqueConstraintSql((DbUniqueConstraintDiffOp) operation, opType));
+                break;
+            case CHECK_CONSTRAINT:
+                statements.addAll(generateCheckConstraintSql((DbCheckConstraintDiffOp) operation, opType));
+                break;
+            case INDEX:
+                statements.addAll(generateIndexSql((DbIndexDiffOp) operation, opType));
+                break;
+            case SEQUENCE:
+                statements.addAll(generateSequenceSql((DbSequenceDiffOp) operation, opType));
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private List<String> generateTableSql(DbTableDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewTable() != null) {
+                    statements.add(generateCreateTableSql(operation.getNewTable()));
+                }
+                break;
+            case DROP:
+                if (operation.getOldTable() != null) {
+                    statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
+                }
+                break;
+            case MODIFY:
+                // For MODIFY, we drop and recreate the table
+                if (operation.getOldTable() != null) {
+                    statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
+                }
+                if (operation.getNewTable() != null) {
+                    statements.add(generateCreateTableSql(operation.getNewTable()));
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private String generateCreateTableSql(DbTable table) {
+        StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(table.qualifiedName()).append(" (").append(System.lineSeparator());
+        DbColumn[] columns = table.orderedColumns();
+        int index = 0;
+        
+        for (DbColumn c : columns) {
+            sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+            
+            if (c.getColumnDefault() == null) {
+                if (c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())) {
+                    sb.append(" DEFAULT NULL");
+                }
+            } else {
+                sb.append(" DEFAULT ").append(c.getColumnDefault().replaceAll("::regclass", ""));
+            }
+            
+            if (!c.isNullable()) {
+                sb.append(" NOT NULL");
+            }
+            
+            if (index < columns.length - 1) {
+                sb.append(",").append(System.lineSeparator());
+            }
+            index++;
+        }
+        
+        if (table.getPkColumnNames().size() > 0) {
+            sb.append(",").append(System.lineSeparator());
+            StringBuilder pkConst = new StringBuilder();
+            Iterator<String> cIt = table.getPkColumnNames().iterator();
+            String pkConstraintName = table.getPkConstraintName();
+            
+            while (cIt.hasNext()) {
+                String cName = cIt.next();
+                if (pkConst.length() == 0) {
+                    pkConst.append("  ").append("CONSTRAINT ");
+                    if (pkConstraintName != null) {
+                        pkConst.append("\"").append(pkConstraintName).append("\"").append(" PRIMARY KEY (");
+                    }
+                }
+                pkConst.append("\"").append(cName).append("\"");
+                if (cIt.hasNext()) {
+                    pkConst.append(", ");
+                }
+            }
+            pkConst.append(")");
+            sb.append(pkConst.toString());
+        }
+        
+        sb.append(System.lineSeparator()).append(");");
+        return sb.toString();
+    }
+    
+    private List<String> generateColumnSql(DbColumnDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        String tableName = operation.getTableQualifiedName();
+        String columnName = operation.getColumnName();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewColumn() != null) {
+                    statements.add(generateAddColumnSql(tableName, operation.getNewColumn()));
+                }
+                break;
+            case DROP:
+                statements.add("ALTER TABLE " + tableName + " DROP COLUMN \"" + columnName + "\";");
+                break;
+            case MODIFY:
+                if (operation.getOldColumn() != null && operation.getNewColumn() != null) {
+                    statements.addAll(generateModifyColumnSql(tableName, operation.getOldColumn(), operation.getNewColumn()));
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private String generateAddColumnSql(String tableName, DbColumn column) {
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD COLUMN \"").append(column.getName()).append("\" ");
+        sb.append(columnType(column.getColumnType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale()));
+        
+        if (column.getColumnDefault() != null) {
+            sb.append(" DEFAULT ").append(column.getColumnDefault().replaceAll("::regclass", ""));
+        }
+        
+        if (!column.isNullable()) {
+            sb.append(" NOT NULL");
+        }
+        
+        sb.append(";");
+        return sb.toString();
+    }
+    
+    private List<String> generateModifyColumnSql(String tableName, DbColumn oldColumn, DbColumn newColumn) {
+        List<String> statements = new ArrayList<>();
+        
+        // Type change
+        if (!Objects.equals(oldColumn.getColumnType(), newColumn.getColumnType()) || 
+            !Objects.equals(oldColumn.getMaxLength(), newColumn.getMaxLength()) ||
+            !Objects.equals(oldColumn.getNumPrecision(), newColumn.getNumPrecision()) ||
+            !Objects.equals(oldColumn.getNumScale(), newColumn.getNumScale())
+        ) {
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
+                .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" TYPE ")
+                .append(columnType(newColumn.getColumnType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale())).append(";");
+            statements.add(sb.toString());
+        }
+        
+        // Nullable change
+        if (oldColumn.isNullable() != newColumn.isNullable()) {
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
+                .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" ");
+            if (newColumn.isNullable()) {
+                sb.append("DROP NOT NULL");
+            } else {
+                sb.append("SET NOT NULL");
+            }
+            sb.append(";");
+            statements.add(sb.toString());
+        }
+        
+        // Default change
+        if (!Objects.equals(oldColumn.getColumnDefault(), newColumn.getColumnDefault())) {
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
+                .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" ");
+            if (newColumn.getColumnDefault() == null) {
+                sb.append("DROP DEFAULT");
+            } else {
+                sb.append("SET DEFAULT ").append(newColumn.getColumnDefault().replaceAll("::regclass", ""));
+            }
+            sb.append(";");
+            statements.add(sb.toString());
+        }
+        
+        return statements;
+    }
+    
+    private List<String> generateForeignKeySql(DbForeignKeyDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewReference() != null) {
+                    statements.add(generateAddForeignKeySql(operation.getNewReference()));
+                }
+                break;
+            case DROP:
+                if (operation.getOldReference() != null) {
+                    ReferenceInfo ref = operation.getOldReference();
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT \"" + ref.getConstraintName() + "\";");
+                }
+                break;
+            case MODIFY:
+                // Drop old and create new
+                if (operation.getOldReference() != null) {
+                    ReferenceInfo ref = operation.getOldReference();
+                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT \"" + ref.getConstraintName() + "\";");
+                }
+                if (operation.getNewReference() != null) {
+                    statements.add(generateAddForeignKeySql(operation.getNewReference()));
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private String generateAddForeignKeySql(ReferenceInfo ref) {
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
+            .append(" ADD CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" ")
+            .append(" FOREIGN KEY (");
+        
+        Iterator<String> cIt = ref.getSrcColumnNames().iterator();
+        while (cIt.hasNext()) {
+            String cName = cIt.next();
+            sb.append("\"").append(cName).append("\"");
+            if (cIt.hasNext()) {
+                sb.append(", ");
+            }
+        }
+        
+        sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
+        cIt = ref.getRefColumnNames().iterator();
+        while (cIt.hasNext()) {
+            String cName = cIt.next();
+            sb.append("\"").append(cName).append("\"");
+            if (cIt.hasNext()) {
+                sb.append(", ");
+            }
+        }
+        sb.append(");");
+        
+        return sb.toString();
+    }
+    
+    private List<String> generateUniqueConstraintSql(DbUniqueConstraintDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewConstraint() != null) {
+                    statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
+                }
+                break;
+            case DROP:
+                if (operation.getOldConstraint() != null) {
+                    ContraintInfo constraint = operation.getOldConstraint();
+                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                }
+                break;
+            case MODIFY:
+                // Drop old and create new
+                if (operation.getOldConstraint() != null) {
+                    ContraintInfo constraint = operation.getOldConstraint();
+                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                }
+                if (operation.getNewConstraint() != null) {
+                    statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private String generateAddUniqueConstraintSql(ContraintInfo constraint) {
+        StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(constraint.qualifiedTableName())
+            .append(" ADD CONSTRAINT ").append("\"").append(constraint.getConstraintName()).append("\"").append(" UNIQUE (");
+        
+        Iterator<String> cIt = constraint.getColumnNames().iterator();
+        while (cIt.hasNext()) {
+            String cName = cIt.next();
+            sb.append("\"").append(cName).append("\"");
+            if (cIt.hasNext()) {
+                sb.append(", ");
+            }
+        }
+        sb.append(");");
+        
+        return sb.toString();
+    }
+    
+    private List<String> generateCheckConstraintSql(DbCheckConstraintDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewConstraint() != null) {
+                    CheckConstraint constraint = operation.getNewConstraint();
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT \"" + constraint.getConstraintName() + "\" " + constraint.getCondef() + ";");
+                }
+                break;
+            case DROP:
+                if (operation.getOldConstraint() != null) {
+                    CheckConstraint constraint = operation.getOldConstraint();
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                }
+                break;
+            case MODIFY:
+                // Drop old and create new
+                if (operation.getOldConstraint() != null) {
+                    CheckConstraint constraint = operation.getOldConstraint();
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                }
+                if (operation.getNewConstraint() != null) {
+                    CheckConstraint constraint = operation.getNewConstraint();
+                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT \"" + constraint.getConstraintName() + "\" " + constraint.getCondef() + ";");
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private List<String> generateIndexSql(DbIndexDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewIndex() != null) {
+                    statements.add(generateCreateIndexSql(operation.getNewIndex(), operation.getTableQualifiedName()));
+                }
+                break;
+            case DROP:
+                if (operation.getOldIndex() != null) {
+                    IndexInfo index = operation.getOldIndex();
+                    String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
+                    statements.add("DROP INDEX " + qualifiedIndexName + ";");
+                }
+                break;
+            case MODIFY:
+                // Drop old and create new
+                if (operation.getOldIndex() != null) {
+                    IndexInfo index = operation.getOldIndex();
+                    String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
+                    statements.add("DROP INDEX " + qualifiedIndexName + ";");
+                }
+                if (operation.getNewIndex() != null) {
+                    statements.add(generateCreateIndexSql(operation.getNewIndex(), operation.getTableQualifiedName()));
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private String generateCreateIndexSql(IndexInfo index, String tableQualifiedName) {
+        StringBuilder sb = new StringBuilder("CREATE ");
+        if (index.isUnique()) {
+            sb.append("UNIQUE ");
+        }
+        sb.append("INDEX IF NOT EXISTS ");
+        
+        String qualifiedIndexName = index.getIndexName();
+        sb.append(qualifiedIndexName).append(" ON ").append(tableQualifiedName);
+        
+        if (index.getIndexType() != null && !index.getIndexType().isEmpty()) {
+            sb.append(" USING ").append(index.getIndexType());
+        }
+        
+        sb.append(" (");
+        Iterator<String> icIt = index.getColumns().iterator();
+        while (icIt.hasNext()) {
+            String ic = icIt.next();
+            sb.append("\"").append(ic).append("\"");
+            if (icIt.hasNext()) {
+                sb.append(", ");
+            }
+        }
+        sb.append(");");
+        
+        return sb.toString();
+    }
+    
+    private List<String> generateSequenceSql(DbSequenceDiffOp operation, DiffOpType opType) {
+        List<String> statements = new ArrayList<>();
+        
+        switch (opType) {
+            case CREATE:
+                if (operation.getNewSequence() != null) {
+                    statements.add(generateCreateSequenceSql(operation.getNewSequence()));
+                }
+                break;
+            case DROP:
+                if (operation.getOldSequence() != null) {
+                    statements.add("DROP SEQUENCE IF EXISTS " + operation.getQualifiedName() + ";");
+                }
+                break;
+            case MODIFY:
+                if (operation.getOldSequence() != null && operation.getNewSequence() != null) {
+                    statements.addAll(generateAlterSequenceSql(operation.getOldSequence(), operation.getNewSequence()));
+                }
+                break;
+        }
+        
+        return statements;
+    }
+    
+    private String generateCreateSequenceSql(DbSequence seq) {
+        StringBuilder sb = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(seq.qualifiedName());
+        
+        if (seq.getIncrementBy() != null) {
+            sb.append(" INCREMENT BY ").append(seq.getIncrementBy());
+        }
+        
+        if (seq.getMinValue() != null) {
+            sb.append(" MINVALUE ").append(seq.getMinValue());
+        } else {
+            sb.append(" NO MINVALUE");
+        }
+        
+        if (seq.getMaxValue() != null) {
+            sb.append(" MAXVALUE ").append(seq.getMaxValue());
+        } else {
+            sb.append(" NO MAXVALUE");
+        }
+        
+        if (seq.getLastValue() != null) {
+            sb.append(" START WITH ").append(seq.getLastValue());
+        } else if (seq.getStartValue() != null) {
+            sb.append(" START WITH ").append(seq.getStartValue());
+        }
+        
+        if (seq.getCacheSize() != null) {
+            sb.append(" CACHE ").append(seq.getCacheSize());
+        }
+        
+        if (!seq.isCycle()) {
+            sb.append(" NO");
+        }
+        sb.append(" CYCLE;");
+        
+        return sb.toString();
+    }
+    
+    private List<String> generateAlterSequenceSql(DbSequence oldSeq, DbSequence newSeq) {
+        List<String> statements = new ArrayList<>();
+        StringBuilder sb = new StringBuilder("ALTER SEQUENCE ").append(newSeq.qualifiedName());
+        boolean hasChanges = false;
+        
+        if (!Objects.equals(oldSeq.getIncrementBy(), newSeq.getIncrementBy()) && newSeq.getIncrementBy() != null) {
+            sb.append(" INCREMENT BY ").append(newSeq.getIncrementBy());
+            hasChanges = true;
+        }
+        
+        if (!Objects.equals(oldSeq.getMinValue(), newSeq.getMinValue())) {
+            if (newSeq.getMinValue() != null) {
+                sb.append(" MINVALUE ").append(newSeq.getMinValue());
+            } else {
+                sb.append(" NO MINVALUE");
+            }
+            hasChanges = true;
+        }
+        
+        if (!Objects.equals(oldSeq.getMaxValue(), newSeq.getMaxValue())) {
+            if (newSeq.getMaxValue() != null) {
+                sb.append(" MAXVALUE ").append(newSeq.getMaxValue());
+            } else {
+                sb.append(" NO MAXVALUE");
+            }
+            hasChanges = true;
+        }
+        
+        if (!Objects.equals(oldSeq.getLastValue(), newSeq.getLastValue()) || 
+            !Objects.equals(oldSeq.getStartValue(), newSeq.getStartValue())) {
+            if (newSeq.getLastValue() != null) {
+                sb.append(" RESTART WITH ").append(newSeq.getLastValue());
+            } else if (newSeq.getStartValue() != null) {
+                sb.append(" RESTART WITH ").append(newSeq.getStartValue());
+            }
+            hasChanges = true;
+        }
+        
+        if (!Objects.equals(oldSeq.getCacheSize(), newSeq.getCacheSize()) && newSeq.getCacheSize() != null) {
+            sb.append(" CACHE ").append(newSeq.getCacheSize());
+            hasChanges = true;
+        }
+        
+        if (oldSeq.isCycle() != newSeq.isCycle()) {
+            if (!newSeq.isCycle()) {
+                sb.append(" NO");
+            }
+            sb.append(" CYCLE");
+            hasChanges = true;
+        }
+        
+        if (hasChanges) {
+            sb.append(";");
+            statements.add(sb.toString());
+        }
+        
+        return statements;
+    }
+
+    @Override
+    public void executeSql(String sql) throws SQLException {
+        if (sql == null || sql.trim().isEmpty()) {
+            return;
+        }
+        try {
+            Statement s = conn.createStatement();
+            s.execute(sql);
+            log.debug("Executed SQL: {}", sql);
+        } catch (SQLException e) {
+            log.error("Failed to execute SQL: {}", sql, e);
+            throw e;
         }
     }
 
