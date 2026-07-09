@@ -34,8 +34,10 @@ public class UpdateSequences extends AbstractStep {
     public void execute(FlowContext context) {
         try {
             datasourceFactory.assertWritable();
-            if (datasourceFactory.type() == DatasourceType.MYSQL) {
-                context.logStepWarn(context.getCurrentStep(), "MySQL does not support sequences, skipping sequence updates");
+            if (datasourceFactory.type() == DatasourceType.MYSQL
+                    || datasourceFactory.type() == DatasourceType.MONGODB) {
+                context.logStepWarn(context.getCurrentStep(),
+                        datasourceFactory.type().name() + " does not support sequences, skipping sequence updates");
                 return;
             }
 

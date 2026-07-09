@@ -10,6 +10,7 @@ import javax.sql.DataSource;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DatasourceType;
+import com.quemsi.model.flow.db.mongodb.DatasourceFactoryMongo;
 import com.quemsi.model.flow.db.mysql.DataSourceFactoryMySql;
 import com.quemsi.model.flow.db.postgres.DatasourceFactoryPostgres;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -51,6 +52,8 @@ public interface DataSourceFactory {
 			return new DatasourceFactoryPostgres();
 		} else if(DatasourceType.SQLSERVER.equals(type)) {
 			return new DatasourceFactorySqlserver();
+		} else if(DatasourceType.MONGODB.equals(type)) {
+			return new DatasourceFactoryMongo();
 		} else{
 			throw Exceptions.server("invalid-datasource-type").withExtra("type", type).get();
 		}

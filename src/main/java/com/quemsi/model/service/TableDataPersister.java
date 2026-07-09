@@ -31,8 +31,19 @@ public class TableDataPersister {
             if(td == null){
                 td = new TableData(tableDataPage.getRequest().getTable().qualifiedName());
                 td.setPageSize(tableDataPage.getRequest().getPageSize());
+                if(tableDataPage.getDocuments() != null){
+                    td.setDataFormat(TableData.FORMAT_DOCUMENT);
+                }
             }
-            td.getDataPages().add(new TableData.DataPage(tableDataPage.getRequest().getPageNum(), tableDataPage.getTableData()));
+            if(tableDataPage.getDocuments() != null){
+                TableData.DataPage page = new TableData.DataPage();
+                page.setPageNum(tableDataPage.getRequest().getPageNum());
+                page.setDocuments(tableDataPage.getDocuments());
+                td.getDataPages().add(page);
+                td.setDataFormat(TableData.FORMAT_DOCUMENT);
+            } else {
+                td.getDataPages().add(new TableData.DataPage(tableDataPage.getRequest().getPageNum(), tableDataPage.getTableData()));
+            }
             return td;
         });
     }

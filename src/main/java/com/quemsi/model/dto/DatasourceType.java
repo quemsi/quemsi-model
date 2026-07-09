@@ -5,7 +5,8 @@ import lombok.Getter;
 public enum DatasourceType implements KeyValuePair{
 	MYSQL("MySql", "mysql", 3306, ""),
 	POSTGRES("Postgres", "postgresql", 5432, "public"),
-	SQLSERVER("Sqlserver", "sqlserver", 1433, "dbo")
+	SQLSERVER("Sqlserver", "sqlserver", 1433, "dbo"),
+	MONGODB("MongoDB", "mongodb", 27017, "")
 	;
 	private String val;
 	@Getter

@@ -1,6 +1,5 @@
 package com.quemsi.model.flow.db;
 
-import java.sql.Connection;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -28,7 +27,6 @@ public class ClearTables extends AbstractStep {
     public void execute(FlowContext context) {
         datasource.assertWritable();
         try(
-            Connection conn = datasource.getDataSource().getConnection();
             DMLService dmlService = datasource.dmlService();
             DDLService ddlService = datasource.ddlService();
             ){

@@ -36,6 +36,10 @@ public class DbTable {
     private Set<TableReference> referencedBy;
     @Getter
     private Set<ReferenceInfo> references;
+    /** MongoDB collection options (validator, capped, timeseries, etc.). Unused for RDBMS. */
+    @Getter
+    @Setter
+    private Map<String, Object> collectionOptions;
 
     public DbTable(){
         this.columns = new LinkedHashMap<>();

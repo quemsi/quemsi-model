@@ -15,6 +15,8 @@ public class TableDataPage {
     private Request request;
     private boolean hasMorePage;
     private Map<Object, Object[]> tableData;
+    /** Used for MongoDB document pages (_id → document). */
+    private Map<Object, Map<String, Object>> documents;
     
     @NoArgsConstructor
     @AllArgsConstructor

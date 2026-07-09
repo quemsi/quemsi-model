@@ -87,7 +87,9 @@ public class MaskColumns extends AbstractStep {
                             .withExtra("table", tableName)
                             .get();
                     }
-                    if (!dbTable.getColumns().containsKey(columnName)) {
+                    // Dot paths are allowed for document backups (MongoDB nested fields).
+                    boolean isDotPath = columnName != null && columnName.contains(".");
+                    if (!isDotPath && !dbTable.getColumns().containsKey(columnName)) {
                         throw Exceptions.badRequest("maskcol-column-not-found")
                             .withExtra("schema", schemaName)
                             .withExtra("table", tableName)
@@ -199,46 +201,10 @@ public class MaskColumns extends AbstractStep {
                     log.info("no columns to mask for table {}", table.qualifiedName());
                 } else {
                     log.info("masking {} columns for table {}", columnsToMask.size(), table.qualifiedName());
-                    
-                    // Get ordered columns to determine column indices
-                    com.quemsi.model.flow.db.sql.DbColumn[] orderedColumns = table.orderedColumns();
-                    Map<String, Integer> columnIndexMap = new HashMap<>();
-                    Map<Integer, Integer> maxLengthMap = new HashMap<>();
-                    for(int i = 0; i < orderedColumns.length; i++){
-                        columnIndexMap.put(orderedColumns[i].getName(), i);
-                        maxLengthMap.put(i, orderedColumns[i].getMaxLength());
-                    }
-                    
-                    // Get column indices to mask
-                    Set<Integer> columnIndicesToMask = new HashSet<>();
-                    for(MaskColumn.MaskColumnConfig mc : columnsToMask){
-                        Integer index = columnIndexMap.get(mc.getColumn());
-                        if(index != null){
-                            columnIndicesToMask.add(index);
-                            log.info("will mask column {} at index {} for table {}", mc.getColumn(), index, table.qualifiedName());
-                        } else {
-                            log.warn("column {} not found in table {}", mc.getColumn(), table.qualifiedName());
-                        }
-                    }
-                    
-                    // Mask columns using maskedStringGenerator
-                    for(TableData.DataPage dataPage : tableData.getDataPages()){
-                        /* Check for global cancellation before processing each page */
-                        if (globalCancellationFlag.get()) {
-                            log.info("Mask column task for table {} cancelled during masking", table.getName());
-                            return null;
-                        }
-                        
-                        for(Map.Entry<Object, Object[]> entry : dataPage.getData().entrySet()){
-                            Object[] row = entry.getValue();
-                            for(Integer columnIndex : columnIndicesToMask){
-                                if(columnIndex < row.length && row[columnIndex] != null){
-                                    String originalValue = row[columnIndex].toString();
-                                    String maskedValue = maskedStringGenerator.generate(originalValue, maxLengthMap.get(columnIndex));
-                                    row[columnIndex] = maskedValue;
-                                }
-                            }
-                        }
+                    if(tableData.isDocumentFormat()){
+                        maskDocumentPages(tableData, columnsToMask, maskedStringGenerator);
+                    } else {
+                        maskTabularPages(tableData, columnsToMask, maskedStringGenerator, table);
                     }
                 }
                 
@@ -266,6 +232,92 @@ public class MaskColumns extends AbstractStep {
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
                 return null;
+            }
+        }
+
+        private void maskTabularPages(TableData tableData, List<MaskColumn.MaskColumnConfig> columnsToMask,
+                MaskedStringGenerator maskedStringGenerator, DbTable table) {
+            com.quemsi.model.flow.db.sql.DbColumn[] orderedColumns = table.orderedColumns();
+            Map<String, Integer> columnIndexMap = new HashMap<>();
+            Map<Integer, Integer> maxLengthMap = new HashMap<>();
+            for(int i = 0; i < orderedColumns.length; i++){
+                columnIndexMap.put(orderedColumns[i].getName(), i);
+                maxLengthMap.put(i, orderedColumns[i].getMaxLength());
+            }
+
+            Set<Integer> columnIndicesToMask = new HashSet<>();
+            for(MaskColumn.MaskColumnConfig mc : columnsToMask){
+                Integer index = columnIndexMap.get(mc.getColumn());
+                if(index != null){
+                    columnIndicesToMask.add(index);
+                    log.info("will mask column {} at index {} for table {}", mc.getColumn(), index, table.qualifiedName());
+                } else {
+                    log.warn("column {} not found in table {}", mc.getColumn(), table.qualifiedName());
+                }
+            }
+
+            for(TableData.DataPage dataPage : tableData.getDataPages()){
+                if (globalCancellationFlag.get()) {
+                    return;
+                }
+                if(dataPage.getData() == null){
+                    continue;
+                }
+                for(Map.Entry<Object, Object[]> entry : dataPage.getData().entrySet()){
+                    Object[] row = entry.getValue();
+                    for(Integer columnIndex : columnIndicesToMask){
+                        if(columnIndex < row.length && row[columnIndex] != null){
+                            String originalValue = row[columnIndex].toString();
+                            String maskedValue = maskedStringGenerator.generate(originalValue, maxLengthMap.get(columnIndex));
+                            row[columnIndex] = maskedValue;
+                        }
+                    }
+                }
+            }
+        }
+
+        private void maskDocumentPages(TableData tableData, List<MaskColumn.MaskColumnConfig> columnsToMask,
+                MaskedStringGenerator maskedStringGenerator) {
+            List<String> paths = columnsToMask.stream().map(MaskColumn.MaskColumnConfig::getColumn).toList();
+            for(TableData.DataPage dataPage : tableData.getDataPages()){
+                if (globalCancellationFlag.get()) {
+                    return;
+                }
+                if(dataPage.getDocuments() == null){
+                    continue;
+                }
+                for(Map<String, Object> document : dataPage.getDocuments().values()){
+                    for(String path : paths){
+                        maskDocumentPath(document, path, maskedStringGenerator);
+                    }
+                }
+            }
+        }
+
+        @SuppressWarnings("unchecked")
+        private void maskDocumentPath(Map<String, Object> document, String path, MaskedStringGenerator generator) {
+            if(document == null || path == null || path.isBlank()){
+                return;
+            }
+            String[] parts = path.split("\\.");
+            Object current = document;
+            for(int i = 0; i < parts.length - 1; i++){
+                if(!(current instanceof Map<?, ?> map)){
+                    return;
+                }
+                current = map.get(parts[i]);
+            }
+            if(!(current instanceof Map<?, ?> parentMap)){
+                return;
+            }
+            Map<String, Object> writable = (Map<String, Object>) parentMap;
+            String leaf = parts[parts.length - 1];
+            Object value = writable.get(leaf);
+            if(value == null){
+                return;
+            }
+            if(value instanceof String || value instanceof Number || value instanceof Boolean){
+                writable.put(leaf, generator.generate(String.valueOf(value), Integer.MAX_VALUE));
             }
         }
     }
