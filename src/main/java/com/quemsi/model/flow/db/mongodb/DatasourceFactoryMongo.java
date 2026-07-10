@@ -15,7 +15,6 @@ import org.bson.conversions.Bson;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
-import com.mongodb.MongoCredential;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -57,21 +56,43 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
 
     public synchronized MongoClient getMongoClient() {
         if (mongoClient == null) {
-            if (StringUtils.isEmptyOrNull(url)) {
-                throw Exceptions.badRequest("mongodb-url-required").withExtra("name", name).get();
-            }
-            ConnectionString connectionString = new ConnectionString(url);
+            String connectionUrl = buildConnectionUrl();
+            ConnectionString connectionString = new ConnectionString(connectionUrl);
             resolveDbNameFromConnectionString(connectionString);
-            MongoClientSettings.Builder settingsBuilder = MongoClientSettings.builder()
-                    .applyConnectionString(connectionString);
-            if (!StringUtils.isEmptyOrNull(username) && !StringUtils.isEmptyOrNull(password)
-                    && !url.contains("@")) {
-                String authDb = resolveAuthDatabase(connectionString);
-                settingsBuilder.credential(MongoCredential.createCredential(username, authDb, password.toCharArray()));
-            }
-            mongoClient = MongoClients.create(settingsBuilder.build());
+            mongoClient = MongoClients.create(MongoClientSettings.builder()
+                    .applyConnectionString(connectionString)
+                    .build());
         }
         return mongoClient;
+    }
+
+    String buildConnectionUrl() {
+        if (StringUtils.isEmptyOrNull(url)) {
+            throw Exceptions.badRequest("mongodb-url-required").withExtra("name", name).get();
+        }
+        if (url.contains("@") || StringUtils.isEmptyOrNull(username) || StringUtils.isEmptyOrNull(password)) {
+            return url;
+        }
+        int schemeEnd = url.indexOf("://");
+        if (schemeEnd < 0) {
+            return url;
+        }
+        return url.substring(0, schemeEnd + 3)
+                + encodeUserInfo(username) + ":" + encodeUserInfo(password) + "@"
+                + url.substring(schemeEnd + 3);
+    }
+
+    private static String encodeUserInfo(String value) {
+        StringBuilder encoded = new StringBuilder(value.length() * 3);
+        for (char c : value.toCharArray()) {
+            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+                    || c == '-' || c == '_' || c == '.' || c == '~') {
+                encoded.append(c);
+            } else {
+                encoded.append(String.format("%%%02X", (int) c));
+            }
+        }
+        return encoded.toString();
     }
 
     private void resolveDbNameFromConnectionString(ConnectionString connectionString) {
@@ -84,26 +105,15 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
         }
     }
 
-    private String resolveAuthDatabase(ConnectionString connectionString) {
-        if (!StringUtils.isEmptyOrNull(dbName)) {
-            return dbName;
-        }
-        String databaseFromUri = connectionString.getDatabase();
-        if (!StringUtils.isEmptyOrNull(databaseFromUri)) {
-            return databaseFromUri;
-        }
-        return "admin";
-    }
-
     private String resolvedDbName() {
-        if (!StringUtils.isEmptyOrNull(dbName)) {
-            return dbName;
-        }
         if (!StringUtils.isEmptyOrNull(url)) {
             String databaseFromUri = new ConnectionString(url).getDatabase();
             if (!StringUtils.isEmptyOrNull(databaseFromUri)) {
                 return databaseFromUri;
             }
+        }
+        if (!StringUtils.isEmptyOrNull(dbName)) {
+            return dbName;
         }
         return null;
     }
@@ -207,9 +217,15 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
                 continue;
             }
             Document key = indexDoc.get("key", Document.class);
+            Document weights = indexDoc.get("weights", Document.class);
             boolean unique = Boolean.TRUE.equals(indexDoc.getBoolean("unique"));
             IndexInfo indexInfo = new IndexInfo(dbName, collectionName, indexName, unique, "BTREE");
-            if (key != null) {
+            if (weights != null && !weights.isEmpty()) {
+                for (String field : weights.keySet()) {
+                    indexInfo.getColumns().add(field);
+                    indexInfo.getExtraColumns().add("text");
+                }
+            } else if (key != null) {
                 for (String field : key.keySet()) {
                     indexInfo.getColumns().add(field);
                     Object direction = key.get(field);

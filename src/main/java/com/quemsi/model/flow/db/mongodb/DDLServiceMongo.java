@@ -173,19 +173,47 @@ public class DDLServiceMongo implements DDLService {
             if ("_id_".equals(index.getIndexName()) || existing.contains(index.getIndexName())) {
                 continue;
             }
-            Document keys = new Document();
             LinkedListDirections dirs = parseDirections(index);
-            int i = 0;
-            for (String col : index.getColumns()) {
-                Object dir = dirs.directions.size() > i ? dirs.directions.get(i) : 1;
-                keys.append(col, coerceDirection(dir));
-                i++;
+            Document optionsExtras = parseIndexOptions(dirs.optionsJson);
+            Document keys = buildIndexKeys(index, dirs, optionsExtras);
+            if (keys == null || keys.isEmpty()) {
+                log.warn("Skipping index {} on {} — could not derive index keys", index.getIndexName(), table.getName());
+                continue;
             }
             IndexOptions options = new IndexOptions().name(index.getIndexName()).unique(index.isUnique());
-            applyExtraIndexOptions(options, dirs.optionsJson);
+            applyExtraIndexOptions(options, optionsExtras);
             collection.createIndex(keys, options);
             log.info("created index {} on {}", index.getIndexName(), table.getName());
         }
+    }
+
+    Document buildIndexKeys(IndexInfo index, LinkedListDirections dirs, Document optionsExtras) {
+        Document weights = optionsExtras.get("weights", Document.class);
+        if (weights != null && !weights.isEmpty()) {
+            Document keys = new Document();
+            for (String field : weights.keySet()) {
+                keys.append(field, "text");
+            }
+            return keys;
+        }
+        if (index.getColumns().contains("_fts")) {
+            return null;
+        }
+        Document keys = new Document();
+        int i = 0;
+        for (String col : index.getColumns()) {
+            Object dir = dirs.directions.size() > i ? dirs.directions.get(i) : 1;
+            keys.append(col, coerceDirection(dir));
+            i++;
+        }
+        return keys;
+    }
+
+    Document parseIndexOptions(String optionsJson) {
+        if (optionsJson == null || optionsJson.isBlank()) {
+            return new Document();
+        }
+        return Document.parse(optionsJson);
     }
 
     private Object coerceDirection(Object dir) {
@@ -203,12 +231,17 @@ public class DDLServiceMongo implements DDLService {
         }
     }
 
-    private static class LinkedListDirections {
+    Document keysForIndex(IndexInfo index) {
+        LinkedListDirections dirs = parseDirections(index);
+        return buildIndexKeys(index, dirs, parseIndexOptions(dirs.optionsJson));
+    }
+
+    static class LinkedListDirections {
         private final List<Object> directions = new ArrayList<>();
         private String optionsJson;
     }
 
-    private LinkedListDirections parseDirections(IndexInfo index) {
+    LinkedListDirections parseDirections(IndexInfo index) {
         LinkedListDirections result = new LinkedListDirections();
         if (index.getExtraColumns() == null) {
             return result;
@@ -223,11 +256,10 @@ public class DDLServiceMongo implements DDLService {
         return result;
     }
 
-    private void applyExtraIndexOptions(IndexOptions options, String optionsJson) {
-        if (optionsJson == null || optionsJson.isBlank()) {
+    void applyExtraIndexOptions(IndexOptions options, Document extras) {
+        if (extras == null || extras.isEmpty()) {
             return;
         }
-        Document extras = Document.parse(optionsJson);
         if (Boolean.TRUE.equals(extras.getBoolean("sparse"))) {
             options.sparse(true);
         }
@@ -236,6 +268,30 @@ public class DDLServiceMongo implements DDLService {
         }
         if (extras.get("partialFilterExpression") != null) {
             options.partialFilterExpression(toDocument(extras.get("partialFilterExpression")));
+        }
+        if (extras.get("weights") != null) {
+            options.weights(toDocument(extras.get("weights")));
+        }
+        if (extras.get("default_language") != null) {
+            options.defaultLanguage(String.valueOf(extras.get("default_language")));
+        }
+        if (extras.get("language_override") != null) {
+            options.languageOverride(String.valueOf(extras.get("language_override")));
+        }
+        if (extras.get("textIndexVersion") instanceof Number number) {
+            options.textVersion(number.intValue());
+        }
+        if (extras.get("2dsphereIndexVersion") instanceof Number number) {
+            options.sphereVersion(number.intValue());
+        }
+        if (extras.get("bits") instanceof Number number) {
+            options.bits(number.intValue());
+        }
+        if (extras.get("min") instanceof Number number) {
+            options.min(number.doubleValue());
+        }
+        if (extras.get("max") instanceof Number number) {
+            options.max(number.doubleValue());
         }
     }
 
