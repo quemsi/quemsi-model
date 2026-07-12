@@ -72,6 +72,10 @@ select
 	c.DATA_DEFAULT as column_default, c.NULLABLE as is_nullable, c.IDENTITY_COLUMN as is_identity
 from ALL_TAB_COLUMNS c
 where c.OWNER in {inValues}
+  and not exists (
+	select 1 from ALL_VIEWS v
+	where v.OWNER = c.OWNER and v.VIEW_NAME = c.TABLE_NAME
+  )
 order by c.OWNER, c.TABLE_NAME, c.COLUMN_ID
 ;
 			""";
@@ -89,6 +93,10 @@ left join ALL_CONSTRAINTS r_ac on ac.R_OWNER = r_ac.OWNER and ac.R_CONSTRAINT_NA
 left join ALL_CONS_COLUMNS r_acc on r_ac.OWNER = r_acc.OWNER and r_ac.CONSTRAINT_NAME = r_acc.CONSTRAINT_NAME and r_acc.POSITION = acc.POSITION
 where ac.OWNER in {inValues}
   and ac.CONSTRAINT_TYPE in ('P', 'R', 'U')
+  and not exists (
+	select 1 from ALL_VIEWS v
+	where v.OWNER = ac.OWNER and v.VIEW_NAME = ac.TABLE_NAME
+  )
 order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME, acc.POSITION
 ;
 			""";
@@ -105,6 +113,10 @@ join ALL_IND_COLUMNS aic on ai.OWNER = aic.INDEX_OWNER and ai.INDEX_NAME = aic.I
 	and ai.TABLE_OWNER = aic.TABLE_OWNER and ai.TABLE_NAME = aic.TABLE_NAME
 where ai.TABLE_OWNER in {inValues}
   and ai.INDEX_TYPE not in ('LOB', 'DOMAIN')
+  and not exists (
+	select 1 from ALL_VIEWS v
+	where v.OWNER = ai.TABLE_OWNER and v.VIEW_NAME = ai.TABLE_NAME
+  )
   and not exists (
 	select 1 from ALL_CONSTRAINTS ac
 	where ac.OWNER = ai.OWNER and ac.INDEX_NAME = ai.INDEX_NAME and ac.CONSTRAINT_TYPE in ('P', 'U')
@@ -132,6 +144,10 @@ where ac.OWNER in {inValues}
   and ac.CONSTRAINT_TYPE = 'C'
   and ac.GENERATED = 'USER NAME'
   and ac.SEARCH_CONDITION_VC is not null
+  and not exists (
+	select 1 from ALL_VIEWS v
+	where v.OWNER = ac.OWNER and v.VIEW_NAME = ac.TABLE_NAME
+  )
 order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 ;
 			""";
