@@ -322,13 +322,13 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 			while (srs.next()) {
 				String schemaName = srs.getString("SCHEMA_NAME");
 				String sequenceName = srs.getString("SEQUENCE_NAME");
-				Long startValue = rsHelper.getLong("START_VALUE");
-				Long minValue = rsHelper.getLong("MIN_VALUE");
-				Long maxValue = rsHelper.getLong("MAX_VALUE");
-				Long incrementBy = rsHelper.getLong("INCREMENT_BY");
+				Long startValue = rsHelper.getLongClamped("START_VALUE");
+				Long minValue = rsHelper.getLongClamped("MIN_VALUE");
+				Long maxValue = rsHelper.getLongClamped("MAX_VALUE");
+				Long incrementBy = rsHelper.getLongClamped("INCREMENT_BY");
 				boolean cycle = srs.getBoolean("CYCLE");
-				Long cacheSize = rsHelper.getLong("CACHE_SIZE");
-				Long lastValue = rsHelper.getLong("LAST_VALUE");
+				Long cacheSize = rsHelper.getLongClamped("CACHE_SIZE");
+				Long lastValue = rsHelper.getLongClamped("LAST_VALUE");
 				DbSequence seq = DbSequence.builder()
 					.schema(schemaName)
 					.name(sequenceName)
