@@ -6,7 +6,8 @@ public enum DatasourceType implements KeyValuePair{
 	MYSQL("MySql", "mysql", 3306, ""),
 	POSTGRES("Postgres", "postgresql", 5432, "public"),
 	SQLSERVER("Sqlserver", "sqlserver", 1433, "dbo"),
-	MONGODB("MongoDB", "mongodb", 27017, "")
+	MONGODB("MongoDB", "mongodb", 27017, ""),
+	ORACLE("Oracle", "oracle", 1521, "")
 	;
 	private String val;
 	@Getter

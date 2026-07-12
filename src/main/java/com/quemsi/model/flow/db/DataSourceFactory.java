@@ -14,6 +14,7 @@ import com.quemsi.model.flow.db.mongodb.DatasourceFactoryMongo;
 import com.quemsi.model.flow.db.mysql.DataSourceFactoryMySql;
 import com.quemsi.model.flow.db.postgres.DatasourceFactoryPostgres;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.oracle.DatasourceFactoryOracle;
 import com.quemsi.model.flow.db.sqlserver.DatasourceFactorySqlserver;
 
 public interface DataSourceFactory {
@@ -54,6 +55,8 @@ public interface DataSourceFactory {
 			return new DatasourceFactorySqlserver();
 		} else if(DatasourceType.MONGODB.equals(type)) {
 			return new DatasourceFactoryMongo();
+		} else if(DatasourceType.ORACLE.equals(type)) {
+			return new DatasourceFactoryOracle();
 		} else{
 			throw Exceptions.server("invalid-datasource-type").withExtra("type", type).get();
 		}

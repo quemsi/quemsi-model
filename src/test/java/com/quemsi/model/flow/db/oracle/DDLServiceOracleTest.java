@@ -1,0 +1,349 @@
+package com.quemsi.model.flow.db.oracle;
+
+import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
+import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.hasSize;
+import static org.hamcrest.Matchers.is;
+
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+
+import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
+import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
+import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
+import com.quemsi.model.flow.db.sql.DbSequence;
+import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbIndexDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbModelDiff;
+import com.quemsi.model.flow.db.sql.diff.DbSequenceDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbTableDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DiffOpType;
+
+public class DDLServiceOracleTest {
+	private DDLServiceOracle ddlService;
+	private AtomicInteger ordinalSequence = new AtomicInteger(1);
+
+	@BeforeEach
+	public void setUp() {
+		ddlService = new DDLServiceOracle();
+	}
+
+	@Test
+	public void givenEmptyDiff_whenDdlFrom_thenReturnEmptyList() {
+		DbModelDiff diff = new DbModelDiff();
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+		assertThat(statements, is(empty()));
+	}
+
+	@Test
+	public void givenNullDiff_whenDdlFrom_thenReturnEmptyList() {
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(null, dbModel);
+		assertThat(statements, is(empty()));
+	}
+
+	@Test
+	public void givenTableCreateOperation_whenDdlFrom_thenReturnCreateTableStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		DbTable table = createTable("HR", "EMPLOYEES");
+		table.addColumn(createColumn("ID", "NUMBER", false, null, 10, 0));
+		table.addColumn(createColumn("NAME", "VARCHAR2", true, 100, null, null));
+
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.EMPLOYEES")
+			.newTable(table)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CREATE TABLE HR.EMPLOYEES"));
+		assertThat(statements.get(0), containsString("ID"));
+		assertThat(statements.get(0), containsString("NAME"));
+		assertThat(statements.get(0), containsString("VARCHAR2(100)"));
+	}
+
+	@Test
+	public void givenTableDropOperation_whenDdlFrom_thenReturnDropTableStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		DbTable table = createTable("HR", "OLD_TABLE");
+
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.DROP)
+			.qualifiedName("HR.OLD_TABLE")
+			.oldTable(table)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), equalTo("DROP TABLE HR.OLD_TABLE PURGE;"));
+	}
+
+	@Test
+	public void givenColumnCreateOperation_whenDdlFrom_thenReturnAddColumnStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		DbColumn column = createColumn("EMAIL", "VARCHAR2", false, 50, null, null);
+
+		diff.getOperations().add(DbColumnDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.EMPLOYEES.EMAIL")
+			.tableQualifiedName("HR.EMPLOYEES")
+			.columnName("EMAIL")
+			.newColumn(column)
+			.build());
+
+		DbModel dbModel = createDbModelWithTable("HR", "EMPLOYEES");
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("ALTER TABLE HR.EMPLOYEES ADD"));
+		assertThat(statements.get(0), containsString("EMAIL"));
+		assertThat(statements.get(0), containsString("VARCHAR2(50)"));
+		assertThat(statements.get(0), containsString("NOT NULL"));
+	}
+
+	@Test
+	public void givenColumnDropOperation_whenDdlFrom_thenReturnDropColumnStatement() {
+		DbModelDiff diff = new DbModelDiff();
+
+		diff.getOperations().add(DbColumnDiffOp.builder()
+			.opType(DiffOpType.DROP)
+			.qualifiedName("HR.EMPLOYEES.OLD_COL")
+			.tableQualifiedName("HR.EMPLOYEES")
+			.columnName("OLD_COL")
+			.oldColumn(createColumn("OLD_COL", "VARCHAR2", true, 50, null, null))
+			.build());
+
+		DbModel dbModel = createDbModelWithTable("HR", "EMPLOYEES");
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), equalTo("ALTER TABLE HR.EMPLOYEES DROP COLUMN \"OLD_COL\";"));
+	}
+
+	@Test
+	public void givenColumnModifyTypeOperation_whenDdlFrom_thenReturnAlterColumnTypeStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		DbColumn oldColumn = createColumn("NAME", "VARCHAR2", true, 50, null, null);
+		DbColumn newColumn = createColumn("NAME", "VARCHAR2", true, 100, null, null);
+
+		diff.getOperations().add(DbColumnDiffOp.builder()
+			.opType(DiffOpType.MODIFY)
+			.qualifiedName("HR.EMPLOYEES.NAME")
+			.tableQualifiedName("HR.EMPLOYEES")
+			.columnName("NAME")
+			.oldColumn(oldColumn)
+			.newColumn(newColumn)
+			.build());
+
+		DbModel dbModel = createDbModelWithTable("HR", "EMPLOYEES");
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("ALTER TABLE HR.EMPLOYEES MODIFY"));
+		assertThat(statements.get(0), containsString("VARCHAR2(100)"));
+	}
+
+	@Test
+	public void givenForeignKeyCreateOperation_whenDdlFrom_thenReturnAddForeignKeyStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		ReferenceInfo ref = ReferenceInfo.builder()
+			.constraintName("FK_EMP_DEPT")
+			.srcSchema("HR")
+			.srcTableName("EMPLOYEES")
+			.srcColumnName("DEPT_ID")
+			.refSchema("HR")
+			.refTableName("DEPARTMENTS")
+			.refColumnName("ID")
+			.build();
+
+		diff.getOperations().add(DbForeignKeyDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("FK_EMP_DEPT")
+			.newReference(ref)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("ALTER TABLE HR.EMPLOYEES ADD CONSTRAINT"));
+		assertThat(statements.get(0), containsString("FOREIGN KEY"));
+		assertThat(statements.get(0), containsString("REFERENCES HR.DEPARTMENTS"));
+	}
+
+	@Test
+	public void givenUniqueConstraintCreateOperation_whenDdlFrom_thenReturnAddUniqueConstraintStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		ContraintInfo constraint = ContraintInfo.builder()
+			.constraintName("UK_EMAIL")
+			.schema("HR")
+			.tableName("EMPLOYEES")
+			.columnName("EMAIL")
+			.build();
+
+		diff.getOperations().add(DbUniqueConstraintDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("UK_EMAIL")
+			.newConstraint(constraint)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("ALTER TABLE HR.EMPLOYEES ADD CONSTRAINT"));
+		assertThat(statements.get(0), containsString("UNIQUE"));
+		assertThat(statements.get(0), containsString("EMAIL"));
+	}
+
+	@Test
+	public void givenCheckConstraintCreateOperation_whenDdlFrom_thenReturnAddCheckConstraintStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		CheckConstraint constraint = CheckConstraint.builder()
+			.schema("HR")
+			.tableName("EMPLOYEES")
+			.constraintName("CK_SALARY")
+			.condef("(SALARY > 0)")
+			.build();
+
+		diff.getOperations().add(DbCheckConstraintDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("CK_SALARY")
+			.newConstraint(constraint)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("ALTER TABLE HR.EMPLOYEES ADD CONSTRAINT"));
+		assertThat(statements.get(0), containsString("CHECK (SALARY > 0)"));
+	}
+
+	@Test
+	public void givenIndexCreateOperation_whenDdlFrom_thenReturnCreateIndexStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		IndexInfo index = new IndexInfo("HR", "EMPLOYEES", "IDX_EMAIL", true, "NORMAL");
+		index.getColumns().add("EMAIL");
+
+		diff.getOperations().add(DbIndexDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("IDX_EMAIL")
+			.tableQualifiedName("HR.EMPLOYEES")
+			.newIndex(index)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CREATE UNIQUE INDEX IDX_EMAIL"));
+		assertThat(statements.get(0), containsString("ON HR.EMPLOYEES"));
+		assertThat(statements.get(0), containsString("EMAIL"));
+	}
+
+	@Test
+	public void givenSequenceCreateOperation_whenDdlFrom_thenReturnCreateSequenceStatement() {
+		DbModelDiff diff = new DbModelDiff();
+		DbSequence seq = DbSequence.builder()
+			.schema("HR")
+			.name("SEQ_EMP")
+			.incrementBy(1L)
+			.minValue(1L)
+			.maxValue(1000L)
+			.startValue(1L)
+			.cycle(false)
+			.cacheSize(20L)
+			.build();
+
+		diff.getOperations().add(DbSequenceDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.SEQ_EMP")
+			.newSequence(seq)
+			.build());
+
+		DbModel dbModel = createEmptyDbModel();
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CREATE SEQUENCE HR.SEQ_EMP"));
+		assertThat(statements.get(0), containsString("INCREMENT BY 1"));
+		assertThat(statements.get(0), containsString("MINVALUE 1"));
+		assertThat(statements.get(0), containsString("MAXVALUE 1000"));
+		assertThat(statements.get(0), containsString("NOCYCLE"));
+	}
+
+	@Test
+	public void givenMultipleOperations_whenDdlFrom_thenReturnAllStatements() {
+		DbModelDiff diff = new DbModelDiff();
+
+		DbTable table = createTable("HR", "OLD_TABLE");
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.DROP)
+			.qualifiedName("HR.OLD_TABLE")
+			.oldTable(table)
+			.build());
+
+		DbColumn column = createColumn("EMAIL", "VARCHAR2", true, 100, null, null);
+		diff.getOperations().add(DbColumnDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.EMPLOYEES.EMAIL")
+			.tableQualifiedName("HR.EMPLOYEES")
+			.columnName("EMAIL")
+			.newColumn(column)
+			.build());
+
+		DbModel dbModel = createDbModelWithTable("HR", "EMPLOYEES");
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(2));
+		assertThat(statements.get(0), containsString("DROP TABLE"));
+		assertThat(statements.get(1), containsString("ADD"));
+	}
+
+	private DbModel createEmptyDbModel() {
+		return new DbModel();
+	}
+
+	private DbModel createDbModelWithTable(String schema, String tableName) {
+		DbModel dbModel = new DbModel();
+		DbTable table = createTable(schema, tableName);
+		dbModel.getTables().put(table.qualifiedName(), table);
+		return dbModel;
+	}
+
+	private DbTable createTable(String schema, String name) {
+		return new DbTable(schema, name);
+	}
+
+	private DbColumn createColumn(String name, String type, boolean nullable, Integer maxLength, Integer precision, Integer scale) {
+		return DbColumn.builder()
+			.name(name)
+			.dataType(type)
+			.columnType(type)
+			.nullable(nullable)
+			.maxLength(maxLength)
+			.numPrecision(precision)
+			.numScale(scale)
+			.ordinalPosition(ordinalSequence.getAndIncrement())
+			.build();
+	}
+}
