@@ -9,6 +9,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -140,6 +141,9 @@ offset ? rows fetch next ? rows only
 
 	private Object readColumnValue(ResultSet rs, String columnName, DbColumn column) throws SQLException {
 		Object val = rs.getObject(columnName);
+		if (val == null || rs.wasNull()) {
+			return null;
+		}
 		if (val instanceof Blob blob) {
 			try (InputStream is = blob.getBinaryStream()) {
 				byte[] data = readAllBytes(is);
@@ -151,8 +155,29 @@ offset ? rows fetch next ? rows only
 			} catch (Exception e) {
 				throw Exceptions.server("unable-to-read-blob").withExtra("column", columnName).withCause(e).get();
 			}
-		} else if (val instanceof Clob clob) {
+		}
+		if (val instanceof Clob clob) {
 			return clob.getSubString(1, (int) clob.length());
+		}
+		return normalizeJdbcValue(val, rs, columnName);
+	}
+
+	private Object normalizeJdbcValue(Object val, ResultSet rs, String columnName) throws SQLException {
+		String className = val.getClass().getName();
+		if (className.startsWith("oracle.sql.")) {
+			if (className.contains("TIMESTAMP") || "oracle.sql.DATE".equals(className)) {
+				return rs.getTimestamp(columnName);
+			}
+			if ("oracle.sql.INTERVALDS".equals(className) || "oracle.sql.INTERVALYM".equals(className)) {
+				return val.toString();
+			}
+			if ("oracle.sql.RAW".equals(className)) {
+				return rs.getBytes(columnName);
+			}
+			return val.toString();
+		}
+		if (val instanceof java.util.Date && !(val instanceof java.sql.Date) && !(val instanceof java.sql.Timestamp)) {
+			return new java.sql.Timestamp(((java.util.Date) val).getTime());
 		}
 		return val;
 	}
@@ -205,6 +230,12 @@ offset ? rows fetch next ? rows only
 						ps.setBytes(i + 1, serializedColumn.getData());
 					} else if ("BLOB".equalsIgnoreCase(c.getColumnType()) && value instanceof String encodedStr) {
 						ps.setBytes(i + 1, Base64.getDecoder().decode(encodedStr));
+					} else if (value instanceof Timestamp timestamp) {
+						ps.setTimestamp(i + 1, timestamp);
+					} else if (value instanceof java.sql.Date date) {
+						ps.setDate(i + 1, date);
+					} else if (value instanceof java.sql.Time time) {
+						ps.setTime(i + 1, time);
 					} else {
 						ps.setObject(i + 1, value);
 					}

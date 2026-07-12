@@ -126,12 +126,12 @@ where s.SEQUENCE_OWNER in {inValues}
 	private static final String SQL_FOR_CHECK_CONSTRAINTS = """
 select
 	ac.OWNER as table_schema, ac.TABLE_NAME as table_name, ac.CONSTRAINT_NAME,
-	cc.SEARCH_CONDITION as condef
+	ac.SEARCH_CONDITION_VC as condef
 from ALL_CONSTRAINTS ac
-join ALL_CHECK_CONSTRAINTS cc on ac.OWNER = cc.OWNER and ac.CONSTRAINT_NAME = cc.CONSTRAINT_NAME
 where ac.OWNER in {inValues}
   and ac.CONSTRAINT_TYPE = 'C'
   and ac.GENERATED = 'USER NAME'
+  and ac.SEARCH_CONDITION_VC is not null
 order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 ;
 			""";
