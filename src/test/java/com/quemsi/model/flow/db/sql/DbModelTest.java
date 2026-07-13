@@ -314,4 +314,49 @@ public class DbModelTest {
         assertThat(dbModel.getCircularIgnore().size(), equalTo(2));
     }
 
+    @Test
+    public void givenHrEmployeesDepartmentsCycleWhenOrderedThenEmployeesBeforeDepartments(){
+        DbModel dbModel = new DbModel();
+
+        DbTable jobs = dbModel.crateIfAbsent("JOBS", "HR");
+        DbColumn jobId = jobs.addColumn(DbColumn.builder().name("JOB_ID").dataType("VARCHAR2").build());
+        jobs.getPkColumnNames().add("JOB_ID");
+
+        DbTable locations = dbModel.crateIfAbsent("LOCATIONS", "HR");
+        DbColumn locationId = locations.addColumn(DbColumn.builder().name("LOCATION_ID").dataType("NUMBER").build());
+        locations.getPkColumnNames().add("LOCATION_ID");
+
+        DbTable employees = dbModel.crateIfAbsent("EMPLOYEES", "HR");
+        DbColumn employeeId = employees.addColumn(DbColumn.builder().name("EMPLOYEE_ID").dataType("NUMBER").build());
+        DbColumn empJobId = employees.addColumn(DbColumn.builder().name("JOB_ID").dataType("VARCHAR2").build());
+        DbColumn empDeptId = employees.addColumn(DbColumn.builder().name("DEPARTMENT_ID").dataType("NUMBER").build());
+        DbColumn managerId = employees.addColumn(DbColumn.builder().name("MANAGER_ID").dataType("NUMBER").build());
+        employees.getPkColumnNames().add("EMPLOYEE_ID");
+
+        DbTable departments = dbModel.crateIfAbsent("DEPARTMENTS", "HR");
+        DbColumn departmentId = departments.addColumn(DbColumn.builder().name("DEPARTMENT_ID").dataType("NUMBER").build());
+        DbColumn deptMgrId = departments.addColumn(DbColumn.builder().name("MANAGER_ID").dataType("NUMBER").build());
+        DbColumn deptLocId = departments.addColumn(DbColumn.builder().name("LOCATION_ID").dataType("NUMBER").build());
+        departments.getPkColumnNames().add("DEPARTMENT_ID");
+
+        dbModel.setReferenceInfos(List.of(
+            ReferenceInfo.builder().constraintName("EMP_JOB_FK").srcSchema("HR").srcTableName("EMPLOYEES").srcColumnName(empJobId.getName()).refSchema("HR").refTableName("JOBS").refColumnName(jobId.getName()).build(),
+            ReferenceInfo.builder().constraintName("EMP_DEPT_FK").srcSchema("HR").srcTableName("EMPLOYEES").srcColumnName(empDeptId.getName()).refSchema("HR").refTableName("DEPARTMENTS").refColumnName(departmentId.getName()).build(),
+            ReferenceInfo.builder().constraintName("EMP_MANAGER_FK").srcSchema("HR").srcTableName("EMPLOYEES").srcColumnName(managerId.getName()).refSchema("HR").refTableName("EMPLOYEES").refColumnName(employeeId.getName()).build(),
+            ReferenceInfo.builder().constraintName("DEPT_MGR_FK").srcSchema("HR").srcTableName("DEPARTMENTS").srcColumnName(deptMgrId.getName()).refSchema("HR").refTableName("EMPLOYEES").refColumnName(employeeId.getName()).build(),
+            ReferenceInfo.builder().constraintName("DEPT_LOC_FK").srcSchema("HR").srcTableName("DEPARTMENTS").srcColumnName(deptLocId.getName()).refSchema("HR").refTableName("LOCATIONS").refColumnName(locationId.getName()).build()
+        ));
+
+        dbModel.build();
+
+        assertThat(dbModel.getCircularIgnore().isEmpty(), equalTo(false));
+        assertThat(dbModel.getCircularIgnore().stream().anyMatch(r -> "EMP_MANAGER_FK".equals(r.getConstraintName())), equalTo(true));
+
+        List<String> ordered = dbModel.orderedTableNames();
+        assertThat(ordered.contains("HR.EMPLOYEES"), equalTo(true));
+        assertThat(ordered.contains("HR.DEPARTMENTS"), equalTo(true));
+        assertThat(ordered.indexOf("HR.JOBS") < ordered.indexOf("HR.EMPLOYEES"), equalTo(true));
+        assertThat(ordered.indexOf("HR.LOCATIONS") < ordered.indexOf("HR.DEPARTMENTS"), equalTo(true));
+    }
+
 }

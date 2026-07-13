@@ -291,6 +291,9 @@ public class DDLServiceSqlserver implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
+					if(dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)){
+						continue;
+					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ");
 					appendBracketQuoted(sb, ref.getConstraintName());
@@ -369,6 +372,11 @@ public class DDLServiceSqlserver implements DDLService{
 						scripts.add(indBuilder);
 					}
 				};
+			}
+		}
+		if(dbModel.getCircularIgnore() != null){
+			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
+				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
 			}
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){

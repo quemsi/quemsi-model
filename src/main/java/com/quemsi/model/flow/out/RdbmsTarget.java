@@ -5,6 +5,7 @@ import java.nio.charset.Charset;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
@@ -30,6 +31,7 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.in.TableData;
 import com.quemsi.model.util.CommonConstants;
 import com.quemsi.model.util.CommonHelpers;
@@ -90,7 +92,7 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.createTables(dbModel);
 
                 ddlService.disableConstraints(dbModel.getCircularIgnore());
-                List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool, context))
+                List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool, context, dbModel.getCircularIgnore()))
                     .map(t -> {
                         taskRegistry.put(t.getTable().qualifiedName(), new CompletableFuture<>());
                         ForkJoinTask<Boolean> task = pool.submit(t);
@@ -146,19 +148,25 @@ public class RdbmsTarget extends AbstractStorage{
         private Map<String, DataPackage> namedPackages;
         private ForkJoinPool forkJoinPool;
         private FlowContext context;
+        private Set<ReferenceInfo> circularIgnore;
 
-        public RdmsRestoreTask(DbTable table, Map<String, DataPackage> namedPackages, ForkJoinPool forkJoinPool, FlowContext context){
+        public RdmsRestoreTask(DbTable table, Map<String, DataPackage> namedPackages, ForkJoinPool forkJoinPool, FlowContext context, Set<ReferenceInfo> circularIgnore){
             this.table = table;
             this.namedPackages = namedPackages;
             this.forkJoinPool = forkJoinPool;
             this.context = context;
+            this.circularIgnore = circularIgnore != null ? circularIgnore : Set.of();
         }
 
         @Override
         public Boolean call() throws Exception {
             try{
                 CompletableFuture<Object> future = taskRegistry.get(table.qualifiedName());
-                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} will wait for [{}] {}", table.qualifiedName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.refQualifiedName()).toList()));
+                List<ReferenceInfo> restoreDeps = table.getReferences().stream()
+                    .filter(r -> !table.qualifiedName().equals(r.refQualifiedName()))
+                    .filter(r -> !circularIgnore.contains(r))
+                    .toList();
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} will wait for [{}] {}", table.qualifiedName(), restoreDeps.size(), restoreDeps.stream().map(t -> t.refQualifiedName()).toList()));
                 String fileName = CommonHelpers.dataFileName(table.qualifiedName());
                 if(!namedPackages.containsKey(fileName)){
                     context.logStepError(context.getCurrentStep(), "unable to find data file " + fileName);
@@ -166,7 +174,7 @@ public class RdbmsTarget extends AbstractStorage{
                 }
                 
                 /* Wait for dependencies with timeout and cancellation support */
-                for(var tr : table.getReferences().stream().filter(r -> !table.qualifiedName().equals(r.refQualifiedName())).toList()) {
+                for(var tr : restoreDeps) {
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} waiting for {}", table.qualifiedName(), tr.refQualifiedName()));
                     boolean dependency = false;
                     while(!dependency){

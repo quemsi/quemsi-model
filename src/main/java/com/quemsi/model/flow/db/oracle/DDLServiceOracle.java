@@ -308,6 +308,9 @@ public class DDLServiceOracle implements DDLService {
 			}
 			if (tableReferences.containsKey(tableName)) {
 				for (ReferenceInfo ref : tableReferences.get(tableName)) {
+					if (isCircularIgnored(dbModel, ref)) {
+						continue;
+					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ");
 					appendQuoted(sb, ref.getConstraintName());
@@ -348,6 +351,13 @@ public class DDLServiceOracle implements DDLService {
 					commentSb.append(" IS ").append(sqlStringLiteral(c.getComment()));
 					scripts.add(commentSb);
 				}
+			}
+		}
+		if (dbModel.getCircularIgnore() != null) {
+			for (ReferenceInfo ref : dbModel.getCircularIgnore()) {
+				String fkSql = generateAddForeignKeySql(ref);
+				log.info("deferred circular FK for {} : {}", ref.srcQualifiedName(), fkSql);
+				scripts.add(new StringBuilder(fkSql));
 			}
 		}
 		for (ContraintInfo contraintInfo : dbModel.getContraintInfos()) {
@@ -479,6 +489,9 @@ public class DDLServiceOracle implements DDLService {
 		}
 		if (tableReferences.containsKey(tableName)) {
 			for (ReferenceInfo ref : tableReferences.get(tableName)) {
+				if (isCircularIgnored(dbModel, ref)) {
+					continue;
+				}
 				sb.append(",").append(System.lineSeparator())
 					.append("  CONSTRAINT ");
 				appendQuoted(sb, ref.getConstraintName());
@@ -491,6 +504,10 @@ public class DDLServiceOracle implements DDLService {
 		}
 		sb.append(System.lineSeparator()).append(")");
 		return sb.toString();
+	}
+
+	private boolean isCircularIgnored(DbModel dbModel, ReferenceInfo ref) {
+		return dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref);
 	}
 
 	private void appendColumnList(StringBuilder sb, Iterable<String> columnNames) {

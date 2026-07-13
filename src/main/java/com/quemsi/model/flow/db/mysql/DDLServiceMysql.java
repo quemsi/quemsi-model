@@ -200,6 +200,9 @@ public class DDLServiceMysql implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
+					if(dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)){
+						continue;
+					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ");
 					appendBacktickQuoted(sb, ref.getConstraintName());
@@ -227,6 +230,11 @@ public class DDLServiceMysql implements DDLService{
 			sb.append(System.lineSeparator()).append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
+		}
+		if(dbModel.getCircularIgnore() != null){
+			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
+				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
+			}
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ");

@@ -216,6 +216,9 @@ public class DDLServicePostgres implements DDLService{
 				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
 				while(refIt.hasNext()){
 					ReferenceInfo ref = refIt.next();
+					if(dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)){
+						continue;
+					}
 					sb.append(",").append(System.lineSeparator())
 						.append("  CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" FOREIGN KEY (");
                     Iterator<String> cIt = ref.getSrcColumnNames().iterator();
@@ -267,6 +270,11 @@ public class DDLServicePostgres implements DDLService{
 				};
 			}
 			
+		}
+		if(dbModel.getCircularIgnore() != null){
+			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
+				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
+			}
 		}
         for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
             StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(contraintInfo.getConstraintName()).append("\"").append(" UNIQUE").append(" (");

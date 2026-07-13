@@ -412,6 +412,54 @@ public class DDLServiceOracleTest {
 		assertThat(statements.get(1), containsString("ADD"));
 	}
 
+	@Test
+	public void givenCircularFk_whenGenerateCreateTableViaDdlFrom_thenOmitCircularFkFromCreate() {
+		DbTable employees = createTable("HR", "EMPLOYEES");
+		employees.addColumn(createColumn("EMPLOYEE_ID", "NUMBER", false, null, 6, 0));
+		employees.addColumn(createColumn("DEPARTMENT_ID", "NUMBER", true, null, 4, 0));
+		employees.getPkColumnNames().add("EMPLOYEE_ID");
+		employees.setPkConstraintName("EMP_EMP_ID_PK");
+
+		ReferenceInfo circularFk = ReferenceInfo.builder()
+			.constraintName("EMP_DEPT_FK")
+			.srcSchema("HR")
+			.srcTableName("EMPLOYEES")
+			.srcColumnName("DEPARTMENT_ID")
+			.refSchema("HR")
+			.refTableName("DEPARTMENTS")
+			.refColumnName("DEPARTMENT_ID")
+			.build();
+		ReferenceInfo acyclicFk = ReferenceInfo.builder()
+			.constraintName("EMP_JOB_FK")
+			.srcSchema("HR")
+			.srcTableName("EMPLOYEES")
+			.srcColumnName("JOB_ID")
+			.refSchema("HR")
+			.refTableName("JOBS")
+			.refColumnName("JOB_ID")
+			.build();
+
+		DbModel dbModel = createEmptyDbModel();
+		dbModel.getReferenceInfos().add(circularFk);
+		dbModel.getReferenceInfos().add(acyclicFk);
+		dbModel.getCircularIgnore().add(circularFk);
+
+		DbModelDiff diff = new DbModelDiff();
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.EMPLOYEES")
+			.newTable(employees)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CREATE TABLE HR.EMPLOYEES"));
+		assertThat(statements.get(0), containsString("EMP_JOB_FK"));
+		assertThat(statements.get(0), not(containsString("EMP_DEPT_FK")));
+		assertThat(statements.get(0), not(containsString("REFERENCES HR.DEPARTMENTS")));
+	}
+
 	private DbModel createEmptyDbModel() {
 		return new DbModel();
 	}
