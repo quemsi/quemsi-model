@@ -15,6 +15,13 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -41,6 +48,24 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 public class DMLServiceOracle implements DMLService {
 	private static final Set<String> BINARY_COLUMN_TYPES = Set.of("BLOB", "RAW", "LONG RAW");
+	private static final Set<String> TEMPORAL_COLUMN_TYPES = Set.of(
+		"DATE", "TIMESTAMP", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITH LOCAL TIME ZONE"
+	);
+	private static final DateTimeFormatter BACKUP_DATE_TIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+	private static final DateTimeFormatter BACKUP_DATE_TIME_FORMAT_NO_MILLIS = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+	private static final DateTimeFormatter FLEXIBLE_LOCAL_DATE_TIME = new DateTimeFormatterBuilder()
+		.append(DateTimeFormatter.ISO_LOCAL_DATE)
+		.optionalStart()
+		.appendLiteral('T')
+		.optionalEnd()
+		.optionalStart()
+		.appendLiteral(' ')
+		.optionalEnd()
+		.optionalStart()
+		.appendPattern("HH:mm:ss")
+		.appendFraction(ChronoField.NANO_OF_SECOND, 0, 9, true)
+		.optionalEnd()
+		.toFormatter();
 	private static final String GET_TABLE_DATA_PAGE_FORMAT = """
 select * from %s
 order by %s
@@ -87,7 +112,10 @@ offset ? rows fetch next ? rows only
 			TableDataPage page = new TableDataPage();
 			page.setRequest(request);
 			List<String> pkColumnNames = new ArrayList<>(request.getTable().getPkColumnNames());
-			List<String> allColumnNames = new ArrayList<>(request.getTable().columnNames());
+			List<String> allColumnNames = new ArrayList<>();
+			for (DbColumn column : request.getTable().orderedColumns()) {
+				allColumnNames.add(column.getName());
+			}
 			int numberOfColumns = allColumnNames.size();
 			if (CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())) {
 				pkColumnNames = List.of("ROWNUM");
@@ -233,6 +261,10 @@ offset ? rows fetch next ? rows only
 			ps.setBytes(parameterIndex, decodeBinaryData(value));
 			return;
 		}
+		if (isTemporalColumn(column)) {
+			setTemporalValue(ps, parameterIndex, value);
+			return;
+		}
 		if (value instanceof Timestamp timestamp) {
 			ps.setTimestamp(parameterIndex, timestamp);
 		} else if (value instanceof java.sql.Date date) {
@@ -254,6 +286,95 @@ offset ? rows fetch next ? rows only
 		} else {
 			ps.setObject(parameterIndex, value);
 		}
+	}
+
+	private void setTemporalValue(PreparedStatement ps, int parameterIndex, Object value) throws SQLException {
+		if (value == null) {
+			ps.setNull(parameterIndex, Types.TIMESTAMP);
+			return;
+		}
+		Timestamp timestamp = toTimestamp(value);
+		if (timestamp == null) {
+			ps.setNull(parameterIndex, Types.TIMESTAMP);
+			return;
+		}
+		ps.setTimestamp(parameterIndex, timestamp);
+	}
+
+	private Timestamp toTimestamp(Object value) {
+		if (value instanceof Timestamp timestamp) {
+			return timestamp;
+		}
+		if (value instanceof java.sql.Date date) {
+			return new Timestamp(date.getTime());
+		}
+		if (value instanceof java.util.Date date) {
+			return new Timestamp(date.getTime());
+		}
+		if (value instanceof LocalDateTime localDateTime) {
+			return Timestamp.valueOf(localDateTime);
+		}
+		if (value instanceof LocalDate localDate) {
+			return Timestamp.valueOf(localDate.atStartOfDay());
+		}
+		if (value instanceof Instant instant) {
+			return Timestamp.from(instant);
+		}
+		if (value instanceof Number number) {
+			return new Timestamp(number.longValue());
+		}
+		if (value instanceof String str) {
+			String trimmed = str.trim();
+			if (trimmed.isEmpty()) {
+				return null;
+			}
+			return parseTimestamp(trimmed);
+		}
+		throw Exceptions.server("invalid-timestamp-value")
+			.withExtra("dataType", value.getClass().getName())
+			.withExtra("value", value)
+			.get();
+	}
+
+	private boolean isTemporalColumn(DbColumn column) {
+		if (column == null) {
+			return false;
+		}
+		return isTemporalType(column.getDataType()) || isTemporalType(column.getColumnType());
+	}
+
+	private boolean isTemporalType(String type) {
+		if (type == null) {
+			return false;
+		}
+		String normalized = type.toUpperCase();
+		return TEMPORAL_COLUMN_TYPES.contains(normalized) || normalized.startsWith("TIMESTAMP");
+	}
+
+	private Timestamp parseTimestamp(String value) {
+		try {
+			return Timestamp.valueOf(LocalDateTime.parse(value, FLEXIBLE_LOCAL_DATE_TIME));
+		} catch (DateTimeParseException ignored) {
+		}
+		try {
+			return Timestamp.valueOf(LocalDateTime.parse(value, BACKUP_DATE_TIME_FORMAT));
+		} catch (DateTimeParseException ignored) {
+		}
+		try {
+			return Timestamp.valueOf(LocalDateTime.parse(value, BACKUP_DATE_TIME_FORMAT_NO_MILLIS));
+		} catch (DateTimeParseException ignored) {
+		}
+		try {
+			return Timestamp.valueOf(LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay());
+		} catch (DateTimeParseException ignored) {
+		}
+		if (value.length() >= 19 && value.charAt(10) == ' ') {
+			try {
+				return Timestamp.valueOf(value);
+			} catch (IllegalArgumentException ignored) {
+			}
+		}
+		throw Exceptions.server("invalid-timestamp-format").withExtra("value", value).get();
 	}
 
 	private boolean isDeserializedBinaryColumn(DbColumn column, Map<?, ?> mapValue) {
@@ -308,12 +429,13 @@ offset ? rows fetch next ? rows only
 		try (Connection conn = dataSource.getConnection()) {
 			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
 			StringBuilder paramsBuilder = new StringBuilder("(");
+			DbColumn[] columns = table.orderedColumns();
 			int counter = 0;
-			for (String columnName : table.columnNames()) {
-				sqlBuilder.append(quoteIdentifier(columnName));
+			for (DbColumn column : columns) {
+				sqlBuilder.append(quoteIdentifier(column.getName()));
 				paramsBuilder.append("?");
 				counter++;
-				if (counter < table.columnNames().size()) {
+				if (counter < columns.length) {
 					sqlBuilder.append(", ");
 					paramsBuilder.append(", ");
 				}
@@ -322,11 +444,10 @@ offset ? rows fetch next ? rows only
 			sqlBuilder.append(") values ").append(paramsBuilder);
 			String insertSql = sqlBuilder.toString();
 			log.info("for {} insert sql :{}", table.getName(), insertSql);
-			DbColumn[] orderedColumns = table.orderedColumns();
 			PreparedStatement ps = conn.prepareStatement(insertSql);
 			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
-				for (int i = 0; i < orderedColumns.length; i++) {
-					setColumnValue(ps, i + 1, orderedColumns[i], e.getValue()[i]);
+				for (int i = 0; i < columns.length; i++) {
+					setColumnValue(ps, i + 1, columns[i], e.getValue()[i]);
 				}
 				ps.addBatch();
 			}));

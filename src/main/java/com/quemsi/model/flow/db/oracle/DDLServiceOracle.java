@@ -6,7 +6,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -16,7 +15,6 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DDLService;

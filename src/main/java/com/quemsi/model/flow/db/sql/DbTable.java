@@ -8,7 +8,6 @@ import java.util.LinkedList;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
@@ -76,7 +75,10 @@ public class DbTable {
         return Optional.ofNullable(columns.get(name));
     }
     public Set<String> columnNames(){
-        Set<String> result = new TreeSet<>(columns.keySet());
+        Set<String> result = new LinkedHashSet<>();
+        for (DbColumn column : orderedColumns()) {
+            result.add(column.getName());
+        }
         return result;
     }
     public void addReference(ReferenceInfo referenceInfo){

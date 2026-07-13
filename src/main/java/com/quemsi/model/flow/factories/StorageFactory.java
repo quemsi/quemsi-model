@@ -6,11 +6,11 @@ import java.util.function.Function;
 import org.springframework.beans.factory.annotation.Autowired;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.SqlParser;
 import com.quemsi.model.flow.out.MySqlDb;
+import com.quemsi.model.flow.TableDataObjectMapper;
 import com.quemsi.model.flow.out.RdbmsTarget;
 import com.quemsi.model.flow.out.Storage;
 
@@ -38,7 +38,7 @@ public class StorageFactory extends AbstractFactory<Storage>{
 			int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 10);
 			RdbmsTarget rdbmsTarget = new RdbmsTarget();
 			rdbmsTarget.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
-			rdbmsTarget.setObjectMapper(context.getBean(ObjectMapper.class));
+			rdbmsTarget.setObjectMapper(TableDataObjectMapper.create());
 			rdbmsTarget.setParallelism(parallelism);
 			return rdbmsTarget;
 		});

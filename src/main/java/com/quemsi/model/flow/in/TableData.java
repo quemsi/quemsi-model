@@ -4,12 +4,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CopyOnWriteArrayList;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
 @NoArgsConstructor
 @Data
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class TableData {
     public static final String FORMAT_TABULAR = "tabular";
     public static final String FORMAT_DOCUMENT = "document";
@@ -26,6 +30,7 @@ public class TableData {
         this.tableName = tableName;
     }
 
+    @JsonIgnore
     public boolean isDocumentFormat(){
         return FORMAT_DOCUMENT.equals(dataFormat);
     }
@@ -33,6 +38,7 @@ public class TableData {
     @AllArgsConstructor
     @NoArgsConstructor
     @Data
+    @JsonIgnoreProperties(ignoreUnknown = true)
     public static class DataPage {
         private int pageNum;
         private Map<Object, Object[]> data;
@@ -44,6 +50,7 @@ public class TableData {
             this.data = data;
         }
 
+        @JsonIgnore
         public int getSize(){
             if(documents != null){
                 return documents.size();
