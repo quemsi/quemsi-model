@@ -118,6 +118,22 @@ public class DDLServiceOracle implements DDLService {
 		}
 	}
 
+	public LinkedList<String> constraintNames(Set<String> schemas) {
+		try (PreparedStatement ps = conn.prepareStatement(CommonHelpers.addInParameter(DatasourceFactoryOracle.SQL_FOR_CONSTRAINT_NAMES, schemas.size()))) {
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
+			ResultSet rs = ps.executeQuery();
+			LinkedList<String> names = new LinkedList<>();
+			while (rs.next()) {
+				String schemaName = rs.getString("SCHEMA_NAME");
+				String constraintName = rs.getString("CONSTRAINT_NAME");
+				names.add(CommonHelpers.qualifiedName(schemaName, constraintName));
+			}
+			return names;
+		} catch (Exception e) {
+			throw Exceptions.server("unable-to-get-constraints").withCause(e).get();
+		}
+	}
+
 	@Override
 	public void disableConstraints(Set<ReferenceInfo> constraints) {
 		for (ReferenceInfo refInfo : constraints) {
@@ -304,6 +320,7 @@ public class DDLServiceOracle implements DDLService {
 			.collect(Collectors.groupingBy(ReferenceInfo::srcQualifiedName));
 		Map<String, Map<String, CheckConstraint>> namedNotNullByTable = namedNotNullConstraints(dbModel);
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
+		Set<String> existingConstraints = new HashSet<>(constraintNames(dbModel.getSchemas()));
 		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
 		if (!dbModel.getSequences().isEmpty()) {
 			for (DbSequence seq : dbModel.getSequences()) {
@@ -414,12 +431,20 @@ public class DDLServiceOracle implements DDLService {
 		}
 		if (dbModel.getCircularIgnore() != null) {
 			for (ReferenceInfo ref : dbModel.getCircularIgnore()) {
+				if (existingConstraints.contains(ref.qualifiedConstraintName())) {
+					log.info("circular FK {} already exists on {} skipping", ref.getConstraintName(), ref.srcQualifiedName());
+					continue;
+				}
 				String fkSql = generateAddForeignKeySql(ref);
 				log.info("deferred circular FK for {} : {}", ref.srcQualifiedName(), fkSql);
 				scripts.add(new StringBuilder(fkSql));
 			}
 		}
 		for (ContraintInfo contraintInfo : dbModel.getContraintInfos()) {
+			if (existingConstraints.contains(contraintInfo.qualifiedConstraintName())) {
+				log.info("unique constraint {} already exists on {} skipping", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
+				continue;
+			}
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ");
 			appendQuoted(sb, contraintInfo.getConstraintName());
 			sb.append(" UNIQUE (");
@@ -430,6 +455,10 @@ public class DDLServiceOracle implements DDLService {
 		}
 		for (CheckConstraint checkConstraint : dbModel.getCheckConstraints()) {
 			if (notNullColumnFromCheck(checkConstraint).isPresent()) {
+				continue;
+			}
+			if (existingConstraints.contains(checkConstraint.qualifiedConstraintName())) {
+				log.info("check constraint {} already exists on {} skipping", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName());
 				continue;
 			}
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ");

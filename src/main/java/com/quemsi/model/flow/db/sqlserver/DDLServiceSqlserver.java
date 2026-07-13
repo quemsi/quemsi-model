@@ -376,10 +376,18 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 		if(dbModel.getCircularIgnore() != null){
 			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
+				if(existingTables.contains(ref.srcQualifiedName())){
+					log.info("circular FK {} already exists on {} skipping", ref.getConstraintName(), ref.srcQualifiedName());
+					continue;
+				}
 				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
 			}
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
+			if(existingTables.contains(contraintInfo.qualifiedTableName())){
+				log.info("unique constraint {} already exists on {} skipping", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
+				continue;
+			}
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ");
 			appendBracketQuoted(sb, contraintInfo.getConstraintName());
 			sb.append(" UNIQUE").append(" (");
@@ -396,6 +404,10 @@ public class DDLServiceSqlserver implements DDLService{
 			scripts.add(sb);
 		}
 		for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
+			if(existingTables.contains(checkConstraint.qualifiedTableName())){
+				log.info("check constraint {} already exists on {} skipping", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName());
+				continue;
+			}
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" WITH CHECK ADD CONSTRAINT ");
 			appendBracketQuoted(sb, checkConstraint.getConstraintName());
 			sb.append(" CHECK ").append(checkConstraint.getCondef()).append(";");

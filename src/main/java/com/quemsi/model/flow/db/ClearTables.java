@@ -38,7 +38,10 @@ public class ClearTables extends AbstractStep {
                 if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
 					ddlService.disableConstraints(dbModel.getCircularIgnore());
 				}
-				dmlService.clearTables(tables.toArray(new String[tables.size()]));   
+				dmlService.clearTables(tables.toArray(new String[tables.size()]));
+				if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
+					ddlService.enableContraints(dbModel.getCircularIgnore());
+				}
             }
         }catch(Exception e) {
 			throw Exceptions.server("error-clearing-tables").withCause(e).get();

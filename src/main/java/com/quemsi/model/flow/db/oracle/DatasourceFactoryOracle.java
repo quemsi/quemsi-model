@@ -102,6 +102,13 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME, acc.POSITION
 ;
 			""";
 
+	public static final String SQL_FOR_CONSTRAINT_NAMES = """
+select ac.OWNER as schema_name, ac.CONSTRAINT_NAME as constraint_name
+from ALL_CONSTRAINTS ac
+where ac.OWNER in {inValues}
+;
+			""";
+
 	private static final String SQL_FOR_INDEXES = """
 select
 	ai.TABLE_OWNER as schema_name, ai.TABLE_NAME as table_name, ai.INDEX_NAME,
