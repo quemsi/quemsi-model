@@ -6,14 +6,19 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
@@ -48,6 +53,9 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @NoArgsConstructor
 public class DDLServiceOracle implements DDLService {
+	private static final Pattern NOT_NULL_CHECK_PATTERN = Pattern.compile(
+		"^\\(?\\s*\"?([A-Za-z0-9_$#]+)\"?\\s+IS\\s+NOT\\s+NULL\\s*\\)?$",
+		Pattern.CASE_INSENSITIVE);
 	private Connection conn;
 
 	@Override
@@ -55,7 +63,7 @@ public class DDLServiceOracle implements DDLService {
 		try {
 			Statement s = conn.createStatement();
 			for (String tableName : tableNames) {
-				s.addBatch("DROP TABLE " + tableName + " PURGE");
+				s.addBatch("DROP TABLE " + tableName + " CASCADE CONSTRAINTS PURGE");
 			}
 			s.executeBatch();
 			return true;
@@ -240,11 +248,61 @@ public class DDLServiceOracle implements DDLService {
 		return "(" + trimmed + ")";
 	}
 
+	/**
+	 * Oracle stores named NOT NULL constraints as CONSTRAINT_TYPE='C' with SEARCH_CONDITION
+	 * like {@code "COL" IS NOT NULL}. Restore them as column-level named NOT NULL to avoid
+	 * duplicate SYS_C* constraints from bare NOT NULL plus a CHECK rewrite.
+	 */
+	Optional<String> notNullColumnFromCheck(CheckConstraint checkConstraint) {
+		if (checkConstraint == null || checkConstraint.getCondef() == null) {
+			return Optional.empty();
+		}
+		Matcher matcher = NOT_NULL_CHECK_PATTERN.matcher(checkConstraint.getCondef().trim());
+		if (!matcher.matches()) {
+			return Optional.empty();
+		}
+		return Optional.of(matcher.group(1));
+	}
+
+	private Map<String, Map<String, CheckConstraint>> namedNotNullConstraints(DbModel dbModel) {
+		Map<String, Map<String, CheckConstraint>> byTable = new HashMap<>();
+		if (dbModel.getCheckConstraints() == null) {
+			return byTable;
+		}
+		for (CheckConstraint checkConstraint : dbModel.getCheckConstraints()) {
+			notNullColumnFromCheck(checkConstraint).ifPresent(columnName ->
+				byTable.computeIfAbsent(checkConstraint.qualifiedTableName(), key -> new HashMap<>())
+					.putIfAbsent(columnName.toUpperCase(Locale.ROOT), checkConstraint));
+		}
+		return byTable;
+	}
+
+	private void appendColumnNullability(StringBuilder sb, DbColumn column, CheckConstraint namedNotNull, boolean primaryKeyColumn) {
+		if (namedNotNull != null) {
+			sb.append(" CONSTRAINT ");
+			appendQuoted(sb, namedNotNull.getConstraintName());
+			sb.append(" NOT NULL");
+		} else if (!column.isNullable() && !primaryKeyColumn) {
+			// PK already enforces NOT NULL; bare NOT NULL would create a redundant SYS_C* constraint
+			sb.append(" NOT NULL");
+		}
+	}
+
+	private Set<String> primaryKeyColumnNamesUpper(DbTable table) {
+		if (table.getPkColumnNames() == null || table.getPkColumnNames().isEmpty()) {
+			return Set.of();
+		}
+		return table.getPkColumnNames().stream()
+			.map(name -> name.toUpperCase(Locale.ROOT))
+			.collect(Collectors.toSet());
+	}
+
 	@Override
 	public void createTables(DbModel dbModel) {
 		LinkedList<StringBuilder> scripts = new LinkedList<>();
 		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream()
 			.collect(Collectors.groupingBy(ReferenceInfo::srcQualifiedName));
+		Map<String, Map<String, CheckConstraint>> namedNotNullByTable = namedNotNullConstraints(dbModel);
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
 		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
 		if (!dbModel.getSequences().isEmpty()) {
@@ -288,15 +346,16 @@ public class DDLServiceOracle implements DDLService {
 				continue;
 			}
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
+			Map<String, CheckConstraint> namedNotNulls = namedNotNullByTable.getOrDefault(tableName, Map.of());
+			Set<String> pkColumns = primaryKeyColumnNamesUpper(table);
 			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			for (DbColumn c : columns) {
 				sb.append("  ");
 				escape(sb, c.getName()).append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 				appendColumnDefault(sb, c);
-				if (!c.isNullable()) {
-					sb.append(" NOT NULL");
-				}
+				String columnKey = c.getName().toUpperCase(Locale.ROOT);
+				appendColumnNullability(sb, c, namedNotNulls.get(columnKey), pkColumns.contains(columnKey));
 				sb.append(",").append(System.lineSeparator());
 			}
 			if (!table.getPkColumnNames().isEmpty()) {
@@ -370,6 +429,9 @@ public class DDLServiceOracle implements DDLService {
 			scripts.add(sb);
 		}
 		for (CheckConstraint checkConstraint : dbModel.getCheckConstraints()) {
+			if (notNullColumnFromCheck(checkConstraint).isPresent()) {
+				continue;
+			}
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ");
 			appendQuoted(sb, checkConstraint.getConstraintName());
 			sb.append(" CHECK ").append(formatCheckConstraintCondition(checkConstraint.getCondef()));
@@ -449,12 +511,12 @@ public class DDLServiceOracle implements DDLService {
 			}
 			case DROP -> {
 				if (operation.getOldTable() != null) {
-					statements.add("DROP TABLE " + operation.getQualifiedName() + " PURGE;");
+					statements.add("DROP TABLE " + operation.getQualifiedName() + " CASCADE CONSTRAINTS PURGE;");
 				}
 			}
 			case MODIFY -> {
 				if (operation.getOldTable() != null) {
-					statements.add("DROP TABLE " + operation.getQualifiedName() + " PURGE;");
+					statements.add("DROP TABLE " + operation.getQualifiedName() + " CASCADE CONSTRAINTS PURGE;");
 				}
 				if (operation.getNewTable() != null) {
 					statements.add(generateCreateTableSql(operation.getNewTable(), dbModel));
@@ -470,14 +532,16 @@ public class DDLServiceOracle implements DDLService {
 		String tableName = table.qualifiedName();
 		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream()
 			.collect(Collectors.groupingBy(ReferenceInfo::srcQualifiedName));
+		Map<String, CheckConstraint> namedNotNulls = namedNotNullConstraints(dbModel)
+			.getOrDefault(tableName, Map.of());
+		Set<String> pkColumns = primaryKeyColumnNamesUpper(table);
 		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
 		for (DbColumn c : table.orderedColumns()) {
 			sb.append("  ");
 			escape(sb, c.getName()).append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 			appendColumnDefault(sb, c);
-			if (!c.isNullable()) {
-				sb.append(" NOT NULL");
-			}
+			String columnKey = c.getName().toUpperCase(Locale.ROOT);
+			appendColumnNullability(sb, c, namedNotNulls.get(columnKey), pkColumns.contains(columnKey));
 			sb.append(",").append(System.lineSeparator());
 		}
 		if (!table.getPkColumnNames().isEmpty()) {
@@ -669,8 +733,7 @@ public class DDLServiceOracle implements DDLService {
 		switch (opType) {
 			case CREATE -> {
 				if (operation.getNewConstraint() != null) {
-					CheckConstraint constraint = operation.getNewConstraint();
-					statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT " + quoted(constraint.getConstraintName()) + " CHECK " + formatCheckConstraintCondition(constraint.getCondef()) + ";");
+					statements.add(generateAddCheckOrNotNullConstraintSql(operation.getNewConstraint()));
 				}
 			}
 			case DROP -> {
@@ -685,14 +748,28 @@ public class DDLServiceOracle implements DDLService {
 					statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + quoted(constraint.getConstraintName()) + ";");
 				}
 				if (operation.getNewConstraint() != null) {
-					CheckConstraint constraint = operation.getNewConstraint();
-					statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT " + quoted(constraint.getConstraintName()) + " CHECK " + formatCheckConstraintCondition(constraint.getCondef()) + ";");
+					statements.add(generateAddCheckOrNotNullConstraintSql(operation.getNewConstraint()));
 				}
 			}
 			default -> {
 			}
 		}
 		return statements;
+	}
+
+	private String generateAddCheckOrNotNullConstraintSql(CheckConstraint constraint) {
+		Optional<String> notNullColumn = notNullColumnFromCheck(constraint);
+		if (notNullColumn.isPresent()) {
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(constraint.qualifiedTableName())
+				.append(" MODIFY (");
+			escape(sb, notNullColumn.get());
+			sb.append(" CONSTRAINT ");
+			appendQuoted(sb, constraint.getConstraintName());
+			sb.append(" NOT NULL);");
+			return sb.toString();
+		}
+		return "ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT " + quoted(constraint.getConstraintName())
+			+ " CHECK " + formatCheckConstraintCondition(constraint.getCondef()) + ";";
 	}
 
 	private List<String> generateIndexSql(DbIndexDiffOp operation, DiffOpType opType) {

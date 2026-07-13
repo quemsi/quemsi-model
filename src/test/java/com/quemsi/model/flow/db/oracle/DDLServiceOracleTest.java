@@ -124,7 +124,7 @@ public class DDLServiceOracleTest {
 		List<String> statements = ddlService.ddlFrom(diff, dbModel);
 
 		assertThat(statements, hasSize(1));
-		assertThat(statements.get(0), equalTo("DROP TABLE HR.OLD_TABLE PURGE;"));
+		assertThat(statements.get(0), equalTo("DROP TABLE HR.OLD_TABLE CASCADE CONSTRAINTS PURGE;"));
 	}
 
 	@Test
@@ -458,6 +458,109 @@ public class DDLServiceOracleTest {
 		assertThat(statements.get(0), containsString("EMP_JOB_FK"));
 		assertThat(statements.get(0), not(containsString("EMP_DEPT_FK")));
 		assertThat(statements.get(0), not(containsString("REFERENCES HR.DEPARTMENTS")));
+	}
+
+	@Test
+	public void givenPkColumnWithoutNamedNotNull_whenCreateTable_thenSkipBareNotNull() {
+		DbTable table = createTable("HR", "LOCATIONS");
+		table.addColumn(createColumn("LOCATION_ID", "NUMBER", false, null, 4, 0));
+		table.addColumn(createColumn("CITY", "VARCHAR2", false, 30, null, null));
+		table.getPkColumnNames().add("LOCATION_ID");
+		table.setPkConstraintName("LOC_ID_PK");
+
+		CheckConstraint cityNn = CheckConstraint.builder()
+			.schema("HR")
+			.tableName("LOCATIONS")
+			.constraintName("LOC_CITY_NN")
+			.condef("\"CITY\" IS NOT NULL")
+			.build();
+
+		DbModel dbModel = createEmptyDbModel();
+		dbModel.getCheckConstraints().add(cityNn);
+
+		DbModelDiff diff = new DbModelDiff();
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.LOCATIONS")
+			.newTable(table)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CONSTRAINT \"LOC_ID_PK\" PRIMARY KEY"));
+		assertThat(statements.get(0), containsString("CONSTRAINT \"LOC_CITY_NN\" NOT NULL"));
+		// LOCATION_ID must not get a redundant bare NOT NULL alongside the PK
+		assertThat(statements.get(0), not(containsString("LOCATION_ID NUMBER(4,0) NOT NULL")));
+		assertThat(statements.get(0), containsString("LOCATION_ID NUMBER(4,0),"));
+	}
+
+	@Test
+	public void givenNamedNotNullCheck_whenCreateTable_thenEmitNamedNotNullConstraint() {
+		DbTable table = createTable("HR", "JOB_HISTORY");
+		table.addColumn(createColumn("EMPLOYEE_ID", "NUMBER", false, null, 6, 0));
+		table.addColumn(createColumn("START_DATE", "DATE", false, null, null, null));
+		table.addColumn(createColumn("END_DATE", "DATE", false, null, null, null));
+		table.getPkColumnNames().add("EMPLOYEE_ID");
+		table.getPkColumnNames().add("START_DATE");
+		table.setPkConstraintName("JHIST_EMP_ID_ST_DATE_PK");
+
+		CheckConstraint employeeNn = CheckConstraint.builder()
+			.schema("HR")
+			.tableName("JOB_HISTORY")
+			.constraintName("JHIST_EMPLOYEE_NN")
+			.condef("\"EMPLOYEE_ID\" IS NOT NULL")
+			.build();
+		CheckConstraint dateInterval = CheckConstraint.builder()
+			.schema("HR")
+			.tableName("JOB_HISTORY")
+			.constraintName("JHIST_DATE_INTERVAL")
+			.condef("end_date > start_date")
+			.build();
+
+		DbModel dbModel = createEmptyDbModel();
+		dbModel.getCheckConstraints().add(employeeNn);
+		dbModel.getCheckConstraints().add(dateInterval);
+
+		DbModelDiff diff = new DbModelDiff();
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.JOB_HISTORY")
+			.newTable(table)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CONSTRAINT \"JHIST_EMPLOYEE_NN\" NOT NULL"));
+		assertThat(statements.get(0), containsString("START_DATE"));
+		assertThat(statements.get(0), containsString("NOT NULL"));
+		assertThat(statements.get(0), not(containsString("CHECK (\"EMPLOYEE_ID\" IS NOT NULL)")));
+	}
+
+	@Test
+	public void givenNamedNotNullCheck_whenDdlFromCreate_thenModifyColumnNotNull() {
+		CheckConstraint employeeNn = CheckConstraint.builder()
+			.schema("HR")
+			.tableName("JOB_HISTORY")
+			.constraintName("JHIST_EMPLOYEE_NN")
+			.condef("\"EMPLOYEE_ID\" IS NOT NULL")
+			.build();
+
+		DbModelDiff diff = new DbModelDiff();
+		diff.getOperations().add(DbCheckConstraintDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("JHIST_EMPLOYEE_NN")
+			.newConstraint(employeeNn)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("ALTER TABLE HR.JOB_HISTORY MODIFY"));
+		assertThat(statements.get(0), containsString("EMPLOYEE_ID"));
+		assertThat(statements.get(0), containsString("CONSTRAINT \"JHIST_EMPLOYEE_NN\" NOT NULL"));
+		assertThat(statements.get(0), not(containsString("CHECK")));
 	}
 
 	private DbModel createEmptyDbModel() {

@@ -1,6 +1,7 @@
 package com.quemsi.model.flow.db;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -45,7 +46,9 @@ public class DropTables extends AbstractStep{
 				sequences = dbModel.getSequences().stream().map(DbSequence::qualifiedName).collect(Collectors.toCollection(LinkedList::new));
 			}
 			if(tables != null && !tables.isEmpty()){
-                if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
+                if(dbModel.getReferenceInfos() != null && !dbModel.getReferenceInfos().isEmpty()){
+					ddlService.disableConstraints(new HashSet<>(dbModel.getReferenceInfos()));
+				} else if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
 					ddlService.disableConstraints(dbModel.getCircularIgnore());
 				}
 				ddlService.dropTables(tables.toArray(new String[tables.size()]));
