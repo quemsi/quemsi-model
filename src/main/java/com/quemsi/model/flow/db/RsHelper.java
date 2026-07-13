@@ -14,6 +14,17 @@ public class RsHelper {
         int i = rs.getInt(columnName);
         return rs.wasNull()?null:Integer.valueOf(i);
     }
+
+    /**
+     * Reads integer values from JDBC NUMBER/DECIMAL columns (common in Oracle catalog views).
+     */
+    public Integer getIntegerFromNumber(String columnName) throws SQLException {
+        BigDecimal value = rs.getBigDecimal(columnName);
+        if (value == null || rs.wasNull()) {
+            return null;
+        }
+        return value.intValue();
+    }
     public Long getLong(String columnName) throws SQLException{
         long i = rs.getLong(columnName);
         return rs.wasNull()?null:Long.valueOf(i);

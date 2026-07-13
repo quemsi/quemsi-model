@@ -67,9 +67,10 @@ where t.OWNER in {inValues}
 select
 	c.OWNER as schema_name, c.TABLE_NAME as table_name,
 	c.COLUMN_NAME as column_name, c.COLUMN_ID as ordinal_position,
-	c.CHAR_LENGTH as character_maximum_length, c.DATA_TYPE as column_type, c.DATA_TYPE as data_type,
+	case when c.DATA_TYPE = 'NUMBER' then null else c.CHAR_LENGTH end as character_maximum_length,
+	c.DATA_TYPE as column_type, c.DATA_TYPE as data_type,
 	c.DATA_LENGTH as character_octet_length, c.DATA_PRECISION as numeric_precision, c.DATA_SCALE as numeric_scale,
-	c.DATA_DEFAULT as column_default, c.NULLABLE as is_nullable, c.IDENTITY_COLUMN as is_identity
+	c.DATA_DEFAULT as column_default, c.NULLABLE as is_nullable
 from ALL_TAB_COLUMNS c
 where c.OWNER in {inValues}
   and not exists (
@@ -229,14 +230,16 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 				String tableName = rs.getString("TABLE_NAME");
 				String columnName = rs.getString("COLUMN_NAME");
 				Integer ordinalPosition = rsHelper.getInt("ORDINAL_POSITION");
-				Integer maxLength = rsHelper.getInt("CHARACTER_MAXIMUM_LENGTH");
 				String columnType = rs.getString("COLUMN_TYPE");
 				String dataType = rs.getString("DATA_TYPE");
-				Integer numPrecision = rsHelper.getInt("NUMERIC_PRECISION");
-				Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
+				Integer maxLength = rsHelper.getIntegerFromNumber("CHARACTER_MAXIMUM_LENGTH");
+				Integer numPrecision = rsHelper.getIntegerFromNumber("NUMERIC_PRECISION");
+				Integer numScale = rsHelper.getIntegerFromNumber("NUMERIC_SCALE");
+				if ("NUMBER".equalsIgnoreCase(dataType) && maxLength != null && maxLength == 0) {
+					maxLength = null;
+				}
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
-				String isIdentity = rs.getString("IS_IDENTITY");
 
 				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
 				table.addColumn(DbColumn.builder()
@@ -249,7 +252,7 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 					.numScale(numScale)
 					.columnDefault(columnDefault)
 					.nullable("Y".equalsIgnoreCase(nullable))
-					.identity("YES".equalsIgnoreCase(isIdentity))
+					.identity(false)
 					.build());
 			}
 

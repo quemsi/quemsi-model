@@ -14,8 +14,10 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -38,6 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class DMLServiceOracle implements DMLService {
+	private static final Set<String> BINARY_COLUMN_TYPES = Set.of("BLOB", "RAW", "LONG RAW");
 	private static final String GET_TABLE_DATA_PAGE_FORMAT = """
 select * from %s
 order by %s
@@ -146,23 +149,21 @@ offset ? rows fetch next ? rows only
 		}
 		if (val instanceof Blob blob) {
 			try (InputStream is = blob.getBinaryStream()) {
-				byte[] data = readAllBytes(is);
-				return CustomSerializedColumn.BinaryColumn.builder()
-					.dbType(column.getColumnType())
-					.dataId(columnName)
-					.data(data)
-					.build();
+				return toBinaryColumn(column, columnName, readAllBytes(is));
 			} catch (Exception e) {
 				throw Exceptions.server("unable-to-read-blob").withExtra("column", columnName).withCause(e).get();
 			}
 		}
+		if (val instanceof byte[] bytes) {
+			return toBinaryColumn(column, columnName, bytes);
+		}
 		if (val instanceof Clob clob) {
 			return clob.getSubString(1, (int) clob.length());
 		}
-		return normalizeJdbcValue(val, rs, columnName);
+		return normalizeJdbcValue(val, rs, columnName, column);
 	}
 
-	private Object normalizeJdbcValue(Object val, ResultSet rs, String columnName) throws SQLException {
+	private Object normalizeJdbcValue(Object val, ResultSet rs, String columnName, DbColumn column) throws SQLException {
 		String className = val.getClass().getName();
 		if (className.startsWith("oracle.sql.")) {
 			if (className.contains("TIMESTAMP") || "oracle.sql.DATE".equals(className)) {
@@ -172,7 +173,7 @@ offset ? rows fetch next ? rows only
 				return val.toString();
 			}
 			if ("oracle.sql.RAW".equals(className)) {
-				return rs.getBytes(columnName);
+				return toBinaryColumn(column, columnName, rs.getBytes(columnName));
 			}
 			return val.toString();
 		}
@@ -190,6 +191,109 @@ offset ? rows fetch next ? rows only
 			buffer.write(chunk, 0, read);
 		}
 		return buffer.toByteArray();
+	}
+
+	private CustomSerializedColumn.BinaryColumn toBinaryColumn(DbColumn column, String columnName, byte[] data) {
+		return CustomSerializedColumn.BinaryColumn.builder()
+			.dbType(column.getColumnType())
+			.dataId(columnName)
+			.data(data)
+			.build();
+	}
+
+	private void setColumnValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
+		if (value == null) {
+			ps.setNull(parameterIndex, Types.NULL);
+			return;
+		}
+		if (value instanceof CustomSerializedColumn serializedColumn) {
+			ps.setBytes(parameterIndex, serializedColumn.getData());
+			return;
+		}
+		if (value instanceof Map<?, ?> mapValue) {
+			if (isDeserializedBinaryColumn(column, mapValue)) {
+				Object data = mapValue.get("data");
+				if (data == null) {
+					ps.setNull(parameterIndex, Types.BLOB);
+					return;
+				}
+				if (isBinaryEncodedValue(data)) {
+					ps.setBytes(parameterIndex, decodeBinaryData(data));
+					return;
+				}
+				setColumnValue(ps, parameterIndex, column, data);
+				return;
+			}
+			throw Exceptions.server("column-type-not-supported")
+				.withExtra("column", column.getName())
+				.withExtra("value", mapValue)
+				.get();
+		}
+		if (isBinaryColumnType(column) && isBinaryEncodedValue(value)) {
+			ps.setBytes(parameterIndex, decodeBinaryData(value));
+			return;
+		}
+		if (value instanceof Timestamp timestamp) {
+			ps.setTimestamp(parameterIndex, timestamp);
+		} else if (value instanceof java.sql.Date date) {
+			ps.setDate(parameterIndex, date);
+		} else if (value instanceof java.sql.Time time) {
+			ps.setTime(parameterIndex, time);
+		} else if (value instanceof BigDecimal bigDecimal) {
+			ps.setBigDecimal(parameterIndex, bigDecimal);
+		} else if (value instanceof Double doubleVal) {
+			ps.setDouble(parameterIndex, doubleVal);
+		} else if (value instanceof Float floatVal) {
+			ps.setFloat(parameterIndex, floatVal);
+		} else if (value instanceof Number number) {
+			ps.setLong(parameterIndex, number.longValue());
+		} else if (value instanceof Boolean bool) {
+			ps.setBoolean(parameterIndex, bool);
+		} else if (value instanceof String str) {
+			ps.setString(parameterIndex, str);
+		} else {
+			ps.setObject(parameterIndex, value);
+		}
+	}
+
+	private boolean isDeserializedBinaryColumn(DbColumn column, Map<?, ?> mapValue) {
+		return isBinaryColumnType(column)
+			|| isBinaryColumnType(mapValue.get("dbType"))
+			|| mapValue.containsKey("dataId");
+	}
+
+	private boolean isBinaryEncodedValue(Object value) {
+		return value instanceof byte[]
+			|| value instanceof String
+			|| value instanceof List<?>;
+	}
+
+	private boolean isBinaryColumnType(DbColumn column) {
+		return isBinaryColumnType(column.getColumnType()) || isBinaryColumnType(column.getDataType());
+	}
+
+	private boolean isBinaryColumnType(Object columnType) {
+		return columnType != null && BINARY_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	private byte[] decodeBinaryData(Object data) {
+		if (data == null) {
+			return null;
+		}
+		if (data instanceof byte[] bytes) {
+			return bytes;
+		}
+		if (data instanceof String encodedStr) {
+			return Base64.getDecoder().decode(encodedStr);
+		}
+		if (data instanceof List<?> list) {
+			byte[] bytes = new byte[list.size()];
+			for (int i = 0; i < list.size(); i++) {
+				bytes[i] = ((Number) list.get(i)).byteValue();
+			}
+			return bytes;
+		}
+		throw Exceptions.server("binary-data-type-not-supported").withExtra("dataType", data.getClass().getName()).get();
 	}
 
 	private String quoteIdentifier(String columnName) {
@@ -222,23 +326,7 @@ offset ? rows fetch next ? rows only
 			PreparedStatement ps = conn.prepareStatement(insertSql);
 			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
 				for (int i = 0; i < orderedColumns.length; i++) {
-					DbColumn c = orderedColumns[i];
-					Object value = e.getValue()[i];
-					if (value == null) {
-						ps.setNull(i + 1, Types.NULL);
-					} else if (value instanceof CustomSerializedColumn serializedColumn) {
-						ps.setBytes(i + 1, serializedColumn.getData());
-					} else if ("BLOB".equalsIgnoreCase(c.getColumnType()) && value instanceof String encodedStr) {
-						ps.setBytes(i + 1, Base64.getDecoder().decode(encodedStr));
-					} else if (value instanceof Timestamp timestamp) {
-						ps.setTimestamp(i + 1, timestamp);
-					} else if (value instanceof java.sql.Date date) {
-						ps.setDate(i + 1, date);
-					} else if (value instanceof java.sql.Time time) {
-						ps.setTime(i + 1, time);
-					} else {
-						ps.setObject(i + 1, value);
-					}
+					setColumnValue(ps, i + 1, orderedColumns[i], e.getValue()[i]);
 				}
 				ps.addBatch();
 			}));
