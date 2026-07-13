@@ -42,4 +42,6 @@ public class DbColumn {
     private boolean nullable;
     @Getter
     private boolean identity;
+    @Getter
+    private String comment;
 }

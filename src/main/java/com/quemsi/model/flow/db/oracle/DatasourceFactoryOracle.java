@@ -153,6 +153,29 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 ;
 			""";
 
+	private static final String SQL_FOR_COLUMN_COMMENTS = """
+select
+	cc.OWNER as schema_name, cc.TABLE_NAME as table_name, cc.COLUMN_NAME as column_name, cc.COMMENTS as comments
+from ALL_COL_COMMENTS cc
+where cc.OWNER in {inValues}
+  and cc.COMMENTS is not null
+  and not exists (
+	select 1 from ALL_VIEWS v
+	where v.OWNER = cc.OWNER and v.VIEW_NAME = cc.TABLE_NAME
+  )
+;
+			""";
+
+	private static final String SQL_FOR_TABLE_COMMENTS = """
+select
+	tc.OWNER as schema_name, tc.TABLE_NAME as table_name, tc.COMMENTS as comments
+from ALL_TAB_COMMENTS tc
+where tc.OWNER in {inValues}
+  and tc.TABLE_TYPE = 'TABLE'
+  and tc.COMMENTS is not null
+;
+			""";
+
 	public static final String SQL_FOR_SCHEMA = "select 1 from ALL_USERS where USERNAME = ?";
 
 	private String name;
@@ -221,6 +244,8 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 				PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, effectiveSchemas.size()));
 				PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, effectiveSchemas.size()));
 				PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, effectiveSchemas.size()));
+				PreparedStatement ccps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMN_COMMENTS, effectiveSchemas.size()));
+				PreparedStatement tcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TABLE_COMMENTS, effectiveSchemas.size()));
 			) {
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -376,6 +401,28 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 					.condef(condef)
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
+			}
+
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ccps.setString(i, schema)));
+			ResultSet ccrs = ccps.executeQuery();
+			while (ccrs.next()) {
+				String schemaName = ccrs.getString("SCHEMA_NAME");
+				String tableName = ccrs.getString("TABLE_NAME");
+				String columnName = ccrs.getString("COLUMN_NAME");
+				String comments = ccrs.getString("COMMENTS");
+				dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName))
+					.flatMap(table -> table.findColumn(columnName))
+					.ifPresent(column -> column.setComment(comments));
+			}
+
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> tcps.setString(i, schema)));
+			ResultSet tcrs = tcps.executeQuery();
+			while (tcrs.next()) {
+				String schemaName = tcrs.getString("SCHEMA_NAME");
+				String tableName = tcrs.getString("TABLE_NAME");
+				String comments = tcrs.getString("COMMENTS");
+				dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName))
+					.ifPresent(table -> table.setComment(comments));
 			}
 			dbModel.build();
 			}

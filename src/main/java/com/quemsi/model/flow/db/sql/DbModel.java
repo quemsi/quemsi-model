@@ -148,7 +148,11 @@ public class DbModel {
                 result.add(t.qualifiedName());
             } else {
                 boolean allProcessed = t.getReferences().stream()
-                .filter(r -> !t.qualifiedName().equals(r.refQualifiedName())).map(r -> index.contains(r.refQualifiedName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
+                .filter(r -> 
+                    !t.qualifiedName().equals(r.refQualifiedName())
+                    && !circularIgnore.contains(r)
+                )
+                .map(r -> index.contains(r.refQualifiedName())).reduce(Boolean.TRUE, (st, rs) -> st && rs);
                 if(allProcessed){
                     index.add(t.qualifiedName());
                     result.add(t.qualifiedName());
@@ -321,7 +325,7 @@ public class DbModel {
             this.extraColumns = new LinkedList<>();
         }
         public String qualifiedTableName(){
-            return CommonHelpers.qualifiedName(schemaName, indexName);
+            return CommonHelpers.qualifiedName(schemaName, tableName);
         }
     }
 }

@@ -309,9 +309,48 @@ public class DDLServiceOracleTest {
 		List<String> statements = ddlService.ddlFrom(diff, dbModel);
 
 		assertThat(statements, hasSize(1));
-		assertThat(statements.get(0), containsString("CREATE UNIQUE INDEX IDX_EMAIL"));
+		assertThat(statements.get(0), containsString("CREATE UNIQUE INDEX \"IDX_EMAIL\""));
 		assertThat(statements.get(0), containsString("ON HR.EMPLOYEES"));
 		assertThat(statements.get(0), containsString("EMAIL"));
+	}
+
+	@Test
+	public void givenNumberWithScaleOnly_whenDdlFrom_thenEmitNumberStarScale() {
+		DbModelDiff diff = new DbModelDiff();
+		DbTable table = createTable("CO", "ORDERS");
+		// Oracle NUMBER(*,0) is reported with null DATA_PRECISION and DATA_SCALE=0
+		table.addColumn(createColumn("ORDER_ID", "NUMBER", false, null, null, 0));
+		table.addColumn(createColumn("AMOUNT", "NUMBER", true, null, 10, 2));
+
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("CO.ORDERS")
+			.newTable(table)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("NUMBER(*,0)"));
+		assertThat(statements.get(0), containsString("NUMBER(10,2)"));
+	}
+
+	@Test
+	public void givenNumber38Scale0_whenDdlFrom_thenPreservePrecision() {
+		DbModelDiff diff = new DbModelDiff();
+		DbTable table = createTable("CO", "CUSTOMERS");
+		table.addColumn(createColumn("CUSTOMER_ID", "NUMBER", false, null, 38, 0));
+
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("CO.CUSTOMERS")
+			.newTable(table)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("NUMBER(38,0)"));
 	}
 
 	@Test

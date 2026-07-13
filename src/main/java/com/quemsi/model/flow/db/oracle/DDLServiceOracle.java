@@ -8,6 +8,7 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -148,11 +149,17 @@ public class DDLServiceOracle implements DDLService {
 		if (Set.of("varchar", "varchar2", "nvarchar2", "char", "nchar").contains(normalized) && maxLength != null) {
 			return normalized.toUpperCase() + "(" + maxLength + ")";
 		}
-		if (Set.of("number", "numeric", "decimal").contains(normalized) && precision != null) {
-			if (scale != null) {
+		if (Set.of("number", "numeric", "decimal").contains(normalized)) {
+			// Oracle NUMBER(*,0) has null DATA_PRECISION with DATA_SCALE=0; tools often display that as NUMBER(38,0).
+			if (precision != null && scale != null) {
 				return "NUMBER(" + precision + "," + scale + ")";
 			}
-			return "NUMBER(" + precision + ")";
+			if (precision != null) {
+				return "NUMBER(" + precision + ")";
+			}
+			if (scale != null) {
+				return "NUMBER(*," + scale + ")";
+			}
 		}
 		return type == null ? "VARCHAR2(4000)" : type.toUpperCase();
 	}
@@ -179,6 +186,38 @@ public class DDLServiceOracle implements DDLService {
 		StringBuilder sb = new StringBuilder();
 		appendQuoted(sb, name);
 		return sb.toString();
+	}
+
+	private static String sqlStringLiteral(String value) {
+		return "'" + value.replace("'", "''") + "'";
+	}
+
+	/**
+	 * Resolve indexes for a table by qualified table name, with fallback for backups
+	 * keyed incorrectly by schema.indexName (pre-IndexInfo.qualifiedTableName fix).
+	 */
+	private Map<String, IndexInfo> indexesForTable(DbModel dbModel, String qualifiedTableName) {
+		Map<String, IndexInfo> direct = dbModel.getIndexes() != null
+			? dbModel.getIndexes().get(qualifiedTableName)
+			: null;
+		if (direct != null && !direct.isEmpty()) {
+			return direct;
+		}
+		Map<String, IndexInfo> matched = new LinkedHashMap<>();
+		if (dbModel.getIndexes() == null) {
+			return matched;
+		}
+		for (Map<String, IndexInfo> byName : dbModel.getIndexes().values()) {
+			if (byName == null) {
+				continue;
+			}
+			for (IndexInfo idx : byName.values()) {
+				if (idx != null && qualifiedTableName.equals(CommonHelpers.qualifiedName(idx.getSchemaName(), idx.getTableName()))) {
+					matched.put(idx.getIndexName(), idx);
+				}
+			}
+		}
+		return matched;
 	}
 
 	private void appendColumnDefault(StringBuilder sb, DbColumn column) {
@@ -282,20 +321,32 @@ public class DDLServiceOracle implements DDLService {
 			sb.append(System.lineSeparator()).append(")");
 			log.info("create script for {} : {}", tableName, sb);
 			scripts.add(sb);
-			if (dbModel.getIndexes().containsKey(tableName)) {
-				Map<String, IndexInfo> indexes = dbModel.getIndexes().get(tableName);
-				for (String indName : indexes.keySet()) {
-					IndexInfo indCols = indexes.get(indName);
-					StringBuilder indBuilder = new StringBuilder("CREATE ");
-					if (indCols.isUnique()) {
-						indBuilder.append("UNIQUE ");
-					}
-					indBuilder.append("INDEX ").append(indCols.getIndexName()).append(" ON ");
-					indBuilder.append(tableName).append(" (");
-					appendColumnList(indBuilder, indCols.getColumns());
-					indBuilder.append(")");
-					log.info("index sql : {}", indBuilder);
-					scripts.add(indBuilder);
+			Map<String, IndexInfo> indexes = indexesForTable(dbModel, tableName);
+			for (IndexInfo indCols : indexes.values()) {
+				StringBuilder indBuilder = new StringBuilder("CREATE ");
+				if (indCols.isUnique()) {
+					indBuilder.append("UNIQUE ");
+				}
+				indBuilder.append("INDEX ");
+				appendQuoted(indBuilder, indCols.getIndexName());
+				indBuilder.append(" ON ");
+				indBuilder.append(tableName).append(" (");
+				appendColumnList(indBuilder, indCols.getColumns());
+				indBuilder.append(")");
+				log.info("index sql : {}", indBuilder);
+				scripts.add(indBuilder);
+			}
+			if (table.getComment() != null && !table.getComment().isBlank()) {
+				StringBuilder commentSb = new StringBuilder("COMMENT ON TABLE ").append(tableName)
+					.append(" IS ").append(sqlStringLiteral(table.getComment()));
+				scripts.add(commentSb);
+			}
+			for (DbColumn c : columns) {
+				if (c.getComment() != null && !c.getComment().isBlank()) {
+					StringBuilder commentSb = new StringBuilder("COMMENT ON COLUMN ").append(tableName).append(".");
+					escape(commentSb, c.getName());
+					commentSb.append(" IS ").append(sqlStringLiteral(c.getComment()));
+					scripts.add(commentSb);
 				}
 			}
 		}
@@ -659,7 +710,7 @@ public class DDLServiceOracle implements DDLService {
 		if (index.isUnique()) {
 			sb.append("UNIQUE ");
 		}
-		sb.append("INDEX ").append(index.getIndexName()).append(" ON ").append(tableQualifiedName).append(" (");
+		sb.append("INDEX ").append(quoted(index.getIndexName())).append(" ON ").append(tableQualifiedName).append(" (");
 		appendColumnList(sb, index.getColumns());
 		sb.append(")");
 		return sb.toString();

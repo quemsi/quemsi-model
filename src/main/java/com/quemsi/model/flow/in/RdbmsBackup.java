@@ -3,6 +3,7 @@ package com.quemsi.model.flow.in;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
@@ -12,6 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.MediaType;
@@ -78,10 +80,10 @@ public class RdbmsBackup implements Source{
 
             TableDataPersister tableDataPersister = new TableDataPersister();
             tableDataPersister.setObjectMapper(dataMapper);
-
+            Set<String> ignoreConstraints = dbModel.getCircularIgnore().stream().map(ci -> ci.getConstraintName()).collect(Collectors.toSet());
             List<DbTable> tables = dbModel.orderedTables();
             context.logStepInfo( context.getCurrentStep(), LogMessage.info("Created {} tables will be backed up", tables.size()));
-            List<ForkJoinTask<Boolean>> tasks = tables.stream().map(table -> new RdmsBackupTask(table, tableDataPersister, context)).map(t -> {
+            List<ForkJoinTask<Boolean>> tasks = tables.stream().map(table -> new RdmsBackupTask(table, tableDataPersister, context, ignoreConstraints)).map(t -> {
                 ForkJoinTask<Boolean> task = pool.submit(t);
                 taskRegistry.put(t.getTable().getName(), task);
                 return task;
@@ -115,10 +117,12 @@ public class RdbmsBackup implements Source{
         private DbTable table;
         private TableDataPersister tableDataPersister;
         private FlowContext context;
-        public RdmsBackupTask(DbTable table, TableDataPersister tableDataPersister, FlowContext context){
+        Set<String> ignoreConstraints;
+        public RdmsBackupTask(DbTable table, TableDataPersister tableDataPersister, FlowContext context, Set<String> ignoreConstraints){
             this.table = table;
             this.tableDataPersister = tableDataPersister;
             this.context = context;
+            this.ignoreConstraints = ignoreConstraints;
         }
         
         @Override
@@ -126,7 +130,10 @@ public class RdbmsBackup implements Source{
             try(DMLService dmlService = datasource.dmlService()){
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} will wait for [{}] {}", table.getName(), table.getReferences().size(), table.getReferences().stream().map(t -> t.getRefTableName()).toList()));
                 for(ReferenceInfo tr : table.getReferences()){
-                    if(!tr.getRefTableName().equals(table.getName())){
+                    if(ignoreConstraints.contains(tr.getConstraintName())){
+                        continue;
+                    }
+                    if(!tr.refQualifiedName().equals(table.qualifiedName())){
                         boolean dependency = false;
                         while(!dependency){
                             try{

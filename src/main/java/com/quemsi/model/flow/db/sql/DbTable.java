@@ -25,6 +25,9 @@ public class DbTable {
     private String name;
     @Getter
     @Setter
+    private String comment;
+    @Getter
+    @Setter
     private LinkedList<String> pkColumnNames;
     @Getter
     @Setter
