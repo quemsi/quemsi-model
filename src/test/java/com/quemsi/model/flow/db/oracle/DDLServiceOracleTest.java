@@ -461,6 +461,31 @@ public class DDLServiceOracleTest {
 	}
 
 	@Test
+	public void givenTableWithoutPk_whenCreateTable_thenNoTrailingComma() {
+		DbTable table = createTable("SH", "DR$SUP_TEXT_IDX$C");
+		table.addColumn(createColumn("DML_SCN", "NUMBER", true, null, null, null));
+		table.addColumn(createColumn("DML_ID", "NUMBER", true, null, null, null));
+		table.addColumn(createColumn("DML_OP", "NUMBER", true, null, null, null));
+		table.addColumn(createColumn("DML_RID", "ROWID", true, null, null, null));
+
+		DbModelDiff diff = new DbModelDiff();
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("SH.DR$SUP_TEXT_IDX$C")
+			.newTable(table)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+
+		assertThat(statements, hasSize(1));
+		assertThat(statements.get(0), containsString("CREATE TABLE SH.DR$SUP_TEXT_IDX$C"));
+		assertThat(statements.get(0), containsString("DML_RID ROWID"));
+		assertThat(statements.get(0), not(containsString("ROWID,\n\n)")));
+		assertThat(statements.get(0), not(containsString("ROWID,\r\n\r\n)")));
+		assertThat(statements.get(0).replace("\r\n", "\n"), containsString("DML_RID ROWID\n)"));
+	}
+
+	@Test
 	public void givenPkColumnWithoutNamedNotNull_whenCreateTable_thenSkipBareNotNull() {
 		DbTable table = createTable("HR", "LOCATIONS");
 		table.addColumn(createColumn("LOCATION_ID", "NUMBER", false, null, 4, 0));

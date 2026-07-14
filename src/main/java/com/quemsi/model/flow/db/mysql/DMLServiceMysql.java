@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -54,7 +55,15 @@ public class DMLServiceMysql implements DMLService{
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
-			String sortColumnNames = !CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames()) ? request.getTable().getPkColumnNames().stream().map(c -> "`" + c + "`").collect(Collectors.joining(", ")) : request.getTable().getColumns().keySet().stream().map(c -> "`" + c + "`").collect(Collectors.joining(", "));
+			String sortColumnNames;
+			if (!CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())) {
+				sortColumnNames = request.getTable().getPkColumnNames().stream().map(c -> "`" + c + "`").collect(Collectors.joining(", "));
+			} else {
+				List<String> orderable = request.getTable().orderableColumnNames();
+				sortColumnNames = orderable.isEmpty()
+					? "NULL"
+					: orderable.stream().map(c -> "`" + c + "`").collect(Collectors.joining(", "));
+			}
 			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), sortColumnNames);
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);

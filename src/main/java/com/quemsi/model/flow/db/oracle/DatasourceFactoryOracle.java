@@ -60,6 +60,16 @@ from ALL_TABLES t
 where t.OWNER in {inValues}
   and t.TABLE_NAME not like 'BIN$%%'
   and t.DROPPED = 'NO'
+  and nvl(t.SECONDARY, 'N') = 'N'
+  and nvl(t.NESTED, 'NO') = 'NO'
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = t.OWNER and mv.MVIEW_NAME = t.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = t.OWNER and ml.LOG_TABLE = t.TABLE_NAME
+  )
 ;
 			""";
 
@@ -73,9 +83,25 @@ select
 	c.DATA_DEFAULT as column_default, c.NULLABLE as is_nullable
 from ALL_TAB_COLUMNS c
 where c.OWNER in {inValues}
+  and c.COLUMN_NAME not like 'SYS_NC%%'
+  and exists (
+	select 1 from ALL_TABLES t
+	where t.OWNER = c.OWNER and t.TABLE_NAME = c.TABLE_NAME
+	  and t.DROPPED = 'NO'
+	  and nvl(t.SECONDARY, 'N') = 'N'
+	  and nvl(t.NESTED, 'NO') = 'NO'
+  )
   and not exists (
 	select 1 from ALL_VIEWS v
 	where v.OWNER = c.OWNER and v.VIEW_NAME = c.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = c.OWNER and mv.MVIEW_NAME = c.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = c.OWNER and ml.LOG_TABLE = c.TABLE_NAME
   )
 order by c.OWNER, c.TABLE_NAME, c.COLUMN_ID
 ;
@@ -94,9 +120,24 @@ left join ALL_CONSTRAINTS r_ac on ac.R_OWNER = r_ac.OWNER and ac.R_CONSTRAINT_NA
 left join ALL_CONS_COLUMNS r_acc on r_ac.OWNER = r_acc.OWNER and r_ac.CONSTRAINT_NAME = r_acc.CONSTRAINT_NAME and r_acc.POSITION = acc.POSITION
 where ac.OWNER in {inValues}
   and ac.CONSTRAINT_TYPE in ('P', 'R', 'U')
+  and exists (
+	select 1 from ALL_TABLES t
+	where t.OWNER = ac.OWNER and t.TABLE_NAME = ac.TABLE_NAME
+	  and t.DROPPED = 'NO'
+	  and nvl(t.SECONDARY, 'N') = 'N'
+	  and nvl(t.NESTED, 'NO') = 'NO'
+  )
   and not exists (
 	select 1 from ALL_VIEWS v
 	where v.OWNER = ac.OWNER and v.VIEW_NAME = ac.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = ac.OWNER and mv.MVIEW_NAME = ac.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = ac.OWNER and ml.LOG_TABLE = ac.TABLE_NAME
   )
 order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME, acc.POSITION
 ;
@@ -121,9 +162,30 @@ join ALL_IND_COLUMNS aic on ai.OWNER = aic.INDEX_OWNER and ai.INDEX_NAME = aic.I
 	and ai.TABLE_OWNER = aic.TABLE_OWNER and ai.TABLE_NAME = aic.TABLE_NAME
 where ai.TABLE_OWNER in {inValues}
   and ai.INDEX_TYPE not in ('LOB', 'DOMAIN')
+  and ai.INDEX_NAME not like 'I_SNAP$%%'
+  and not exists (
+	select 1 from ALL_IND_COLUMNS bad
+	where bad.INDEX_OWNER = ai.OWNER and bad.INDEX_NAME = ai.INDEX_NAME
+	  and bad.COLUMN_NAME like 'SYS_NC%%'
+  )
+  and exists (
+	select 1 from ALL_TABLES t
+	where t.OWNER = ai.TABLE_OWNER and t.TABLE_NAME = ai.TABLE_NAME
+	  and t.DROPPED = 'NO'
+	  and nvl(t.SECONDARY, 'N') = 'N'
+	  and nvl(t.NESTED, 'NO') = 'NO'
+  )
   and not exists (
 	select 1 from ALL_VIEWS v
 	where v.OWNER = ai.TABLE_OWNER and v.VIEW_NAME = ai.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = ai.TABLE_OWNER and mv.MVIEW_NAME = ai.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = ai.TABLE_OWNER and ml.LOG_TABLE = ai.TABLE_NAME
   )
   and not exists (
 	select 1 from ALL_CONSTRAINTS ac
@@ -152,9 +214,24 @@ where ac.OWNER in {inValues}
   and ac.CONSTRAINT_TYPE = 'C'
   and ac.GENERATED = 'USER NAME'
   and ac.SEARCH_CONDITION_VC is not null
+  and exists (
+	select 1 from ALL_TABLES t
+	where t.OWNER = ac.OWNER and t.TABLE_NAME = ac.TABLE_NAME
+	  and t.DROPPED = 'NO'
+	  and nvl(t.SECONDARY, 'N') = 'N'
+	  and nvl(t.NESTED, 'NO') = 'NO'
+  )
   and not exists (
 	select 1 from ALL_VIEWS v
 	where v.OWNER = ac.OWNER and v.VIEW_NAME = ac.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = ac.OWNER and mv.MVIEW_NAME = ac.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = ac.OWNER and ml.LOG_TABLE = ac.TABLE_NAME
   )
 order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 ;
@@ -166,9 +243,24 @@ select
 from ALL_COL_COMMENTS cc
 where cc.OWNER in {inValues}
   and cc.COMMENTS is not null
+  and exists (
+	select 1 from ALL_TABLES t
+	where t.OWNER = cc.OWNER and t.TABLE_NAME = cc.TABLE_NAME
+	  and t.DROPPED = 'NO'
+	  and nvl(t.SECONDARY, 'N') = 'N'
+	  and nvl(t.NESTED, 'NO') = 'NO'
+  )
   and not exists (
 	select 1 from ALL_VIEWS v
 	where v.OWNER = cc.OWNER and v.VIEW_NAME = cc.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = cc.OWNER and mv.MVIEW_NAME = cc.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = cc.OWNER and ml.LOG_TABLE = cc.TABLE_NAME
   )
 ;
 			""";
@@ -180,6 +272,21 @@ from ALL_TAB_COMMENTS tc
 where tc.OWNER in {inValues}
   and tc.TABLE_TYPE = 'TABLE'
   and tc.COMMENTS is not null
+  and exists (
+	select 1 from ALL_TABLES t
+	where t.OWNER = tc.OWNER and t.TABLE_NAME = tc.TABLE_NAME
+	  and t.DROPPED = 'NO'
+	  and nvl(t.SECONDARY, 'N') = 'N'
+	  and nvl(t.NESTED, 'NO') = 'NO'
+  )
+  and not exists (
+	select 1 from ALL_MVIEWS mv
+	where mv.OWNER = tc.OWNER and mv.MVIEW_NAME = tc.TABLE_NAME
+  )
+  and not exists (
+	select 1 from ALL_MVIEW_LOGS ml
+	where ml.LOG_OWNER = tc.OWNER and ml.LOG_TABLE = tc.TABLE_NAME
+  )
 ;
 			""";
 

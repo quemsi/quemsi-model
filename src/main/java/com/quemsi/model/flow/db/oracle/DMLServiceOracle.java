@@ -100,9 +100,15 @@ offset ? rows fetch next ? rows only
 	@Override
 	public TableDataPage getTableDataPage(Request request) {
 		try (Connection conn = dataSource.getConnection()) {
-			String sortColumnNames = !CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())
-				? request.getTable().getPkColumnNames().stream().map(this::quoteIdentifier).collect(Collectors.joining(", "))
-				: request.getTable().getColumns().keySet().stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+			String sortColumnNames;
+			if (!CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())) {
+				sortColumnNames = request.getTable().getPkColumnNames().stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+			} else {
+				List<String> orderable = request.getTable().orderableColumnNames();
+				sortColumnNames = orderable.isEmpty()
+					? "ROWNUM"
+					: orderable.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
+			}
 			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().qualifiedName(), sortColumnNames);
 			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);

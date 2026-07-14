@@ -5,6 +5,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -84,6 +85,18 @@ public class DbTable {
         }
         return result;
     }
+
+    /** Column names usable in ORDER BY (excludes LOB / long / xml-like types). */
+    public List<String> orderableColumnNames(){
+        List<String> result = new ArrayList<>();
+        for (DbColumn column : orderedColumns()) {
+            if (column.isOrderable()) {
+                result.add(column.getName());
+            }
+        }
+        return result;
+    }
+
     public void addReference(ReferenceInfo referenceInfo){
         references.add(referenceInfo);
     }

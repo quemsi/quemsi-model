@@ -316,9 +316,6 @@ public class DDLServiceOracle implements DDLService {
 	@Override
 	public void createTables(DbModel dbModel) {
 		LinkedList<StringBuilder> scripts = new LinkedList<>();
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream()
-			.collect(Collectors.groupingBy(ReferenceInfo::srcQualifiedName));
-		Map<String, Map<String, CheckConstraint>> namedNotNullByTable = namedNotNullConstraints(dbModel);
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
 		Set<String> existingConstraints = new HashSet<>(constraintNames(dbModel.getSchemas()));
 		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
@@ -363,44 +360,11 @@ public class DDLServiceOracle implements DDLService {
 				continue;
 			}
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
-			Map<String, CheckConstraint> namedNotNulls = namedNotNullByTable.getOrDefault(tableName, Map.of());
-			Set<String> pkColumns = primaryKeyColumnNamesUpper(table);
-			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
-			DbColumn[] columns = table.orderedColumns();
-			for (DbColumn c : columns) {
-				sb.append("  ");
-				escape(sb, c.getName()).append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
-				appendColumnDefault(sb, c);
-				String columnKey = c.getName().toUpperCase(Locale.ROOT);
-				appendColumnNullability(sb, c, namedNotNulls.get(columnKey), pkColumns.contains(columnKey));
-				sb.append(",").append(System.lineSeparator());
-			}
-			if (!table.getPkColumnNames().isEmpty()) {
-				sb.append("  CONSTRAINT ");
-				appendQuoted(sb, table.getPkConstraintName());
-				sb.append(" PRIMARY KEY (");
-				appendColumnList(sb, table.getPkColumnNames());
-				sb.append(")");
-			}
-			if (tableReferences.containsKey(tableName)) {
-				for (ReferenceInfo ref : tableReferences.get(tableName)) {
-					if (isCircularIgnored(dbModel, ref)) {
-						continue;
-					}
-					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ");
-					appendQuoted(sb, ref.getConstraintName());
-					sb.append(" FOREIGN KEY (");
-					appendColumnList(sb, ref.getSrcColumnNames());
-					sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
-					appendColumnList(sb, ref.getRefColumnNames());
-					sb.append(")");
-				}
-			}
-			sb.append(System.lineSeparator()).append(")");
+			StringBuilder sb = new StringBuilder(generateCreateTableSql(table, dbModel));
 			log.info("create script for {} : {}", tableName, sb);
 			scripts.add(sb);
 			Map<String, IndexInfo> indexes = indexesForTable(dbModel, tableName);
+			DbColumn[] columns = table.orderedColumns();
 			for (IndexInfo indCols : indexes.values()) {
 				StringBuilder indBuilder = new StringBuilder("CREATE ");
 				if (indCols.isUnique()) {
@@ -564,36 +528,47 @@ public class DDLServiceOracle implements DDLService {
 		Map<String, CheckConstraint> namedNotNulls = namedNotNullConstraints(dbModel)
 			.getOrDefault(tableName, Map.of());
 		Set<String> pkColumns = primaryKeyColumnNamesUpper(table);
+		List<ReferenceInfo> foreignKeys = tableReferences.getOrDefault(tableName, List.of()).stream()
+			.filter(ref -> !isCircularIgnored(dbModel, ref))
+			.toList();
+		boolean hasPrimaryKey = table.getPkColumnNames() != null && !table.getPkColumnNames().isEmpty();
+
 		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
+		boolean firstElement = true;
 		for (DbColumn c : table.orderedColumns()) {
+			if (!firstElement) {
+				sb.append(",").append(System.lineSeparator());
+			}
+			firstElement = false;
 			sb.append("  ");
 			escape(sb, c.getName()).append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 			appendColumnDefault(sb, c);
 			String columnKey = c.getName().toUpperCase(Locale.ROOT);
 			appendColumnNullability(sb, c, namedNotNulls.get(columnKey), pkColumns.contains(columnKey));
-			sb.append(",").append(System.lineSeparator());
 		}
-		if (!table.getPkColumnNames().isEmpty()) {
+		if (hasPrimaryKey) {
+			if (!firstElement) {
+				sb.append(",").append(System.lineSeparator());
+			}
+			firstElement = false;
 			sb.append("  CONSTRAINT ");
 			appendQuoted(sb, table.getPkConstraintName());
 			sb.append(" PRIMARY KEY (");
 			appendColumnList(sb, table.getPkColumnNames());
 			sb.append(")");
 		}
-		if (tableReferences.containsKey(tableName)) {
-			for (ReferenceInfo ref : tableReferences.get(tableName)) {
-				if (isCircularIgnored(dbModel, ref)) {
-					continue;
-				}
-				sb.append(",").append(System.lineSeparator())
-					.append("  CONSTRAINT ");
-				appendQuoted(sb, ref.getConstraintName());
-				sb.append(" FOREIGN KEY (");
-				appendColumnList(sb, ref.getSrcColumnNames());
-				sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
-				appendColumnList(sb, ref.getRefColumnNames());
-				sb.append(")");
+		for (ReferenceInfo ref : foreignKeys) {
+			if (!firstElement) {
+				sb.append(",").append(System.lineSeparator());
 			}
+			firstElement = false;
+			sb.append("  CONSTRAINT ");
+			appendQuoted(sb, ref.getConstraintName());
+			sb.append(" FOREIGN KEY (");
+			appendColumnList(sb, ref.getSrcColumnNames());
+			sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
+			appendColumnList(sb, ref.getRefColumnNames());
+			sb.append(")");
 		}
 		sb.append(System.lineSeparator()).append(")");
 		return sb.toString();
