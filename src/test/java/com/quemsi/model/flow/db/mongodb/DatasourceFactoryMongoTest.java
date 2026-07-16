@@ -7,6 +7,7 @@ import static org.hamcrest.Matchers.nullValue;
 import org.junit.jupiter.api.Test;
 
 import com.mongodb.ConnectionString;
+import com.mongodb.MongoSocketException;
 
 public class DatasourceFactoryMongoTest {
 
@@ -110,5 +111,32 @@ public class DatasourceFactoryMongoTest {
         ConnectionString connectionString = new ConnectionString(factory.buildConnectionUrl());
 
         assertThat(connectionString.getCredential(), nullValue());
+    }
+
+    @Test
+    public void hostFromHostPortStripsPortAndBrackets() {
+        assertThat(DatasourceFactoryMongo.hostFromHostPort("localhot:27017"), equalTo("localhot"));
+        assertThat(DatasourceFactoryMongo.hostFromHostPort("localhost"), equalTo("localhost"));
+        assertThat(DatasourceFactoryMongo.hostFromHostPort("[::1]:27017"), equalTo("::1"));
+    }
+
+    @Test
+    public void healthCheckFailsFastOnUnresolvableHost() {
+        DatasourceFactoryMongo factory = new DatasourceFactoryMongo();
+        factory.setUrl("mongodb://localhot:27017/appdb");
+        factory.setUsername("user");
+        factory.setPassword("pass");
+
+        long started = System.nanoTime();
+        try {
+            factory.healthCheck();
+            throw new AssertionError("expected healthCheck to fail for unresolvable host");
+        } catch (MongoSocketException ex) {
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000L;
+            assertThat(elapsedMs < 2_000L, equalTo(true));
+            assertThat(ex.getCause() instanceof java.net.UnknownHostException, equalTo(true));
+        } catch (Exception ex) {
+            throw new AssertionError("expected MongoSocketException, got " + ex.getClass().getName(), ex);
+        }
     }
 }

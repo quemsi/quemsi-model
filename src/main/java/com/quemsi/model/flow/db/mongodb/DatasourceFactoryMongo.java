@@ -1,11 +1,15 @@
 package com.quemsi.model.flow.db.mongodb;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.sql.SQLException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import javax.annotation.PreDestroy;
 import javax.sql.DataSource;
@@ -15,6 +19,8 @@ import org.bson.conversions.Bson;
 
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoSocketException;
+import com.mongodb.ServerAddress;
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
 import com.mongodb.client.MongoCollection;
@@ -39,6 +45,9 @@ import lombok.extern.slf4j.Slf4j;
 @Data
 public class DatasourceFactoryMongo implements DataSourceFactory {
     private static final int SAMPLE_SIZE = 100;
+    /** Short timeout for connection tests so bad hosts fail before the driver default (30s). */
+    private static final long HEALTH_CHECK_SERVER_SELECTION_TIMEOUT_MS = 3_000L;
+    private static final long HEALTH_CHECK_CONNECT_TIMEOUT_MS = 3_000L;
 
     private String name;
     private String dbName;
@@ -133,10 +142,63 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
 
     @Override
     public boolean healthCheck() throws Exception {
-        String databaseName = resolvedDbName();
-        getMongoClient().getDatabase(StringUtils.isEmptyOrNull(databaseName) ? "admin" : databaseName)
-                .runCommand(new Document("ping", 1));
-        return true;
+        String connectionUrl = buildConnectionUrl();
+        ConnectionString connectionString = new ConnectionString(connectionUrl);
+        resolveDbNameFromConnectionString(connectionString);
+        assertHostsResolvable(connectionString);
+        // Dedicated short-lived client: driver defaults wait 30s on server selection even after
+        // immediate DNS failures in the monitor thread; keep production getMongoClient() unchanged.
+        try (MongoClient client = MongoClients.create(MongoClientSettings.builder()
+                .applyConnectionString(connectionString)
+                .applyToClusterSettings(builder -> builder
+                        .serverSelectionTimeout(HEALTH_CHECK_SERVER_SELECTION_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+                .applyToSocketSettings(builder -> builder
+                        .connectTimeout(HEALTH_CHECK_CONNECT_TIMEOUT_MS, TimeUnit.MILLISECONDS))
+                .build())) {
+            String databaseName = resolvedDbName();
+            client.getDatabase(StringUtils.isEmptyOrNull(databaseName) ? "admin" : databaseName)
+                    .runCommand(new Document("ping", 1));
+            return true;
+        }
+    }
+
+    /**
+     * Fail immediately on unresolvable hostnames instead of waiting for server selection timeout.
+     * SRV URIs are skipped here; the short health-check timeout still bounds those cases.
+     */
+    void assertHostsResolvable(ConnectionString connectionString) {
+        if (connectionString.isSrvProtocol()) {
+            return;
+        }
+        List<String> hosts = connectionString.getHosts();
+        if (hosts == null || hosts.isEmpty()) {
+            return;
+        }
+        for (String hostPort : hosts) {
+            try {
+                InetAddress.getByName(hostFromHostPort(hostPort));
+            } catch (UnknownHostException ex) {
+                throw new MongoSocketException(ex.getMessage(), new ServerAddress(hostPort), ex);
+            }
+        }
+    }
+
+    static String hostFromHostPort(String hostPort) {
+        if (hostPort == null || hostPort.isEmpty()) {
+            return hostPort;
+        }
+        if (hostPort.startsWith("[")) {
+            int close = hostPort.indexOf(']');
+            if (close > 1) {
+                return hostPort.substring(1, close);
+            }
+            return hostPort;
+        }
+        int colon = hostPort.lastIndexOf(':');
+        if (colon > 0) {
+            return hostPort.substring(0, colon);
+        }
+        return hostPort;
     }
 
     @Override
