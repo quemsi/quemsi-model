@@ -14,4 +14,5 @@ import lombok.NoArgsConstructor;
 public class NamedEntityReference implements Serializable{
     private Long id;
     private String name;
+    private String title;
 }
