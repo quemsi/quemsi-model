@@ -142,16 +142,22 @@ order by n.nspname, c.relname
 			""";
 
 	private static final String SQL_FOR_VIEW_DEPS = """
-select
-	vtu.view_schema as view_schema,
-	vtu.view_name as view_name,
-	vtu.table_schema as dep_schema,
-	vtu.table_name as dep_name
-from information_schema.view_table_usage vtu
-inner join pg_catalog.pg_namespace n on n.nspname = vtu.table_schema
-inner join pg_catalog.pg_class c on c.relnamespace = n.oid and c.relname = vtu.table_name
-where vtu.view_schema in {inValues}
-  and c.relkind = 'v'
+select distinct
+	nv.nspname as view_schema,
+	cv.relname as view_name,
+	nd.nspname as dep_schema,
+	cd.relname as dep_name
+from pg_catalog.pg_depend d
+inner join pg_catalog.pg_rewrite r on d.objid = r.oid
+inner join pg_catalog.pg_class cv on r.ev_class = cv.oid
+inner join pg_catalog.pg_namespace nv on cv.relnamespace = nv.oid
+inner join pg_catalog.pg_class cd on d.refobjid = cd.oid
+inner join pg_catalog.pg_namespace nd on cd.relnamespace = nd.oid
+where cv.relkind = 'v'
+  and cd.relkind = 'v'
+  and cv.oid <> cd.oid
+  and d.deptype = 'n'
+  and nv.nspname in {inValues}
 ;
 			""";
 
@@ -361,9 +367,12 @@ where vtu.view_schema in {inValues}
 				String viewName = vdrs.getString("VIEW_NAME");
 				String depSchema = vdrs.getString("DEP_SCHEMA");
 				String depName = vdrs.getString("DEP_NAME");
-				DbView view = viewsByName.get(CommonHelpers.qualifiedName(viewSchema, viewName));
-				if (view != null) {
-					view.getDependsOnViews().add(CommonHelpers.qualifiedName(depSchema, depName));
+				String viewQualified = CommonHelpers.qualifiedName(viewSchema, viewName);
+				String depQualified = CommonHelpers.qualifiedName(depSchema, depName);
+				DbView view = viewsByName.get(viewQualified);
+				// Only record deps that are also in this backup model
+				if (view != null && viewsByName.containsKey(depQualified)) {
+					view.getDependsOnViews().add(depQualified);
 				}
 			}
 			dbModel.build();
