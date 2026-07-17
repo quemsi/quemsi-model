@@ -25,6 +25,7 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -494,7 +495,43 @@ public class DDLServiceOracle implements DDLService {
 
 	@Override
 	public void createFunctions(DbModel dbModel) {
-		// Oracle routines not included in view backup yet
+		if (dbModel.getFunctions() == null || dbModel.getFunctions().isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbFunction function : dbModel.getFunctions()) {
+				String sql = createRoutineSql(function);
+				log.info("ddl : {}", sql);
+				s.execute(sql);
+			}
+			// Recompile so cross-routine references resolve after all bodies exist
+			for (DbFunction function : dbModel.getFunctions()) {
+				String compileSql = compileRoutineSql(function);
+				try {
+					s.execute(compileSql);
+				} catch (SQLException e) {
+					log.warn("Unable to compile Oracle {} {}: {}", function.resolvedRoutineType(), function.qualifiedName(), e.getMessage());
+				}
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-functions").withCause(e).get();
+		}
+	}
+
+	static String createRoutineSql(DbFunction function) {
+		String def = function.getDefinition();
+		if (def == null || def.isBlank()) {
+			throw Exceptions.server("missing-function-definition")
+				.withExtra("routine", function.qualifiedName())
+				.withExtra("routineType", function.resolvedRoutineType())
+				.get();
+		}
+		return DatasourceFactoryOracle.normalizeOracleRoutineDdl(def);
+	}
+
+	static String compileRoutineSql(DbFunction function) {
+		return "ALTER " + function.resolvedRoutineType() + " " + function.qualifiedName() + " COMPILE";
 	}
 
 	static String dropViewSql(String qualifiedName) {

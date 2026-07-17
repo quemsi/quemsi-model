@@ -7,6 +7,8 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
@@ -25,6 +27,7 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -262,6 +265,33 @@ where d.TYPE = 'VIEW'
 ;
 			""";
 
+	private static final String SQL_FOR_ROUTINES = """
+select
+	o.OWNER as schema_name,
+	o.OBJECT_NAME as routine_name,
+	o.OBJECT_TYPE as routine_type
+from ALL_OBJECTS o
+where o.OWNER in {inValues}
+  and o.OBJECT_TYPE in ('FUNCTION', 'PROCEDURE')
+order by o.OWNER, o.OBJECT_TYPE, o.OBJECT_NAME
+;
+			""";
+
+	private static final String SQL_FOR_ROUTINE_DDL = """
+select DBMS_METADATA.GET_DDL(?, ?, ?) as definition from DUAL
+;
+			""";
+
+	private static final String SQL_FOR_ROUTINE_SOURCE = """
+select s.TEXT as text
+from ALL_SOURCE s
+where s.OWNER = ?
+  and s.NAME = ?
+  and s.TYPE = ?
+order by s.LINE
+;
+			""";
+
 	private static final String SQL_FOR_COLUMN_COMMENTS = """
 select
 	cc.OWNER as schema_name, cc.TABLE_NAME as table_name, cc.COLUMN_NAME as column_name, cc.COMMENTS as comments
@@ -387,6 +417,7 @@ where tc.OWNER in {inValues}
 				PreparedStatement tcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TABLE_COMMENTS, effectiveSchemas.size()));
 				PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, effectiveSchemas.size()));
 				PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, effectiveSchemas.size()));
+				PreparedStatement rps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ROUTINES, effectiveSchemas.size()));
 			) {
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -590,9 +621,38 @@ where tc.OWNER in {inValues}
 				String depSchema = vdrs.getString("DEP_SCHEMA");
 				String depName = vdrs.getString("DEP_NAME");
 				DbView view = viewsByName.get(CommonHelpers.qualifiedName(viewSchema, viewName));
-				if (view != null) {
-					view.getDependsOnViews().add(CommonHelpers.qualifiedName(depSchema, depName));
+				String depQualified = CommonHelpers.qualifiedName(depSchema, depName);
+				if (view != null && viewsByName.containsKey(depQualified)) {
+					view.getDependsOnViews().add(depQualified);
 				}
+			}
+
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> rps.setString(i, schema)));
+			ResultSet rrs = rps.executeQuery();
+			List<String[]> routineKeys = new LinkedList<>();
+			while (rrs.next()) {
+				routineKeys.add(new String[] {
+					rrs.getString("SCHEMA_NAME"),
+					rrs.getString("ROUTINE_NAME"),
+					rrs.getString("ROUTINE_TYPE")
+				});
+			}
+			rrs.close();
+			for (String[] key : routineKeys) {
+				String schemaName = key[0];
+				String routineName = key[1];
+				String routineType = key[2];
+				String definition = loadOracleRoutineDefinition(con, schemaName, routineName, routineType);
+				if (definition == null || definition.isBlank()) {
+					log.warn("Skipping Oracle {} {}.{} — unable to read definition", routineType, schemaName, routineName);
+					continue;
+				}
+				dbModel.getFunctions().add(DbFunction.builder()
+					.schema(schemaName)
+					.name(routineName)
+					.routineType(routineType)
+					.definition(definition)
+					.build());
 			}
 			dbModel.build();
 			}
@@ -602,6 +662,83 @@ where tc.OWNER in {inValues}
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
+	}
+
+	private String loadOracleRoutineDefinition(Connection con, String schema, String name, String type) {
+		try (PreparedStatement ps = con.prepareStatement(SQL_FOR_ROUTINE_DDL)) {
+			ps.setString(1, type);
+			ps.setString(2, name);
+			ps.setString(3, schema);
+			try (ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					String ddl = readClobOrString(rs, 1);
+					if (ddl != null && !ddl.isBlank()) {
+						return normalizeOracleRoutineDdl(ddl);
+					}
+				}
+			}
+		} catch (SQLException e) {
+			log.warn("DBMS_METADATA.GET_DDL failed for {} {}.{}: {}", type, schema, name, e.getMessage());
+		}
+		return loadOracleRoutineFromSource(con, schema, name, type);
+	}
+
+	private String loadOracleRoutineFromSource(Connection con, String schema, String name, String type) {
+		StringBuilder sb = new StringBuilder();
+		try (PreparedStatement ps = con.prepareStatement(SQL_FOR_ROUTINE_SOURCE)) {
+			ps.setString(1, schema);
+			ps.setString(2, name);
+			ps.setString(3, type);
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					String line = rs.getString("TEXT");
+					if (line != null) {
+						sb.append(line);
+					}
+				}
+			}
+		} catch (SQLException e) {
+			log.warn("ALL_SOURCE failed for {} {}.{}: {}", type, schema, name, e.getMessage());
+			return null;
+		}
+		if (sb.length() == 0) {
+			return null;
+		}
+		String body = sb.toString().trim();
+		if (!body.regionMatches(true, 0, "CREATE", 0, 6)) {
+			body = "CREATE OR REPLACE " + body;
+		}
+		return normalizeOracleRoutineDdl(body);
+	}
+
+	static String normalizeOracleRoutineDdl(String ddl) {
+		if (ddl == null) {
+			return null;
+		}
+		String trimmed = ddl.trim();
+		// DBMS_METADATA often ends with a trailing slash on its own line
+		if (trimmed.endsWith("\n/")) {
+			trimmed = trimmed.substring(0, trimmed.length() - 2).trim();
+		} else if (trimmed.endsWith("/")) {
+			trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+		}
+		return trimmed;
+	}
+
+	private static String readClobOrString(ResultSet rs, int index) throws SQLException {
+		try {
+			java.sql.Clob clob = rs.getClob(index);
+			if (clob != null) {
+				long len = clob.length();
+				if (len > Integer.MAX_VALUE) {
+					throw new SQLException("Routine DDL CLOB too large: " + len);
+				}
+				return clob.getSubString(1, (int) len);
+			}
+		} catch (SQLException ignored) {
+			// fall through to getString
+		}
+		return rs.getString(index);
 	}
 
 	private Set<String> resolveSchemas(Connection con) throws SQLException {

@@ -15,6 +15,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -586,6 +587,31 @@ public class DDLServiceOracleTest {
 		assertThat(statements.get(0), containsString("EMPLOYEE_ID"));
 		assertThat(statements.get(0), containsString("CONSTRAINT \"JHIST_EMPLOYEE_NN\" NOT NULL"));
 		assertThat(statements.get(0), not(containsString("CHECK")));
+	}
+
+	@Test
+	public void givenOracleRoutineDdlWithTrailingSlash_whenNormalize_thenStripSlash() {
+		String normalized = DatasourceFactoryOracle.normalizeOracleRoutineDdl(
+			"CREATE OR REPLACE PROCEDURE HR.P1 AS BEGIN NULL; END;\n/");
+		assertThat(normalized, equalTo("CREATE OR REPLACE PROCEDURE HR.P1 AS BEGIN NULL; END;"));
+	}
+
+	@Test
+	public void givenFunctionAndProcedure_whenCreateRoutineSql_thenKeepDefinition() {
+		DbFunction fn = DbFunction.builder()
+			.schema("HR")
+			.name("F1")
+			.routineType(DbFunction.TYPE_FUNCTION)
+			.definition("CREATE OR REPLACE FUNCTION HR.F1 RETURN NUMBER AS BEGIN RETURN 1; END;")
+			.build();
+		DbFunction proc = DbFunction.builder()
+			.schema("HR")
+			.name("P1")
+			.routineType(DbFunction.TYPE_PROCEDURE)
+			.definition("CREATE OR REPLACE PROCEDURE HR.P1 AS BEGIN NULL; END;")
+			.build();
+		assertThat(DDLServiceOracle.createRoutineSql(fn), containsString("FUNCTION HR.F1"));
+		assertThat(DDLServiceOracle.compileRoutineSql(proc), equalTo("ALTER PROCEDURE HR.P1 COMPILE"));
 	}
 
 	private DbModel createEmptyDbModel() {

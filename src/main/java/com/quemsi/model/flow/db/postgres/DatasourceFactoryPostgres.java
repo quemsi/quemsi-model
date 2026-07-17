@@ -415,6 +415,7 @@ order by n.nspname, p.proname
 				dbModel.getFunctions().add(DbFunction.builder()
 					.schema(schemaName)
 					.name(functionName)
+					.routineType(DbFunction.TYPE_FUNCTION)
 					.identityArguments(identityArguments)
 					.definition(definition)
 					.build());
