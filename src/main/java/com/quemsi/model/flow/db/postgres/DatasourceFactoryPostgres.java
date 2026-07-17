@@ -26,6 +26,7 @@ import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbView;
@@ -161,6 +162,28 @@ where cv.relkind = 'v'
 ;
 			""";
 
+	/** Functions referenced by views in the configured schemas (excludes pg_catalog / information_schema). */
+	private static final String SQL_FOR_VIEW_FUNCTIONS = """
+select distinct
+	n.nspname as schema_name,
+	p.proname as function_name,
+	pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
+	pg_catalog.pg_get_functiondef(p.oid) as definition
+from pg_catalog.pg_depend d
+inner join pg_catalog.pg_rewrite r on d.objid = r.oid
+inner join pg_catalog.pg_class c on r.ev_class = c.oid
+inner join pg_catalog.pg_namespace nv on c.relnamespace = nv.oid
+inner join pg_catalog.pg_proc p on d.refobjid = p.oid
+inner join pg_catalog.pg_namespace n on p.pronamespace = n.oid
+where c.relkind = 'v'
+  and d.refclassid = 'pg_proc'::regclass
+  and d.deptype = 'n'
+  and nv.nspname in {inValues}
+  and n.nspname not in ('pg_catalog', 'information_schema')
+order by n.nspname, p.proname
+;
+			""";
+
 	protected static final String SQL_FOR_SCHEMA = "select nspname from pg_catalog.pg_namespace ns where ns.nspname = ?;";
 	
     private String name;
@@ -225,6 +248,7 @@ where cv.relkind = 'v'
 			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
 			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
+			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_FUNCTIONS, schemas.size()));
 		){
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -374,6 +398,26 @@ where cv.relkind = 'v'
 				if (view != null && viewsByName.containsKey(depQualified)) {
 					view.getDependsOnViews().add(depQualified);
 				}
+			}
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vfps.setString(i, schema)));
+			ResultSet vfrs = vfps.executeQuery();
+			Set<String> seenFunctions = new HashSet<>();
+			while (vfrs.next()) {
+				String schemaName = vfrs.getString("SCHEMA_NAME");
+				String functionName = vfrs.getString("FUNCTION_NAME");
+				String identityArguments = vfrs.getString("IDENTITY_ARGUMENTS");
+				String definition = vfrs.getString("DEFINITION");
+				String key = CommonHelpers.qualifiedName(schemaName, functionName)
+					+ "(" + (identityArguments != null ? identityArguments : "") + ")";
+				if (!seenFunctions.add(key)) {
+					continue;
+				}
+				dbModel.getFunctions().add(DbFunction.builder()
+					.schema(schemaName)
+					.name(functionName)
+					.identityArguments(identityArguments)
+					.definition(definition)
+					.build());
 			}
 			dbModel.build();
 		}catch(Exception e){

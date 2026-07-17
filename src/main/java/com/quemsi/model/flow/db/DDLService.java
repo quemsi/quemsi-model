@@ -15,6 +15,8 @@ public interface DDLService extends AutoCloseable {
 	void disableConstraints(Set<ReferenceInfo> constraints);
 	void enableContraints(Set<ReferenceInfo> constraints);
 	void createTables(DbModel dbModel);
+	/** Create/replace routines required by views (e.g. Postgres functions). No-op when unsupported. */
+	void createFunctions(DbModel dbModel);
 	void createViews(DbModel dbModel);
 	boolean checkSchema(String schema) throws SQLException;
 	

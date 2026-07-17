@@ -113,6 +113,15 @@ public class SchemaMapping extends AbstractStep{
                     }
                 });
             }
+
+            if (dbModel.getFunctions() != null) {
+                dbModel.getFunctions().stream().filter(f -> StringUtils.equalsIgnoreCase(f.getSchema(), sourceSchema)).forEach(f -> {
+                    f.setSchema(targetSchema);
+                    if (f.getDefinition() != null) {
+                        f.setDefinition(remapSchemaInDefinition(f.getDefinition(), sourceSchema, targetSchema));
+                    }
+                });
+            }
             
             dbModel.getIndexes().values().stream().flatMap(i -> i.values().stream()).filter(i -> StringUtils.equalsIgnoreCase(i.getSchemaName(), sourceSchema)).forEach(i ->{
                 i.setSchemaName(targetSchema);

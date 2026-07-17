@@ -492,6 +492,11 @@ public class DDLServiceOracle implements DDLService {
 		}
 	}
 
+	@Override
+	public void createFunctions(DbModel dbModel) {
+		// Oracle routines not included in view backup yet
+	}
+
 	static String dropViewSql(String qualifiedName) {
 		return "DROP VIEW " + qualifiedName;
 	}

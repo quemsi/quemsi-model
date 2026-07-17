@@ -113,6 +113,11 @@ public class DDLServiceMongo implements DDLService {
         // no-op for MongoDB
     }
 
+    @Override
+    public void createFunctions(DbModel dbModel) {
+        // no-op for MongoDB
+    }
+
     private CreateCollectionOptions buildCreateOptions(Map<String, Object> collectionOptions) {
         if (collectionOptions == null || collectionOptions.isEmpty()) {
             return null;

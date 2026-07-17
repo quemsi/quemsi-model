@@ -317,6 +317,11 @@ public class DDLServiceMysql implements DDLService{
 		}
 	}
 
+	@Override
+	public void createFunctions(DbModel dbModel) {
+		// MySQL routines not included in view backup yet
+	}
+
 	static String dropViewSql(String qualifiedName) {
 		return "DROP VIEW IF EXISTS " + qualifiedName + ";";
 	}

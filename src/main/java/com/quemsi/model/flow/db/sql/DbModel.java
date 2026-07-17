@@ -35,6 +35,7 @@ public class DbModel {
     protected Map<String, Map<String, IndexInfo>> indexes;
     protected List<DbSequence> sequences;
     protected List<DbView> views;
+    protected List<DbFunction> functions;
     
     public DbModel(){
         tables = new HashMap<>();
@@ -45,6 +46,7 @@ public class DbModel {
         indexes = new HashMap<>();
         sequences = new LinkedList<>();
         views = new LinkedList<>();
+        functions = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
         return addTable(tableName, null);

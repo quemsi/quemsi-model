@@ -471,6 +471,11 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 	}
 
+	@Override
+	public void createFunctions(DbModel dbModel) {
+		// SQL Server routines not included in view backup yet
+	}
+
 	static String dropViewSql(String qualifiedName) {
 		return "DROP VIEW IF EXISTS " + qualifiedName;
 	}

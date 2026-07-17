@@ -107,6 +107,7 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.enableContraints(dbModel.getCircularIgnore());
 
                 if(result){
+                    ddlService.createFunctions(dbModel);
                     ddlService.createViews(dbModel);
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("all data is restored successfully"));
                 } else {

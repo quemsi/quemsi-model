@@ -14,6 +14,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -673,6 +674,18 @@ public class DDLServicePostgresTest {
             equalTo("DROP VIEW IF EXISTS bookings.aircrafts;"));
         assertThat(DDLServicePostgres.createViewSql(view),
             equalTo("CREATE VIEW bookings.aircrafts AS SELECT 1;"));
+    }
+
+    @Test
+    public void givenFunctionDefinition_whenCreateFunctionSql_thenUseOrReplace() {
+        DbFunction function = DbFunction.builder()
+            .schema("bookings")
+            .name("lang")
+            .definition("CREATE FUNCTION bookings.lang() RETURNS text LANGUAGE sql AS $$ SELECT 'en'::text $$")
+            .build();
+        String sql = DDLServicePostgres.createFunctionSql(function);
+        assertThat(sql, containsString("CREATE OR REPLACE FUNCTION"));
+        assertThat(sql, containsString("bookings.lang()"));
     }
 
     // Helper methods

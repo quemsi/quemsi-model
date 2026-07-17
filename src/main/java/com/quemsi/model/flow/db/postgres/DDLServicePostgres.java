@@ -17,6 +17,7 @@ import java.util.stream.Collectors;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -328,6 +329,38 @@ public class DDLServicePostgres implements DDLService{
 		}catch(SQLException ignore){
 			log.info("create tables sql", ignore);
 		}
+    }
+
+    @Override
+    public void createFunctions(DbModel dbModel) {
+        if (dbModel.getFunctions() == null || dbModel.getFunctions().isEmpty()) {
+            return;
+        }
+        try {
+            Statement s = conn.createStatement();
+            for (DbFunction function : dbModel.getFunctions()) {
+                String sql = createFunctionSql(function);
+                log.info("ddl : {}", sql);
+                s.executeUpdate(sql);
+            }
+        } catch (SQLException e) {
+            throw Exceptions.server("failed-to-create-functions").withCause(e).get();
+        }
+    }
+
+    static String createFunctionSql(DbFunction function) {
+        String def = function.getDefinition();
+        if (def == null || def.isBlank()) {
+            throw Exceptions.server("missing-function-definition")
+                .withExtra("function", function.qualifiedName()).get();
+        }
+        String trimmed = def.trim();
+        // pg_get_functiondef may return CREATE FUNCTION; prefer OR REPLACE for restore
+        if (trimmed.regionMatches(true, 0, "CREATE FUNCTION", 0, "CREATE FUNCTION".length())
+            && !trimmed.regionMatches(true, 0, "CREATE OR REPLACE FUNCTION", 0, "CREATE OR REPLACE FUNCTION".length())) {
+            return "CREATE OR REPLACE FUNCTION" + trimmed.substring("CREATE FUNCTION".length());
+        }
+        return trimmed;
     }
 
     @Override
