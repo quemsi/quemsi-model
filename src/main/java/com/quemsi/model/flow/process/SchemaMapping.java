@@ -100,9 +100,43 @@ public class SchemaMapping extends AbstractStep{
                 s.setSchema(targetSchema);
             });
             
+            if (dbModel.getViews() != null) {
+                dbModel.getViews().stream().filter(v -> StringUtils.equalsIgnoreCase(v.getSchema(), sourceSchema)).forEach(v -> {
+                    v.setSchema(targetSchema);
+                    if (v.getDefinition() != null) {
+                        v.setDefinition(remapSchemaInDefinition(v.getDefinition(), sourceSchema, targetSchema));
+                    }
+                    if (v.getDependsOnViews() != null && !v.getDependsOnViews().isEmpty()) {
+                        v.setDependsOnViews(v.getDependsOnViews().stream()
+                            .map(dep -> remapQualifiedName(dep, sourceSchema, targetSchema))
+                            .collect(Collectors.toSet()));
+                    }
+                });
+            }
+            
             dbModel.getIndexes().values().stream().flatMap(i -> i.values().stream()).filter(i -> StringUtils.equalsIgnoreCase(i.getSchemaName(), sourceSchema)).forEach(i ->{
                 i.setSchemaName(targetSchema);
             });
+        }
+
+        private String remapQualifiedName(String qualifiedName, String source, String target) {
+            if (qualifiedName == null) {
+                return null;
+            }
+            String prefix = source + ".";
+            if (qualifiedName.regionMatches(true, 0, prefix, 0, prefix.length())) {
+                return target + "." + qualifiedName.substring(prefix.length());
+            }
+            return qualifiedName;
+        }
+
+        private String remapSchemaInDefinition(String definition, String source, String target) {
+            String result = definition;
+            result = result.replace("\"" + source + "\".", "\"" + target + "\".");
+            result = result.replace("[" + source + "].", "[" + target + "].");
+            // Unquoted schema.table — word-boundary-ish replace of source.
+            result = result.replaceAll("(?i)(?<![\\w\"`])" + java.util.regex.Pattern.quote(source) + "\\.", target + ".");
+            return result;
         }
     }
 

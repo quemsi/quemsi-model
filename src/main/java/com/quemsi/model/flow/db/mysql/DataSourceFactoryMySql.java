@@ -4,9 +4,15 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.sql.DataSource;
 
@@ -24,6 +30,7 @@ import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
@@ -39,6 +46,10 @@ SELECT cols.TABLE_NAME, cols.COLUMN_NAME, cols.ORDINAL_POSITION,
     cols.COLUMN_KEY, cols.COLUMN_DEFAULT, cols.IS_NULLABLE
 FROM INFORMATION_SCHEMA.`COLUMNS` as cols
 where cols.TABLE_SCHEMA = ?
+  and not exists (
+    select 1 from INFORMATION_SCHEMA.VIEWS v
+    where v.TABLE_SCHEMA = cols.TABLE_SCHEMA and v.TABLE_NAME = cols.TABLE_NAME
+  )
 order by cols.TABLE_NAME, cols.ORDINAL_POSITION
 ;
 			""";
@@ -51,6 +62,10 @@ inner join INFORMATION_SCHEMA.`TABLE_CONSTRAINTS` tc
 	and kcu.table_schema = tc.table_schema 
 	and kcu.table_name = tc.table_name
 where kcu.CONSTRAINT_SCHEMA = ?
+  and not exists (
+    select 1 from INFORMATION_SCHEMA.VIEWS v
+    where v.TABLE_SCHEMA = kcu.TABLE_SCHEMA and v.TABLE_NAME = kcu.TABLE_NAME
+  )
 order by kcu.table_name, kcu.constraint_name, coalesce(kcu.position_in_unique_constraint, kcu.ordinal_position)
 ;
 			""";
@@ -65,6 +80,10 @@ SELECT
     st.INDEX_TYPE
 FROM INFORMATION_SCHEMA.STATISTICS st
 WHERE TABLE_SCHEMA = ?
+  and not exists (
+    select 1 from INFORMATION_SCHEMA.VIEWS v
+    where v.TABLE_SCHEMA = st.TABLE_SCHEMA and v.TABLE_NAME = st.TABLE_NAME
+  )
 order by st.TABLE_NAME, st.INDEX_NAME, st.SEQ_IN_INDEX;
 			""";
 
@@ -79,8 +98,41 @@ INNER JOIN INFORMATION_SCHEMA.TABLE_CONSTRAINTS tc
 	ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA 
 	AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
 WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
+  and not exists (
+    select 1 from INFORMATION_SCHEMA.VIEWS v
+    where v.TABLE_SCHEMA = tc.TABLE_SCHEMA and v.TABLE_NAME = tc.TABLE_NAME
+  )
 ;
 			""";
+
+	private static final String SQL_FOR_VIEWS = """
+SELECT
+	TABLE_SCHEMA as schema_name,
+	TABLE_NAME as view_name,
+	VIEW_DEFINITION as definition
+FROM INFORMATION_SCHEMA.VIEWS
+WHERE TABLE_SCHEMA = ?
+ORDER BY TABLE_NAME
+;
+			""";
+
+	private static final String SQL_FOR_VIEW_DEPS = """
+SELECT
+	vtu.VIEW_SCHEMA as view_schema,
+	vtu.VIEW_NAME as view_name,
+	vtu.TABLE_SCHEMA as dep_schema,
+	vtu.TABLE_NAME as dep_name
+FROM INFORMATION_SCHEMA.VIEW_TABLE_USAGE vtu
+INNER JOIN INFORMATION_SCHEMA.VIEWS v
+	ON v.TABLE_SCHEMA = vtu.TABLE_SCHEMA AND v.TABLE_NAME = vtu.TABLE_NAME
+WHERE vtu.VIEW_SCHEMA = ?
+;
+			""";
+
+	/** Matches SHOW CREATE VIEW output and captures the SELECT body after AS. */
+	private static final Pattern CREATE_VIEW_AS = Pattern.compile(
+		"(?is)^\\s*CREATE\\s+(?:ALGORITHM\\s*=\\s*\\S+\\s+)?(?:DEFINER\\s*=\\s*[^\\s]+\\s+)?(?:SQL\\s+SECURITY\\s+\\w+\\s+)?VIEW\\s+.+?\\s+AS\\s+(.*)$"
+	);
 	
 	private String name;
 	private String dbName;
@@ -138,6 +190,8 @@ WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
 			PreparedStatement cps = con.prepareStatement(SQL_FOR_CONSTRAINTS);
 			PreparedStatement ist = con.prepareStatement(SQL_FOR_INDEXES);
 			PreparedStatement ckps = con.prepareStatement(SQL_FOR_CHECK_CONSTRAINTS);
+			PreparedStatement vps = con.prepareStatement(SQL_FOR_VIEWS);
+			PreparedStatement vdps = con.prepareStatement(SQL_FOR_VIEW_DEPS);
 		){
 			ps.setString(1, dbName);
 			ResultSet rs = ps.executeQuery();
@@ -246,10 +300,171 @@ WHERE tc.CONSTRAINT_TYPE = 'CHECK' AND tc.CONSTRAINT_SCHEMA = ?
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
+			Map<String, DbView> viewsByName = new HashMap<>();
+			// Collect view names first, then load definitions on a fresh connection.
+			// MySQL JDBC allows only one active ResultSet per connection; earlier
+			// catalog queries leave ResultSets open on `con`, so SHOW CREATE VIEW
+			// on that same connection fails and definitions become "".
+			List<String> viewNames = new LinkedList<>();
+			vps.setString(1, dbName);
+			try (ResultSet vrs = vps.executeQuery()) {
+				while (vrs.next()) {
+					viewNames.add(vrs.getString("VIEW_NAME"));
+				}
+			}
+			try (Connection viewCon = getDataSource().getConnection()) {
+				for (String viewName : viewNames) {
+					String definition = loadViewDefinition(viewCon, viewName);
+					DbView view = DbView.builder()
+						.schema(null)
+						.name(viewName)
+						.definition(definition != null ? definition : "")
+						.dependsOnViews(new HashSet<>())
+						.build();
+					viewsByName.put(view.qualifiedName(), view);
+					dbModel.getViews().add(view);
+				}
+			}
+			vdps.setString(1, dbName);
+			try {
+				ResultSet vdrs = vdps.executeQuery();
+				while (vdrs.next()) {
+					String viewName = vdrs.getString("VIEW_NAME");
+					String depName = vdrs.getString("DEP_NAME");
+					DbView view = viewsByName.get(viewName);
+					if (view != null && viewsByName.containsKey(depName)) {
+						view.getDependsOnViews().add(depName);
+					}
+				}
+			} catch (SQLException e) {
+				log.warn("Unable to load MySQL view dependencies (VIEW_TABLE_USAGE may be unavailable): {}", e.getMessage());
+			}
 			dbModel.build();
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
+	}
+
+	/**
+	 * Prefer SHOW CREATE VIEW / SHOW CREATE TABLE. INFORMATION_SCHEMA.VIEW_DEFINITION
+	 * is often empty for non-definer users.
+	 */
+	private String loadViewDefinition(Connection con, String viewName) {
+		String catalog = resolveCatalog(con);
+		List<String> candidates = new LinkedList<>();
+		if (catalog != null && !catalog.isBlank()) {
+			candidates.add(backtickQuoted(catalog) + "." + backtickQuoted(viewName));
+		}
+		candidates.add(backtickQuoted(viewName));
+
+		for (String qualified : candidates) {
+			String body = executeShowCreate(con, "SHOW CREATE VIEW " + qualified);
+			if (body == null || body.isBlank()) {
+				// SHOW CREATE TABLE also works for views in MySQL
+				body = executeShowCreate(con, "SHOW CREATE TABLE " + qualified);
+			}
+			if (body != null && !body.isBlank()) {
+				return body;
+			}
+		}
+
+		String fromInfoSchema = loadViewDefinitionFromInformationSchema(con, catalog, viewName);
+		if (fromInfoSchema != null && !fromInfoSchema.isBlank()) {
+			return fromInfoSchema.trim();
+		}
+		log.warn("Unable to load MySQL view definition for {} (catalog={}). "
+			+ "Grant SHOW VIEW on the schema to the backup user, e.g. GRANT SELECT, SHOW VIEW ON `{}`.* TO 'user'@'%'",
+			viewName, catalog, catalog != null ? catalog : "<database>");
+		return "";
+	}
+
+	private String resolveCatalog(Connection con) {
+		if (dbName != null && !dbName.isBlank()) {
+			return dbName;
+		}
+		try {
+			return con.getCatalog();
+		} catch (SQLException e) {
+			return null;
+		}
+	}
+
+	private String executeShowCreate(Connection con, String sql) {
+		try (Statement st = con.createStatement();
+			 ResultSet rs = st.executeQuery(sql)) {
+			if (!rs.next()) {
+				return null;
+			}
+			String createStmt = readCreateStatementColumn(rs);
+			return stripCreateViewWrapper(createStmt);
+		} catch (SQLException e) {
+			// ER_TABLEACCESS_DENIED_ERROR (1142): typically missing SHOW VIEW privilege
+			if (e.getErrorCode() == 1142 || (e.getMessage() != null && e.getMessage().toUpperCase().contains("SHOW VIEW"))) {
+				log.warn("MySQL view DDL requires SHOW VIEW privilege. {} failed: {}", sql, e.getMessage());
+			} else {
+				log.debug("MySQL {} failed: {}", sql, e.getMessage());
+			}
+			return null;
+		}
+	}
+
+	private static String readCreateStatementColumn(ResultSet rs) throws SQLException {
+		var meta = rs.getMetaData();
+		int count = meta.getColumnCount();
+		for (int i = 1; i <= count; i++) {
+			String label = meta.getColumnLabel(i);
+			if (label == null) {
+				label = meta.getColumnName(i);
+			}
+			if (label != null && label.toLowerCase().contains("create")) {
+				return rs.getString(i);
+			}
+		}
+		// SHOW CREATE VIEW/TABLE: column 2 is the create statement
+		if (count >= 2) {
+			return rs.getString(2);
+		}
+		return null;
+	}
+
+	private String loadViewDefinitionFromInformationSchema(Connection con, String catalog, String viewName) {
+		if (catalog == null || catalog.isBlank()) {
+			return null;
+		}
+		String sql = "SELECT VIEW_DEFINITION FROM INFORMATION_SCHEMA.VIEWS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?";
+		try (PreparedStatement ps = con.prepareStatement(sql)) {
+			ps.setString(1, catalog);
+			ps.setString(2, viewName);
+			try (ResultSet rs = ps.executeQuery()) {
+				if (rs.next()) {
+					return rs.getString(1);
+				}
+			}
+		} catch (SQLException e) {
+			log.debug("INFORMATION_SCHEMA.VIEWS lookup failed for {}: {}", viewName, e.getMessage());
+		}
+		return null;
+	}
+
+	static String stripCreateViewWrapper(String createView) {
+		if (createView == null) {
+			return null;
+		}
+		String trimmed = createView.trim();
+		Matcher matcher = CREATE_VIEW_AS.matcher(trimmed);
+		if (matcher.matches()) {
+			return matcher.group(1).trim();
+		}
+		// Fallback: take everything after VIEW ... AS
+		Matcher viewAs = Pattern.compile("(?is)\\bVIEW\\b.+?\\bAS\\b\\s+(.*)$").matcher(trimmed);
+		if (viewAs.find()) {
+			return viewAs.group(1).trim();
+		}
+		return trimmed;
+	}
+
+	private static String backtickQuoted(String name) {
+		return "`" + name.replace("`", "``") + "`";
 	}
 }

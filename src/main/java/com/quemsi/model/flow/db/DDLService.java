@@ -11,9 +11,11 @@ import com.quemsi.model.flow.db.sql.diff.DbModelDiff;
 public interface DDLService extends AutoCloseable {
     boolean dropTables(String...  tableNames);
 	boolean dropSequences(String... sequenceNames);
+	boolean dropViews(String... viewNames);
 	void disableConstraints(Set<ReferenceInfo> constraints);
 	void enableContraints(Set<ReferenceInfo> constraints);
 	void createTables(DbModel dbModel);
+	void createViews(DbModel dbModel);
 	boolean checkSchema(String schema) throws SQLException;
 	
 	/**

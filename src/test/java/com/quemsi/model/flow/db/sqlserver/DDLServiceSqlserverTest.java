@@ -21,6 +21,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
@@ -357,6 +358,34 @@ public class DDLServiceSqlserverTest {
             .ordinalPosition(ordinalSequence.getAndIncrement())
             .build();
         return column;
+    }
+
+    @Test
+    public void givenViewModify_whenDdlFrom_thenDropThenCreate() {
+        DbModelDiff diff = new DbModelDiff();
+        DbView view = DbView.builder()
+            .schema("dbo")
+            .name("v_demo")
+            .definition("SELECT 1 AS n")
+            .build();
+        diff.getOperations().add(com.quemsi.model.flow.db.sql.diff.DbViewDiffOp.builder()
+            .opType(DiffOpType.MODIFY)
+            .qualifiedName("dbo.v_demo")
+            .oldView(view)
+            .newView(view)
+            .build());
+
+        List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+        assertThat(statements, hasSize(2));
+        assertThat(statements.get(0), containsString("DROP VIEW IF EXISTS dbo.v_demo"));
+        assertThat(statements.get(1), containsString("CREATE VIEW dbo.v_demo AS SELECT 1 AS n"));
+    }
+
+    @Test
+    public void givenCreateViewModuleDefinition_whenStrip_thenReturnSelectBody() {
+        String stripped = DatasourceFactorySqlserver.stripCreateViewWrapper(
+            "CREATE VIEW [dbo].[v_demo] AS SELECT 1 AS n");
+        assertThat(stripped, equalTo("SELECT 1 AS n"));
     }
 }
 

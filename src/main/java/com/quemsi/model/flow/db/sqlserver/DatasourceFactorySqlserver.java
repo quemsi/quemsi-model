@@ -5,9 +5,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
@@ -28,6 +31,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -146,6 +150,36 @@ where schema_name(t.schema_id) in {inValues}
 ;
 			""";
 
+	private static final String SQL_FOR_VIEWS = """
+select
+	schema_name(v.schema_id) as schema_name,
+	v.name as view_name,
+	m.definition as definition
+from sys.views v
+inner join sys.sql_modules m on v.object_id = m.object_id
+where schema_name(v.schema_id) in {inValues}
+order by schema_name(v.schema_id), v.name
+;
+			""";
+
+	private static final String SQL_FOR_VIEW_DEPS = """
+select
+	schema_name(v.schema_id) as view_schema,
+	v.name as view_name,
+	schema_name(dv.schema_id) as dep_schema,
+	dv.name as dep_name
+from sys.sql_expression_dependencies d
+inner join sys.views v on d.referencing_id = v.object_id
+inner join sys.views dv on d.referenced_id = dv.object_id
+where schema_name(v.schema_id) in {inValues}
+  and d.referenced_id is not null
+;
+			""";
+
+	private static final Pattern CREATE_VIEW_AS = Pattern.compile(
+		"(?is)^\\s*create\\s+(?:or\\s+alter\\s+)?view\\s+.+?\\s+as\\s+(.*)$"
+	);
+
 	public static final String SQL_FOR_SCHEMA = "select s.name from sys.schemas s where s.name = ?;";
 
 	private String name;
@@ -211,6 +245,8 @@ where schema_name(t.schema_id) in {inValues}
 			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, schemas.size()));
 			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
 			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DEFAULT_CONSTRAINTS, schemas.size()));
+			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
+			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 		){
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -349,12 +385,51 @@ where schema_name(t.schema_id) in {inValues}
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
+			Map<String, DbView> viewsByName = new HashMap<>();
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
+			ResultSet vrs = vps.executeQuery();
+			while (vrs.next()) {
+				String schemaName = vrs.getString("SCHEMA_NAME");
+				String viewName = vrs.getString("VIEW_NAME");
+				String definition = stripCreateViewWrapper(vrs.getString("DEFINITION"));
+				DbView view = DbView.builder()
+					.schema(schemaName)
+					.name(viewName)
+					.definition(definition)
+					.dependsOnViews(new HashSet<>())
+					.build();
+				viewsByName.put(view.qualifiedName(), view);
+				dbModel.getViews().add(view);
+			}
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vdps.setString(i, schema)));
+			ResultSet vdrs = vdps.executeQuery();
+			while (vdrs.next()) {
+				String viewSchema = vdrs.getString("VIEW_SCHEMA");
+				String viewName = vdrs.getString("VIEW_NAME");
+				String depSchema = vdrs.getString("DEP_SCHEMA");
+				String depName = vdrs.getString("DEP_NAME");
+				DbView view = viewsByName.get(CommonHelpers.qualifiedName(viewSchema, viewName));
+				if (view != null) {
+					view.getDependsOnViews().add(CommonHelpers.qualifiedName(depSchema, depName));
+				}
+			}
 			dbModel.build();
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
     }
+
+	static String stripCreateViewWrapper(String definition) {
+		if (definition == null) {
+			return null;
+		}
+		Matcher matcher = CREATE_VIEW_AS.matcher(definition.trim());
+		if (matcher.matches()) {
+			return matcher.group(1).trim();
+		}
+		return definition.trim();
+	}
 
     @Override
 	public DDLService ddlService() throws SQLException {

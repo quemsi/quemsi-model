@@ -17,6 +17,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
@@ -26,6 +27,7 @@ import com.quemsi.model.flow.db.sql.diff.DbModelDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbSequenceDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbTableDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbViewDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DiffOpType;
 import com.quemsi.model.util.CommonHelpers;
 
@@ -180,6 +182,40 @@ public class DbModelDiffExtractorTest {
         DbModelDiff diff = extractor.extract(source, target);
 
         assertThat(findOp(diff, DbUniqueConstraintDiffOp.class, DiffOpType.CREATE, "uk_email"), notNullValue());
+    }
+
+    @Test
+    public void givenViewsAddedRemovedAndCommon_whenExtract_thenReturnViewOperations() {
+        DbModel source = new DbModel();
+        source.getViews().add(DbView.builder()
+            .schema("public")
+            .name("v_new")
+            .definition("SELECT 1")
+            .build());
+        source.getViews().add(DbView.builder()
+            .schema("public")
+            .name("v_shared")
+            .definition("SELECT id FROM t")
+            .build());
+
+        DbModel target = new DbModel();
+        target.getViews().add(DbView.builder()
+            .schema("public")
+            .name("v_old")
+            .definition("SELECT 2")
+            .build());
+        target.getViews().add(DbView.builder()
+            .schema("public")
+            .name("v_shared")
+            .definition("SELECT id FROM t")
+            .build());
+
+        DbModelDiff diff = extractor.extract(source, target);
+
+        assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.CREATE, "public.v_new"), notNullValue());
+        assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.DROP, "public.v_old"), notNullValue());
+        // Same definition still yields MODIFY (recreate)
+        assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.MODIFY, "public.v_shared"), notNullValue());
     }
 
     private DbColumn column(String name, String type, boolean nullable) {

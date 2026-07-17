@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 
@@ -27,6 +28,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -127,6 +129,32 @@ where con.contype = 'c' and ns.nspname in {inValues}
 ;
 			""";
 
+	private static final String SQL_FOR_VIEWS = """
+select
+	n.nspname as schema_name,
+	c.relname as view_name,
+	pg_catalog.pg_get_viewdef(c.oid, true) as definition
+from pg_catalog.pg_class c
+inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+where c.relkind = 'v' and n.nspname in {inValues}
+order by n.nspname, c.relname
+;
+			""";
+
+	private static final String SQL_FOR_VIEW_DEPS = """
+select
+	vtu.view_schema as view_schema,
+	vtu.view_name as view_name,
+	vtu.table_schema as dep_schema,
+	vtu.table_name as dep_name
+from information_schema.view_table_usage vtu
+inner join pg_catalog.pg_namespace n on n.nspname = vtu.table_schema
+inner join pg_catalog.pg_class c on c.relnamespace = n.oid and c.relname = vtu.table_name
+where vtu.view_schema in {inValues}
+  and c.relkind = 'v'
+;
+			""";
+
 	protected static final String SQL_FOR_SCHEMA = "select nspname from pg_catalog.pg_namespace ns where ns.nspname = ?;";
 	
     private String name;
@@ -189,6 +217,8 @@ where con.contype = 'c' and ns.nspname in {inValues}
 			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, schemas.size()));
 			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, schemas.size()));
 			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
+			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
+			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 		){
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -307,6 +337,34 @@ where con.contype = 'c' and ns.nspname in {inValues}
 					.condef(condef)
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
+			}
+			Map<String, DbView> viewsByName = new HashMap<>();
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
+			ResultSet vrs = vps.executeQuery();
+			while (vrs.next()) {
+				String schemaName = vrs.getString("SCHEMA_NAME");
+				String viewName = vrs.getString("VIEW_NAME");
+				String definition = vrs.getString("DEFINITION");
+				DbView view = DbView.builder()
+					.schema(schemaName)
+					.name(viewName)
+					.definition(definition)
+					.dependsOnViews(new HashSet<>())
+					.build();
+				viewsByName.put(view.qualifiedName(), view);
+				dbModel.getViews().add(view);
+			}
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vdps.setString(i, schema)));
+			ResultSet vdrs = vdps.executeQuery();
+			while (vdrs.next()) {
+				String viewSchema = vdrs.getString("VIEW_SCHEMA");
+				String viewName = vdrs.getString("VIEW_NAME");
+				String depSchema = vdrs.getString("DEP_SCHEMA");
+				String depName = vdrs.getString("DEP_NAME");
+				DbView view = viewsByName.get(CommonHelpers.qualifiedName(viewSchema, viewName));
+				if (view != null) {
+					view.getDependsOnViews().add(CommonHelpers.qualifiedName(depSchema, depName));
+				}
 			}
 			dbModel.build();
 		}catch(Exception e){

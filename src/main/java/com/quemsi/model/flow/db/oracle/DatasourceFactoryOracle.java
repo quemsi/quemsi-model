@@ -32,6 +32,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -237,6 +238,30 @@ order by ac.OWNER, ac.TABLE_NAME, ac.CONSTRAINT_NAME
 ;
 			""";
 
+	private static final String SQL_FOR_VIEWS = """
+select
+	v.OWNER as schema_name,
+	v.VIEW_NAME as view_name,
+	v.TEXT as definition
+from ALL_VIEWS v
+where v.OWNER in {inValues}
+order by v.OWNER, v.VIEW_NAME
+;
+			""";
+
+	private static final String SQL_FOR_VIEW_DEPS = """
+select
+	d.OWNER as view_schema,
+	d.NAME as view_name,
+	d.REFERENCED_OWNER as dep_schema,
+	d.REFERENCED_NAME as dep_name
+from ALL_DEPENDENCIES d
+where d.TYPE = 'VIEW'
+  and d.REFERENCED_TYPE = 'VIEW'
+  and d.OWNER in {inValues}
+;
+			""";
+
 	private static final String SQL_FOR_COLUMN_COMMENTS = """
 select
 	cc.OWNER as schema_name, cc.TABLE_NAME as table_name, cc.COLUMN_NAME as column_name, cc.COMMENTS as comments
@@ -360,6 +385,8 @@ where tc.OWNER in {inValues}
 				PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, effectiveSchemas.size()));
 				PreparedStatement ccps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMN_COMMENTS, effectiveSchemas.size()));
 				PreparedStatement tcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TABLE_COMMENTS, effectiveSchemas.size()));
+				PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, effectiveSchemas.size()));
+				PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, effectiveSchemas.size()));
 			) {
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
@@ -537,6 +564,35 @@ where tc.OWNER in {inValues}
 				String comments = tcrs.getString("COMMENTS");
 				dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName))
 					.ifPresent(table -> table.setComment(comments));
+			}
+
+			Map<String, DbView> viewsByName = new HashMap<>();
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
+			ResultSet vrs = vps.executeQuery();
+			while (vrs.next()) {
+				String schemaName = vrs.getString("SCHEMA_NAME");
+				String viewName = vrs.getString("VIEW_NAME");
+				String definition = vrs.getString("DEFINITION");
+				DbView view = DbView.builder()
+					.schema(schemaName)
+					.name(viewName)
+					.definition(definition)
+					.dependsOnViews(new HashSet<>())
+					.build();
+				viewsByName.put(view.qualifiedName(), view);
+				dbModel.getViews().add(view);
+			}
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vdps.setString(i, schema)));
+			ResultSet vdrs = vdps.executeQuery();
+			while (vdrs.next()) {
+				String viewSchema = vdrs.getString("VIEW_SCHEMA");
+				String viewName = vdrs.getString("VIEW_NAME");
+				String depSchema = vdrs.getString("DEP_SCHEMA");
+				String depName = vdrs.getString("DEP_NAME");
+				DbView view = viewsByName.get(CommonHelpers.qualifiedName(viewSchema, viewName));
+				if (view != null) {
+					view.getDependsOnViews().add(CommonHelpers.qualifiedName(depSchema, depName));
+				}
 			}
 			dbModel.build();
 			}

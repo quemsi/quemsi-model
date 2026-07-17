@@ -350,5 +350,26 @@ public class DDLServiceMysqlTest {
             .build();
         return column;
     }
+
+    @Test
+    public void givenShowCreateViewOutput_whenStrip_thenReturnSelectBody() {
+        String createView = "CREATE ALGORITHM=UNDEFINED DEFINER=`root`@`localhost` "
+            + "SQL SECURITY DEFINER VIEW `totalsales` AS "
+            + "select sum(`payments`.`amount`) AS `total` from `payments`";
+        String stripped = DataSourceFactoryMySql.stripCreateViewWrapper(createView);
+        assertThat(stripped, equalTo("select sum(`payments`.`amount`) AS `total` from `payments`"));
+    }
+
+    @Test
+    public void givenSimpleShowCreateView_whenStrip_thenReturnSelectBody() {
+        String createView = "CREATE VIEW `assignedcustomercounts` AS "
+            + "select `customers`.`salesRepEmployeeNumber` AS `salesRepEmployeeNumber`,"
+            + "count(0) AS `cnt` from `customers` group by `customers`.`salesRepEmployeeNumber`";
+        String stripped = DataSourceFactoryMySql.stripCreateViewWrapper(createView);
+        assertThat(stripped, containsString("from `customers`"));
+        assertThat(stripped, equalTo(
+            "select `customers`.`salesRepEmployeeNumber` AS `salesRepEmployeeNumber`,"
+            + "count(0) AS `cnt` from `customers` group by `customers`.`salesRepEmployeeNumber`"));
+    }
 }
 

@@ -32,6 +32,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
@@ -41,6 +42,7 @@ import com.quemsi.model.flow.db.sql.diff.DbModelDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbSequenceDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbTableDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbViewDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DiffEntityType;
 import com.quemsi.model.flow.db.sql.diff.DiffOpType;
 import com.quemsi.model.util.CommonHelpers;
@@ -83,6 +85,26 @@ public class DDLServiceOracle implements DDLService {
 			return true;
 		} catch (Exception e) {
 			throw Exceptions.server("failed-to-clear-sequences").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropViews(String... viewNames) {
+		try {
+			Statement s = conn.createStatement();
+			for (String viewName : viewNames) {
+				try {
+					s.executeUpdate("DROP VIEW " + viewName);
+				} catch (SQLException e) {
+					// ORA-00942: table or view does not exist
+					if (e.getErrorCode() != 942) {
+						throw e;
+					}
+				}
+			}
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-views").withCause(e).get();
 		}
 	}
 
@@ -447,6 +469,43 @@ public class DDLServiceOracle implements DDLService {
 		}
 	}
 
+	@Override
+	public void createViews(DbModel dbModel) {
+		if (dbModel.getViews() == null || dbModel.getViews().isEmpty()) {
+			return;
+		}
+		LinkedList<DbView> ordered = dbModel.orderedViews();
+		LinkedList<String> reverseNames = new LinkedList<>();
+		for (DbView view : ordered) {
+			reverseNames.addFirst(view.qualifiedName());
+		}
+		dropViews(reverseNames.toArray(new String[0]));
+		try {
+			Statement s = conn.createStatement();
+			for (DbView view : ordered) {
+				String sql = createViewSql(view);
+				log.info("ddl : {}", sql);
+				s.executeUpdate(sql);
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-views").withCause(e).get();
+		}
+	}
+
+	static String dropViewSql(String qualifiedName) {
+		return "DROP VIEW " + qualifiedName;
+	}
+
+	static String createViewSql(DbView view) {
+		String def = view.getDefinition();
+		if (def != null) {
+			def = def.trim();
+			if (def.endsWith(";")) {
+				def = def.substring(0, def.length() - 1);
+			}
+		}
+		return "CREATE VIEW " + view.qualifiedName() + " AS " + def;
+	}
 
 	@Override
 	public boolean checkSchema(String schema) throws SQLException {
@@ -470,9 +529,26 @@ public class DDLServiceOracle implements DDLService {
 		if (diff == null || diff.getOperations() == null || diff.getOperations().isEmpty()) {
 			return statements;
 		}
+		List<String> viewDrops = new ArrayList<>();
+		List<String> viewCreates = new ArrayList<>();
+		List<String> other = new ArrayList<>();
 		for (DbModelDiffOp operation : diff.getOperations()) {
-			statements.addAll(generateSqlForOperation(operation, dbModel));
+			if (operation.getEntityType() == DiffEntityType.VIEW) {
+				List<String> viewSql = generateViewSql((DbViewDiffOp) operation, operation.getOpType());
+				for (String sql : viewSql) {
+					if (sql.regionMatches(true, 0, "DROP VIEW", 0, 9)) {
+						viewDrops.add(sql);
+					} else {
+						viewCreates.add(sql);
+					}
+				}
+			} else {
+				other.addAll(generateSqlForOperation(operation, dbModel));
+			}
 		}
+		statements.addAll(viewDrops);
+		statements.addAll(other);
+		statements.addAll(viewCreates);
 		return statements;
 	}
 
@@ -488,6 +564,28 @@ public class DDLServiceOracle implements DDLService {
 			case CHECK_CONSTRAINT -> statements.addAll(generateCheckConstraintSql((DbCheckConstraintDiffOp) operation, opType));
 			case INDEX -> statements.addAll(generateIndexSql((DbIndexDiffOp) operation, opType));
 			case SEQUENCE -> statements.addAll(generateSequenceSql((DbSequenceDiffOp) operation, opType));
+			case VIEW -> statements.addAll(generateViewSql((DbViewDiffOp) operation, opType));
+			default -> {
+			}
+		}
+		return statements;
+	}
+
+	private List<String> generateViewSql(DbViewDiffOp operation, DiffOpType opType) {
+		List<String> statements = new ArrayList<>();
+		switch (opType) {
+			case CREATE -> {
+				if (operation.getNewView() != null) {
+					statements.add(createViewSql(operation.getNewView()));
+				}
+			}
+			case DROP -> statements.add(dropViewSql(operation.getQualifiedName()));
+			case MODIFY -> {
+				statements.add(dropViewSql(operation.getQualifiedName()));
+				if (operation.getNewView() != null) {
+					statements.add(createViewSql(operation.getNewView()));
+				}
+			}
 			default -> {
 			}
 		}

@@ -7,6 +7,7 @@ public enum DiffEntityType {
     UNIQUE_CONSTRAINT,
     CHECK_CONSTRAINT,
     INDEX,
-    SEQUENCE
+    SEQUENCE,
+    VIEW
 }
 

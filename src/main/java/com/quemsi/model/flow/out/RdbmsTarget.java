@@ -30,8 +30,8 @@ import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbModel;
-import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
+import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData;
 import com.quemsi.model.util.CommonConstants;
 import com.quemsi.model.util.CommonHelpers;
@@ -57,6 +57,11 @@ public class RdbmsTarget extends AbstractStorage{
 
     @Override
     public void init(Flow f) {
+    }
+
+    @Override
+    public String getName() {
+        return datasourceFactory.getName();
     }
 
     @Override
@@ -102,6 +107,7 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.enableContraints(dbModel.getCircularIgnore());
 
                 if(result){
+                    ddlService.createViews(dbModel);
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("all data is restored successfully"));
                 } else {
                     Exception failure = firstFailure.get();

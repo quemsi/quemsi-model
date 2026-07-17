@@ -18,6 +18,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
@@ -26,6 +27,7 @@ import com.quemsi.model.flow.db.sql.diff.DbModelDiff;
 import com.quemsi.model.flow.db.sql.diff.DbSequenceDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbTableDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbViewDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DiffOpType;
 import com.quemsi.model.util.CommonHelpers;
 
@@ -82,6 +84,7 @@ public class DbModelDiffExtractor {
         collectCheckConstraintDiffs(diff, source, target, skipTables);
         collectIndexDiffs(diff, source, target, skipTables);
         collectSequenceDiffs(diff, source, target);
+        collectViewDiffs(diff, source, target);
 
         return diff;
     }
@@ -400,6 +403,50 @@ public class DbModelDiffExtractor {
                     .newSequence(sourceSeq)
                     .build());
             }
+        }
+    }
+
+    private void collectViewDiffs(DbModelDiff diff, DbModel source, DbModel target) {
+        List<DbView> sourceViews = source.getViews() != null ? source.getViews() : List.of();
+        List<DbView> targetViews = target.getViews() != null ? target.getViews() : List.of();
+        Map<String, DbView> sourceByName = sourceViews.stream()
+            .collect(Collectors.toMap(DbView::qualifiedName, v -> v, (a, b) -> a));
+        Map<String, DbView> targetByName = targetViews.stream()
+            .collect(Collectors.toMap(DbView::qualifiedName, v -> v, (a, b) -> a));
+
+        List<String> addedKeys = new ArrayList<>(difference(sourceByName.keySet(), targetByName.keySet()));
+        List<String> removedKeys = new ArrayList<>(difference(targetByName.keySet(), sourceByName.keySet()));
+        List<String> commonKeys = new ArrayList<>(intersection(sourceByName.keySet(), targetByName.keySet()));
+        Collections.sort(addedKeys);
+        Collections.sort(removedKeys);
+        Collections.sort(commonKeys);
+
+        for (String key : addedKeys) {
+            DbView view = sourceByName.get(key);
+            diff.getOperations().add(DbViewDiffOp.builder()
+                .opType(DiffOpType.CREATE)
+                .qualifiedName(view.qualifiedName())
+                .newView(view)
+                .build());
+        }
+        for (String key : removedKeys) {
+            DbView view = targetByName.get(key);
+            diff.getOperations().add(DbViewDiffOp.builder()
+                .opType(DiffOpType.DROP)
+                .qualifiedName(view.qualifiedName())
+                .oldView(view)
+                .build());
+        }
+        // Always recreate views present in both — underlying tables may have changed
+        for (String key : commonKeys) {
+            DbView sourceView = sourceByName.get(key);
+            DbView targetView = targetByName.get(key);
+            diff.getOperations().add(DbViewDiffOp.builder()
+                .opType(DiffOpType.MODIFY)
+                .qualifiedName(sourceView.qualifiedName())
+                .oldView(targetView)
+                .newView(sourceView)
+                .build());
         }
     }
 

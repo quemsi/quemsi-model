@@ -34,6 +34,7 @@ public class DbModel {
     protected Set<ReferenceInfo> circularIgnore;
     protected Map<String, Map<String, IndexInfo>> indexes;
     protected List<DbSequence> sequences;
+    protected List<DbView> views;
     
     public DbModel(){
         tables = new HashMap<>();
@@ -43,6 +44,7 @@ public class DbModel {
         circularIgnore = new HashSet<>();
         indexes = new HashMap<>();
         sequences = new LinkedList<>();
+        views = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
         return addTable(tableName, null);
@@ -165,6 +167,43 @@ public class DbModel {
     }
     public LinkedList<DbTable> orderedTables(){
         return this.orderedTableNames().stream().map(tName -> tables.get(tName)).collect(Collectors.toCollection(LinkedList::new));
+    }
+
+    /**
+     * Topological order of views based on view-to-view dependencies.
+     * Views that only depend on tables come first.
+     */
+    public LinkedList<DbView> orderedViews() {
+        if (views == null || views.isEmpty()) {
+            return new LinkedList<>();
+        }
+        Map<String, DbView> byName = views.stream()
+            .collect(Collectors.toMap(DbView::qualifiedName, v -> v, (a, b) -> a));
+        LinkedList<DbView> result = new LinkedList<>();
+        Set<String> done = new LinkedHashSet<>();
+        Deque<DbView> queue = new LinkedList<>(views);
+        int guard = views.size() * views.size() + 1;
+        while (!queue.isEmpty() && guard-- > 0) {
+            DbView view = queue.poll();
+            Set<String> deps = view.getDependsOnViews() == null ? Set.of() : view.getDependsOnViews();
+            boolean depsReady = deps.stream()
+                .filter(byName::containsKey)
+                .allMatch(done::contains);
+            if (depsReady) {
+                if (done.add(view.qualifiedName())) {
+                    result.add(view);
+                }
+            } else {
+                queue.add(view);
+            }
+        }
+        // Append any remaining (cycles / unresolved) in original order
+        for (DbView view : views) {
+            if (done.add(view.qualifiedName())) {
+                result.add(view);
+            }
+        }
+        return result;
     }
     
     @Data

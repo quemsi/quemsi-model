@@ -13,6 +13,7 @@ import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbSequence;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.SqlParser;
 
 import lombok.Data;
@@ -44,6 +45,12 @@ public class DropTables extends AbstractStep{
 			if(all){
 				tables = CommonOps.reverse(dbModel.orderedTableNames());
 				sequences = dbModel.getSequences().stream().map(DbSequence::qualifiedName).collect(Collectors.toCollection(LinkedList::new));
+				LinkedList<String> views = dbModel.orderedViews().stream()
+					.map(DbView::qualifiedName)
+					.collect(Collectors.toCollection(LinkedList::new));
+				if (!views.isEmpty()) {
+					ddlService.dropViews(CommonOps.reverse(views).toArray(new String[0]));
+				}
 			}
 			if(tables != null && !tables.isEmpty()){
                 if(dbModel.getReferenceInfos() != null && !dbModel.getReferenceInfos().isEmpty()){

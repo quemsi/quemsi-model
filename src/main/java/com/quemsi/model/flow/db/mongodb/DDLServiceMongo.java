@@ -73,6 +73,11 @@ public class DDLServiceMongo implements DDLService {
     }
 
     @Override
+    public boolean dropViews(String... viewNames) {
+        return true;
+    }
+
+    @Override
     public void disableConstraints(Set<ReferenceInfo> constraints) {
         // no-op for MongoDB
     }
@@ -101,6 +106,11 @@ public class DDLServiceMongo implements DDLService {
             }
             createIndexes(db.getCollection(name), dbModel, table);
         }
+    }
+
+    @Override
+    public void createViews(DbModel dbModel) {
+        // no-op for MongoDB
     }
 
     private CreateCollectionOptions buildCreateOptions(Map<String, Object> collectionOptions) {

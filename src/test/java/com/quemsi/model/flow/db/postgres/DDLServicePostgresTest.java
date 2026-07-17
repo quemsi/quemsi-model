@@ -21,6 +21,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
@@ -29,6 +30,7 @@ import com.quemsi.model.flow.db.sql.diff.DbModelDiff;
 import com.quemsi.model.flow.db.sql.diff.DbSequenceDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbTableDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
+import com.quemsi.model.flow.db.sql.diff.DbViewDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DiffOpType;
 
 public class DDLServicePostgresTest {
@@ -624,6 +626,53 @@ public class DDLServicePostgresTest {
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("public.test_table"));
+    }
+
+    @Test
+    public void givenViewModify_whenDdlFrom_thenDropBeforeCreateAndBeforeTableDrop() {
+        DbModelDiff diff = new DbModelDiff();
+        DbView view = DbView.builder()
+            .schema("public")
+            .name("v_aircrafts")
+            .definition("SELECT id FROM aircrafts_data")
+            .build();
+        diff.getOperations().add(DbViewDiffOp.builder()
+            .opType(DiffOpType.MODIFY)
+            .qualifiedName("public.v_aircrafts")
+            .oldView(view)
+            .newView(view)
+            .build());
+        diff.getOperations().add(DbTableDiffOp.builder()
+            .opType(DiffOpType.DROP)
+            .qualifiedName("public.aircrafts_data")
+            .oldTable(createTable("public", "aircrafts_data"))
+            .build());
+        diff.getOperations().add(DbViewDiffOp.builder()
+            .opType(DiffOpType.CREATE)
+            .qualifiedName("public.v_new")
+            .newView(DbView.builder().schema("public").name("v_new").definition("SELECT 1").build())
+            .build());
+
+        List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+
+        assertThat(statements, hasSize(4));
+        assertThat(statements.get(0), containsString("DROP VIEW IF EXISTS public.v_aircrafts"));
+        assertThat(statements.get(1), containsString("DROP TABLE IF EXISTS public.aircrafts_data"));
+        assertThat(statements.get(2), containsString("CREATE VIEW public.v_aircrafts AS"));
+        assertThat(statements.get(3), containsString("CREATE VIEW public.v_new AS"));
+    }
+
+    @Test
+    public void givenViewHelpers_whenCreateAndDropSql_thenFormatCorrectly() {
+        DbView view = DbView.builder()
+            .schema("bookings")
+            .name("aircrafts")
+            .definition("SELECT 1;")
+            .build();
+        assertThat(DDLServicePostgres.dropViewSql(view.qualifiedName()),
+            equalTo("DROP VIEW IF EXISTS bookings.aircrafts;"));
+        assertThat(DDLServicePostgres.createViewSql(view),
+            equalTo("CREATE VIEW bookings.aircrafts AS SELECT 1;"));
     }
 
     // Helper methods
