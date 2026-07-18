@@ -387,11 +387,11 @@ where tc.OWNER in {inValues}
 			config.setPassword(password);
 			config.setUsername(username);
 			config.setMaximumPoolSize(20);
-			config.setMinimumIdle(2);
-			config.setIdleTimeout(300000);
+			config.setMinimumIdle(0);
+			config.setIdleTimeout(10000);
 			config.setMaxLifetime(1200000);
 			config.setConnectionTimeout(30000);
-			config.setLeakDetectionThreshold(30000);
+			config.setLeakDetectionThreshold(600000);
 			config.setValidationTimeout(5000);
 			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "Oracle"));
 			globalLock = new ReentrantLock();

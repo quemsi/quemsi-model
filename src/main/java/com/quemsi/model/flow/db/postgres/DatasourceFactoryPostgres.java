@@ -219,13 +219,13 @@ order by n.nspname, p.proname
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
-			/* Connection pool settings to prevent exhaustion */
+			/* Connection pool settings for intermittent flow workloads */
 			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
-			config.setMinimumIdle(2);      /* Keep minimum idle connections */
-			config.setIdleTimeout(300000); /* 5 minutes idle timeout */
+			config.setMinimumIdle(0);      /* Allow pool to shrink to empty when unused */
+			config.setIdleTimeout(10000); /* Retire idle connections ASAP (Hikari minimum) */
 			config.setMaxLifetime(1200000); /* 20 minutes max lifetime */
 			config.setConnectionTimeout(30000); /* 30 seconds connection timeout */
-			config.setLeakDetectionThreshold(30000); /* 30 seconds leak detection */
+			config.setLeakDetectionThreshold(600000); /* 10 minutes leak detection */
 			config.setValidationTimeout(5000); /* 5 seconds validation timeout */
 			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "Postgres")); /* Named pool for monitoring */
 			HikariDataSource ds =new HikariDataSource(config);
