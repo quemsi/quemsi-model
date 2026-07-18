@@ -96,7 +96,10 @@ public class RdbmsTarget extends AbstractStorage{
 
                 ddlService.createTables(dbModel);
 
-                ddlService.disableConstraints(dbModel.getCircularIgnore());
+                /* MySQL createTables defers circularIgnore FKs until enableContraints after data load */
+                if (!DatasourceType.MYSQL.equals(datasourceFactory.type())) {
+                    ddlService.disableConstraints(dbModel.getCircularIgnore());
+                }
                 List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool, context, dbModel.getCircularIgnore()))
                     .map(t -> {
                         taskRegistry.put(t.getTable().qualifiedName(), new CompletableFuture<>());

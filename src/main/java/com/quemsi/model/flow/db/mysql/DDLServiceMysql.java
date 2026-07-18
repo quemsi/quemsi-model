@@ -57,18 +57,48 @@ public class DDLServiceMysql implements DDLService{
 		appendBacktickQuoted(sb, name);
 		return sb.toString();
 	}
+
+	/** Builds a single multi-table DROP; returns null when there are no names. */
+	static String buildMultiTableDropSql(String... tableNames) {
+		if (tableNames == null || tableNames.length == 0) {
+			return null;
+		}
+		return "DROP TABLE IF EXISTS " + String.join(", ", tableNames);
+	}
+
+	/** Strip trailing semicolons so rewriteBatchedStatements does not produce `;;`. */
+	static String stripTrailingSemicolon(String sql) {
+		if (sql == null) {
+			return null;
+		}
+		String trimmed = sql.trim();
+		while (trimmed.endsWith(";")) {
+			trimmed = trimmed.substring(0, trimmed.length() - 1).trim();
+		}
+		return trimmed;
+	}
     
     @Override
 	public boolean dropTables(String... tableNames) {
-		try(Connection conn = dataSource.getConnection()){
-			Statement s = conn.createStatement();
-			for(String tableName : tableNames){
-				/* No trailing ';' — rewriteBatchedStatements joins batch entries with ';' */
-				s.addBatch("DROP TABLE IF EXISTS " + tableName);
-			}
-			s.executeBatch();
+		String dropSql = buildMultiTableDropSql(tableNames);
+		if (dropSql == null) {
 			return true;
-		}catch(Exception e){
+		}
+		try (Connection conn = dataSource.getConnection();
+			 Statement s = conn.createStatement()) {
+			try {
+				s.execute("SET FOREIGN_KEY_CHECKS=0");
+				log.info("drop tables sql :{}", dropSql);
+				s.executeUpdate(dropSql);
+			} finally {
+				try {
+					s.execute("SET FOREIGN_KEY_CHECKS=1");
+				} catch (SQLException restoreEx) {
+					log.warn("failed to restore FOREIGN_KEY_CHECKS after dropTables", restoreEx);
+				}
+			}
+			return true;
+		} catch (Exception e) {
 			e.printStackTrace();
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
@@ -96,55 +126,47 @@ public class DDLServiceMysql implements DDLService{
     }
 
     public void disableConstraints(Set<ReferenceInfo> constraints){
-        for(ReferenceInfo refInfo : constraints) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTableName()).append(" DROP FOREIGN KEY ")
-            .append(backtickQuoted(refInfo.getConstraintName())).append(";");
-            try(Connection conn = dataSource.getConnection()){
-                String dropConstraintSql = sb.toString();
-                log.info("drop constraint sql :{}", dropConstraintSql);
-                Statement s = conn.createStatement();
-                s.executeUpdate(dropConstraintSql);
-            }catch(SQLException ignore){
-                log.info("ignored ignored disable constraint " + refInfo.getConstraintName(), ignore);
-            }
-        }
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try (Connection conn = dataSource.getConnection();
+			 Statement s = conn.createStatement()) {
+			for (ReferenceInfo refInfo : constraints) {
+				String dropConstraintSql = "ALTER TABLE " + refInfo.getSrcTableName()
+					+ " DROP FOREIGN KEY " + backtickQuoted(refInfo.getConstraintName());
+				log.info("drop constraint sql :{}", dropConstraintSql);
+				s.addBatch(dropConstraintSql);
+			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored disable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored disable constraints", e);
+		}
 	}
 
     @Override
     public void enableContraints(Set<ReferenceInfo> constraints){
-        for(ReferenceInfo refInfo : constraints) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ");
-            appendBacktickQuoted(sb, refInfo.getConstraintName());
-        	sb.append(" FOREIGN KEY (");
-            Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
-            while(cIt.hasNext()){
-                String cName = cIt.next();
-                sb.append("`").append(cName).append("`");
-                if(cIt.hasNext()){
-                    sb.append(", ");
-                }
-            }
-            sb.append(") REFERENCES ").append(refInfo.getRefTableName()).append("(");
-            cIt = refInfo.getRefColumnNames().iterator();
-            while(cIt.hasNext()){
-                String cName = cIt.next();
-                sb.append("`").append(cName).append("`");
-                if(cIt.hasNext()){
-                    sb.append(", ");
-                }
-            }
-            sb.append(");");
-            try(Connection conn = dataSource.getConnection()){
-                String enableConstraintSql = sb.toString();
-                log.info("enable constraint sql :{}", enableConstraintSql);
-                Statement s = conn.createStatement();
-                s.executeUpdate(enableConstraintSql);
-            }catch(SQLException ignore){
-                log.info("ignored enable constraint : " + refInfo.getConstraintName(), ignore);
-            }
-        }
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try (Connection conn = dataSource.getConnection();
+			 Statement s = conn.createStatement()) {
+			for (ReferenceInfo refInfo : constraints) {
+				String enableConstraintSql = stripTrailingSemicolon(generateAddForeignKeySql(refInfo));
+				log.info("enable constraint sql :{}", enableConstraintSql);
+				s.addBatch(enableConstraintSql);
+			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored enable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored enable constraints", e);
+		}
 	}
 
     @Override
@@ -249,11 +271,7 @@ public class DDLServiceMysql implements DDLService{
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
 		}
-		if(dbModel.getCircularIgnore() != null){
-			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
-				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
-			}
-		}
+		/* circularIgnore FKs are added after data load via enableContraints — skip create-time ADD */
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ");
 			appendBacktickQuoted(sb, contraintInfo.getConstraintName());
@@ -286,12 +304,17 @@ public class DDLServiceMysql implements DDLService{
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.getTableName(), sb.toString());
 			scripts.add(sb);
 		}
-		try(Connection conn = dataSource.getConnection()){
-			Statement s = conn.createStatement();
-			for(StringBuilder sb : scripts){
-				s.executeUpdate(sb.toString());
+		if (scripts.isEmpty()) {
+			return;
+		}
+		try (Connection conn = dataSource.getConnection();
+			 Statement s = conn.createStatement()) {
+			for (StringBuilder sb : scripts) {
+				s.addBatch(stripTrailingSemicolon(sb.toString()));
 			}
-		}catch(SQLException ignore){
+			log.info("create tables batch size {}", scripts.size());
+			s.executeBatch();
+		} catch (SQLException ignore) {
 			log.info("create tables sql", ignore);
 		}
 	}

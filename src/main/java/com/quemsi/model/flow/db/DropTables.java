@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -53,10 +54,13 @@ public class DropTables extends AbstractStep{
 				}
 			}
 			if(tables != null && !tables.isEmpty()){
-                if(dbModel.getReferenceInfos() != null && !dbModel.getReferenceInfos().isEmpty()){
-					ddlService.disableConstraints(new HashSet<>(dbModel.getReferenceInfos()));
-				} else if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
-					ddlService.disableConstraints(dbModel.getCircularIgnore());
+				/* MySQL dropTables uses FOREIGN_KEY_CHECKS=0 — per-FK ALTERs are redundant */
+				if (!DatasourceType.MYSQL.equals(datasource.type())) {
+					if(dbModel.getReferenceInfos() != null && !dbModel.getReferenceInfos().isEmpty()){
+						ddlService.disableConstraints(new HashSet<>(dbModel.getReferenceInfos()));
+					} else if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
+						ddlService.disableConstraints(dbModel.getCircularIgnore());
+					}
 				}
 				ddlService.dropTables(tables.toArray(new String[tables.size()]));
             }
