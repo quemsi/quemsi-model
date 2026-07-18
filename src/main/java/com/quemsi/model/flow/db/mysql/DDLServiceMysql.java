@@ -154,15 +154,24 @@ public class DDLServiceMysql implements DDLService{
 		}
 		try (Connection conn = dataSource.getConnection();
 			 Statement s = conn.createStatement()) {
-			for (ReferenceInfo refInfo : constraints) {
-				String enableConstraintSql = stripTrailingSemicolon(generateAddForeignKeySql(refInfo));
-				log.info("enable constraint sql :{}", enableConstraintSql);
-				s.addBatch(enableConstraintSql);
-			}
 			try {
-				s.executeBatch();
-			} catch (SQLException ignore) {
-				log.info("ignored enable constraints batch", ignore);
+				s.execute("SET FOREIGN_KEY_CHECKS=0");
+				for (ReferenceInfo refInfo : constraints) {
+					String enableConstraintSql = stripTrailingSemicolon(generateAddForeignKeySql(refInfo));
+					log.info("enable constraint sql :{}", enableConstraintSql);
+					s.addBatch(enableConstraintSql);
+				}
+				try {
+					s.executeBatch();
+				} catch (SQLException ignore) {
+					log.info("ignored enable constraints batch", ignore);
+				}
+			} finally {
+				try {
+					s.execute("SET FOREIGN_KEY_CHECKS=1");
+				} catch (SQLException restoreEx) {
+					log.warn("failed to restore FOREIGN_KEY_CHECKS after enableContraints", restoreEx);
+				}
 			}
 		} catch (SQLException e) {
 			log.info("ignored enable constraints", e);
@@ -172,8 +181,8 @@ public class DDLServiceMysql implements DDLService{
     @Override
 	public void createTables(DbModel dbModel) {
 		LinkedList<StringBuilder> scripts = new LinkedList<>();
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.getSrcTableName()));
 		Map<String, ContraintInfo> constraintInfos = dbModel.getContraintInfos().stream().collect(Collectors.toMap(ContraintInfo::getConstraintName, Function.identity()));
+		/* FKs are applied after data load via enableContraints — omit from CREATE for faster DDL */
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
@@ -236,42 +245,10 @@ public class DDLServiceMysql implements DDLService{
 
 				};
 			}
-			if(tableReferences.containsKey(tableName)){
-				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
-				while(refIt.hasNext()){
-					ReferenceInfo ref = refIt.next();
-					if(dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)){
-						continue;
-					}
-					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ");
-					appendBacktickQuoted(sb, ref.getConstraintName());
-					sb.append(" FOREIGN KEY (");
-                    Iterator<String> cIt = ref.getSrcColumnNames().iterator();
-                    while(cIt.hasNext()){
-                        String cName = cIt.next();
-                        sb.append("`").append(cName).append("`");
-                        if(cIt.hasNext()){
-                            sb.append(", ");
-                        }
-                    }
-                    sb.append(") REFERENCES ").append(ref.getRefTableName()).append(" (");
-                    cIt = ref.getRefColumnNames().iterator();
-                    while(cIt.hasNext()){
-                        String cName = cIt.next();
-                        sb.append("`").append(cName).append("`");
-                        if(cIt.hasNext()){
-                            sb.append(", ");
-                        }
-                    }
-                    sb.append(")");
-				}
-			}
 			sb.append(System.lineSeparator()).append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
 		}
-		/* circularIgnore FKs are added after data load via enableContraints — skip create-time ADD */
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ");
 			appendBacktickQuoted(sb, contraintInfo.getConstraintName());

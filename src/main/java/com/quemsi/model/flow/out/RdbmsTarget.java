@@ -3,6 +3,7 @@ package com.quemsi.model.flow.out;
 import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -96,7 +97,7 @@ public class RdbmsTarget extends AbstractStorage{
 
                 ddlService.createTables(dbModel);
 
-                /* MySQL createTables defers circularIgnore FKs until enableContraints after data load */
+                /* MySQL createTables omits all FKs until enableContraints after data load */
                 if (!DatasourceType.MYSQL.equals(datasourceFactory.type())) {
                     ddlService.disableConstraints(dbModel.getCircularIgnore());
                 }
@@ -107,7 +108,18 @@ public class RdbmsTarget extends AbstractStorage{
                         return task;
                     }).toList();
                 boolean result = taskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (a, n) -> a && n);
-                ddlService.enableContraints(dbModel.getCircularIgnore());
+                if (DatasourceType.MYSQL.equals(datasourceFactory.type())) {
+                    Set<ReferenceInfo> allFks = new LinkedHashSet<>();
+                    if (dbModel.getReferenceInfos() != null) {
+                        allFks.addAll(dbModel.getReferenceInfos());
+                    }
+                    if (dbModel.getCircularIgnore() != null) {
+                        allFks.addAll(dbModel.getCircularIgnore());
+                    }
+                    ddlService.enableContraints(allFks);
+                } else {
+                    ddlService.enableContraints(dbModel.getCircularIgnore());
+                }
 
                 if(result){
                     ddlService.createFunctions(dbModel);

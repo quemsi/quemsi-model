@@ -62,7 +62,7 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void createTables_batchesScripts_andSkipsCircularIgnoreAdd() {
+	public void createTables_batchesScripts_andOmitsAllForeignKeys() {
 		RecordingJdbc recording = new RecordingJdbc();
 		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
 
@@ -75,10 +75,21 @@ public class DDLServiceMysqlRuntimeTest {
 		DbTable employees = dbModel.addTable("employees");
 		employees.addColumn(DbColumn.builder().name("employeeNumber").dataType("int").columnType("int")
 			.ordinalPosition(1).nullable(false).build());
+		employees.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar(10)")
+			.ordinalPosition(2).nullable(false).build());
 		employees.addColumn(DbColumn.builder().name("reportsTo").dataType("int").columnType("int")
-			.ordinalPosition(2).nullable(true).build());
+			.ordinalPosition(3).nullable(true).build());
 		employees.getPkColumnNames().add("employeeNumber");
 
+		ReferenceInfo officeFk = new ReferenceInfo(
+			"employees_ibfk_2",
+			null,
+			"employees",
+			new LinkedHashSet<>(List.of("officeCode")),
+			null,
+			"offices",
+			new LinkedHashSet<>(List.of("officeCode"))
+		);
 		ReferenceInfo circular = new ReferenceInfo(
 			"employees_ibfk_1",
 			null,
@@ -88,8 +99,9 @@ public class DDLServiceMysqlRuntimeTest {
 			"employees",
 			new LinkedHashSet<>(List.of("employeeNumber"))
 		);
-		dbModel.getCircularIgnore().add(circular);
+		dbModel.getReferenceInfos().add(officeFk);
 		dbModel.getReferenceInfos().add(circular);
+		dbModel.getCircularIgnore().add(circular);
 
 		ddl.createTables(dbModel);
 
@@ -98,7 +110,9 @@ public class DDLServiceMysqlRuntimeTest {
 		assertThat(recording.batchedSql.get(0), containsString("CREATE TABLE IF NOT EXISTS offices"));
 		assertThat(recording.batchedSql.get(1), containsString("CREATE TABLE IF NOT EXISTS employees"));
 		for (String sql : recording.batchedSql) {
+			assertThat(sql, not(containsString("FOREIGN KEY")));
 			assertThat(sql, not(containsString("employees_ibfk_1")));
+			assertThat(sql, not(containsString("employees_ibfk_2")));
 			assertThat(sql.endsWith(";"), equalTo(false));
 		}
 	}
@@ -126,7 +140,7 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void enableContraints_batchesAddFkWithoutTrailingSemicolon() {
+	public void enableContraints_disablesFkChecks_andBatchesAddFk() {
 		RecordingJdbc recording = new RecordingJdbc();
 		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
 
@@ -143,6 +157,10 @@ public class DDLServiceMysqlRuntimeTest {
 		ddl.enableContraints(Set.of(ref));
 
 		assertThat(recording.getConnectionCalls.get(), equalTo(1));
+		assertThat(recording.executedSql, contains(
+			"SET FOREIGN_KEY_CHECKS=0",
+			"SET FOREIGN_KEY_CHECKS=1"
+		));
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(1));
 		assertThat(recording.batchedSql.get(0), containsString("ADD CONSTRAINT `employees_ibfk_1`"));
