@@ -46,7 +46,7 @@ public class UpdateSchema extends AbstractStep {
             DbModel sourceModel = getDbModelFromDataFile(context);
 
             // Get DbModel from datasource
-            DbModel targetModel = datasourceFactory.getDbModel();
+            DbModel targetModel = datasourceFactory.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
 
             String targetModelJson = objectMapper.writeValueAsString(targetModel);
             log.info("Target model: {}", targetModelJson);

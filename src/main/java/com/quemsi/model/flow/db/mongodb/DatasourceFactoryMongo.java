@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Consumer;
 
 import javax.annotation.PreDestroy;
 import javax.sql.DataSource;
@@ -27,6 +28,7 @@ import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.Filters;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DDLService;
@@ -212,7 +214,7 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
     }
 
     @Override
-    public DbModel getDbModel() {
+    public DbModel getDbModel(Consumer<LogMessage> progress) {
         DbModel dbModel = new DbModel();
         dbModel.setSourceType(DatasourceType.MONGODB.name());
         dbModel.setFormat("json");
@@ -220,6 +222,7 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
         schemaSet.add(dbName);
         dbModel.setSchemas(schemaSet);
 
+        reportProgress(progress, LogMessage.info("Scanning collections in database {}...", dbName));
         MongoDatabase database = getDatabase();
         for (String collectionName : database.listCollectionNames()) {
             DbTable table = dbModel.addTable(collectionName, dbName);
@@ -234,7 +237,18 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
             inferColumnsFromSample(database.getCollection(collectionName), table);
             readIndexes(database.getCollection(collectionName), dbModel, collectionName);
         }
+        reportProgress(progress, LogMessage.info("Scanned {} collections", dbModel.getTables().size()));
+        reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
         return dbModel;
+    }
+
+    private void reportProgress(Consumer<LogMessage> progress, LogMessage message) {
+        if ("WARN".equals(message.getLevel())) {
+            log.warn("{}", message);
+        } else {
+            log.info("{}", message);
+        }
+        progress.accept(message);
     }
 
     private Map<String, Object> readCollectionOptions(MongoDatabase database, String collectionName) {

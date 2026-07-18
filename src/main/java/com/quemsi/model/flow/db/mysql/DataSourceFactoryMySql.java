@@ -11,6 +11,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,6 +19,7 @@ import javax.sql.DataSource;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
@@ -181,7 +183,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 	}
 
 	@Override
-	public DbModel getDbModel() {
+	public DbModel getDbModel(Consumer<LogMessage> progress) {
 		DbModel dbModel = new DbModel();
 		dbModel.setSourceType(DatasourceType.MYSQL.name());
 		try(
@@ -193,6 +195,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 			PreparedStatement vps = con.prepareStatement(SQL_FOR_VIEWS);
 			PreparedStatement vdps = con.prepareStatement(SQL_FOR_VIEW_DEPS);
 		){
+			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			ps.setString(1, dbName);
 			ResultSet rs = ps.executeQuery();
 			RsHelper rsHelper = new RsHelper(rs);
@@ -211,6 +214,8 @@ WHERE vtu.VIEW_SCHEMA = ?
 				DbTable table = dbModel.crateIfAbsent(tableName);
 				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
+			reportProgress(progress, LogMessage.info("Loading constraints..."));
 			cps.setString(1, dbName);
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
@@ -263,6 +268,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 			}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			dbModel.getContraintInfos().addAll(contraintInfos.values());
+			reportProgress(progress, LogMessage.info("Loading indexes..."));
 			ist.setString(1, dbName);
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
@@ -285,6 +291,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 			if(cur != null){
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
+			reportProgress(progress, LogMessage.info("Loading check constraints..."));
 			ckps.setString(1, dbName);
 			ResultSet ckrs = ckps.executeQuery();
 			while (ckrs.next()) {
@@ -300,6 +307,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
+			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			// Collect view names first, then load definitions on a fresh connection.
 			// MySQL JDBC allows only one active ResultSet per connection; earlier
@@ -337,13 +345,25 @@ WHERE vtu.VIEW_SCHEMA = ?
 					}
 				}
 			} catch (SQLException e) {
-				log.warn("Unable to load MySQL view dependencies (VIEW_TABLE_USAGE may be unavailable): {}", e.getMessage());
+				reportProgress(progress, LogMessage.warn("Unable to load MySQL view dependencies (VIEW_TABLE_USAGE may be unavailable): {}", e.getMessage()));
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
+			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
+	}
+
+	private void reportProgress(Consumer<LogMessage> progress, LogMessage message) {
+		if ("WARN".equals(message.getLevel())) {
+			log.warn("{}", message);
+		} else {
+			log.info("{}", message);
+		}
+		progress.accept(message);
 	}
 
 	/**

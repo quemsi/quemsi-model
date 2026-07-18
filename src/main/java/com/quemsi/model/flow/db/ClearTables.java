@@ -30,7 +30,7 @@ public class ClearTables extends AbstractStep {
             DMLService dmlService = datasource.dmlService();
             DDLService ddlService = datasource.ddlService();
             ){
-            DbModel dbModel = datasource.getDbModel();
+            DbModel dbModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
             if(all){
                 tables = CommonOps.reverse(dbModel.orderedTableNames());
             }

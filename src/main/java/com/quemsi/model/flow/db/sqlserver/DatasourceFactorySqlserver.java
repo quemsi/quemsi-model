@@ -9,6 +9,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -18,6 +19,7 @@ import javax.sql.DataSource;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
@@ -233,10 +235,11 @@ where schema_name(v.schema_id) in {inValues}
 	}
 
 	@Override
-    public DbModel getDbModel() {
+    public DbModel getDbModel(Consumer<LogMessage> progress) {
         DbModel dbModel = new DbModel();
 		dbModel.setSchemas(getSchemas());
 		dbModel.setSourceType(DatasourceType.SQLSERVER.name());
+		reportProgress(progress, LogMessage.info("Loading model for schemas: {}", getSchemas()));
 		try(
 			Connection con = getDataSource().getConnection();
 			PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, schemas.size()));
@@ -248,6 +251,7 @@ where schema_name(v.schema_id) in {inValues}
 			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 		){
+			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
 			RsHelper rsHelper = new RsHelper(rs);
@@ -269,6 +273,7 @@ where schema_name(v.schema_id) in {inValues}
 
 				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
 			ResultSet dcrs = dcps.executeQuery();
@@ -282,6 +287,7 @@ where schema_name(v.schema_id) in {inValues}
 				column.setDefaultConstraintName(constraintName);
 			}
 
+			reportProgress(progress, LogMessage.info("Loading constraints..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
@@ -323,6 +329,7 @@ where schema_name(v.schema_id) in {inValues}
 			}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			dbModel.getContraintInfos().addAll(contraintInfos.values());
+			reportProgress(progress, LogMessage.info("Loading indexes..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ist.setString(i, schema)));
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
@@ -350,6 +357,7 @@ where schema_name(v.schema_id) in {inValues}
 			if(cur != null){
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
+			reportProgress(progress, LogMessage.info("Loading sequences..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
 			ResultSet srs = sst.executeQuery();
 			rsHelper = new RsHelper(srs);
@@ -370,6 +378,7 @@ where schema_name(v.schema_id) in {inValues}
 				;
 				dbModel.getSequences().add(seq);
 			}
+			reportProgress(progress, LogMessage.info("Loading check constraints..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ckps.setString(i, schema)));
 			ResultSet ckrs = ckps.executeQuery();
 			while (ckrs.next()) {
@@ -385,6 +394,7 @@ where schema_name(v.schema_id) in {inValues}
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
+			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
 			ResultSet vrs = vps.executeQuery();
@@ -413,12 +423,24 @@ where schema_name(v.schema_id) in {inValues}
 					view.getDependsOnViews().add(CommonHelpers.qualifiedName(depSchema, depName));
 				}
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
+			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
     }
+
+	private void reportProgress(Consumer<LogMessage> progress, LogMessage message) {
+		if ("WARN".equals(message.getLevel())) {
+			log.warn("{}", message);
+		} else {
+			log.info("{}", message);
+		}
+		progress.accept(message);
+	}
 
 	static String stripCreateViewWrapper(String definition) {
 		if (definition == null) {

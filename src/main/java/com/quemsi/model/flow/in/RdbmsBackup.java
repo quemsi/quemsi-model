@@ -64,7 +64,7 @@ public class RdbmsBackup implements Source{
         taskRegistry.clear();
         try(ForkJoinPool pool = new ForkJoinPool(parallelism)) {
             context.logStepInfo( context.getCurrentStep(), LogMessage.info("creating db model from datasource"));
-            DbModel dbModel = datasource.getDbModel();
+            DbModel dbModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
             context.logStepInfo( context.getCurrentStep(), LogMessage.info("db model created from datasource"));
             dbModel.setFormat(format);
             String dbModelJson = dataMapper.writeValueAsString(dbModel);

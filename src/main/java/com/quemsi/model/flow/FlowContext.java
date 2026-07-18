@@ -98,6 +98,12 @@ public class FlowContext {
 		}
 	}
 	
+	public void logStep(FlowExecutionStep step, LogMessage message) {
+		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
+			logWriter.log(null, execution.getId(), step.getId(), message);
+		}
+	}
+
 	public void logStepInfo(FlowExecutionStep step, LogMessage message) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
 			logWriter.log(null, execution.getId(), step.getId(), LogMessage.info(message));

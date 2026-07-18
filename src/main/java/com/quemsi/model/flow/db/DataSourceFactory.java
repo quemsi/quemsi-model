@@ -5,10 +5,12 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Set;
+import java.util.function.Consumer;
 
 import javax.sql.DataSource;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.mongodb.DatasourceFactoryMongo;
 import com.quemsi.model.flow.db.mysql.DataSourceFactoryMySql;
@@ -42,7 +44,10 @@ public interface DataSourceFactory {
 	}
 
 	DataSource getDataSource();
-	DbModel getDbModel();
+	default DbModel getDbModel() {
+		return getDbModel(msg -> {});
+	}
+	DbModel getDbModel(Consumer<LogMessage> progress);
 	DDLService ddlService() throws SQLException;
 	DMLService dmlService() throws SQLException;
 	DatasourceType type();

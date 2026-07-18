@@ -41,7 +41,7 @@ public class UpdateSequences extends AbstractStep {
                 return;
             }
 
-            DbModel dbModel = datasourceFactory.getDbModel();
+            DbModel dbModel = datasourceFactory.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
             try (DMLService dmlService = datasourceFactory.dmlService()) {
                 // Build set of existing sequences in database for quick lookup
                 Map<String, DbSequence> existingSequences = dbModel.getSequences().stream().collect(Collectors.toMap(DbSequence::qualifiedName, Function.identity()));

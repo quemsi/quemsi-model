@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import javax.annotation.PostConstruct;
@@ -21,6 +22,7 @@ import javax.sql.DataSource;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
@@ -401,12 +403,14 @@ where tc.OWNER in {inValues}
 	}
 
 	@Override
-	public DbModel getDbModel() {
+	public DbModel getDbModel(Consumer<LogMessage> progress) {
 		DbModel dbModel = new DbModel();
 		try (Connection con = getDataSource().getConnection()) {
+			reportProgress(progress, LogMessage.info("Resolving schemas..."));
 			Set<String> effectiveSchemas = resolveSchemas(con);
 			dbModel.setSchemas(effectiveSchemas);
 			dbModel.setSourceType(DatasourceType.ORACLE.name());
+			reportProgress(progress, LogMessage.info("Loading model for schemas: {}", effectiveSchemas));
 			try (
 				PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, effectiveSchemas.size()));
 				PreparedStatement cps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CONSTRAINTS, effectiveSchemas.size()));
@@ -419,6 +423,7 @@ where tc.OWNER in {inValues}
 				PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, effectiveSchemas.size()));
 				PreparedStatement rps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ROUTINES, effectiveSchemas.size()));
 			) {
+			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
 			RsHelper rsHelper = new RsHelper(rs);
@@ -452,7 +457,9 @@ where tc.OWNER in {inValues}
 					.identity(false)
 					.build());
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 
+			reportProgress(progress, LogMessage.info("Loading constraints..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
@@ -509,6 +516,7 @@ where tc.OWNER in {inValues}
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			dbModel.getContraintInfos().addAll(contraintInfos.values());
 
+			reportProgress(progress, LogMessage.info("Loading indexes..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ist.setString(i, schema)));
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
@@ -532,6 +540,7 @@ where tc.OWNER in {inValues}
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
 
+			reportProgress(progress, LogMessage.info("Loading sequences..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
 			ResultSet srs = sst.executeQuery();
 			rsHelper = new RsHelper(srs);
@@ -559,6 +568,7 @@ where tc.OWNER in {inValues}
 				dbModel.getSequences().add(seq);
 			}
 
+			reportProgress(progress, LogMessage.info("Loading check constraints..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ckps.setString(i, schema)));
 			ResultSet ckrs = ckps.executeQuery();
 			while (ckrs.next()) {
@@ -575,6 +585,7 @@ where tc.OWNER in {inValues}
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
 
+			reportProgress(progress, LogMessage.info("Loading comments..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ccps.setString(i, schema)));
 			ResultSet ccrs = ccps.executeQuery();
 			while (ccrs.next()) {
@@ -597,6 +608,7 @@ where tc.OWNER in {inValues}
 					.ifPresent(table -> table.setComment(comments));
 			}
 
+			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
 			ResultSet vrs = vps.executeQuery();
@@ -626,6 +638,7 @@ where tc.OWNER in {inValues}
 					view.getDependsOnViews().add(depQualified);
 				}
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
 
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> rps.setString(i, schema)));
 			ResultSet rrs = rps.executeQuery();
@@ -638,13 +651,18 @@ where tc.OWNER in {inValues}
 				});
 			}
 			rrs.close();
+			int routineTotal = routineKeys.size();
+			reportProgress(progress, LogMessage.info("Loading routines ({})...", routineTotal));
+			int routineIndex = 0;
 			for (String[] key : routineKeys) {
+				routineIndex++;
 				String schemaName = key[0];
 				String routineName = key[1];
 				String routineType = key[2];
+				reportProgress(progress, LogMessage.info("Loading routine {}/{}: {}.{}", routineIndex, routineTotal, schemaName, routineName));
 				String definition = loadOracleRoutineDefinition(con, schemaName, routineName, routineType);
 				if (definition == null || definition.isBlank()) {
-					log.warn("Skipping Oracle {} {}.{} — unable to read definition", routineType, schemaName, routineName);
+					reportProgress(progress, LogMessage.warn("Skipping Oracle {} {}.{} — unable to read definition", routineType, schemaName, routineName));
 					continue;
 				}
 				dbModel.getFunctions().add(DbFunction.builder()
@@ -654,7 +672,9 @@ where tc.OWNER in {inValues}
 					.definition(definition)
 					.build());
 			}
+			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
 			}
 		} catch (BaseRuntimeException e) {
 			throw e;
@@ -662,6 +682,15 @@ where tc.OWNER in {inValues}
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
+	}
+
+	private void reportProgress(Consumer<LogMessage> progress, LogMessage message) {
+		if ("WARN".equals(message.getLevel())) {
+			log.warn("{}", message);
+		} else {
+			log.info("{}", message);
+		}
+		progress.accept(message);
 	}
 
 	private String loadOracleRoutineDefinition(Connection con, String schema, String name, String type) {

@@ -41,7 +41,7 @@ public class DropTables extends AbstractStep{
 	public void execute(FlowContext context) {
 		datasource.assertWritable();
 		try (DDLService ddlService = datasource.ddlService()){
-            DbModel dbModel = datasource.getDbModel();
+            DbModel dbModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
 			if(all){
 				tables = CommonOps.reverse(dbModel.orderedTableNames());
 				sequences = dbModel.getSequences().stream().map(DbSequence::qualifiedName).collect(Collectors.toCollection(LinkedList::new));
