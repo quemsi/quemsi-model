@@ -157,6 +157,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
+			applyMysqlBatchDataSourceProperties(config);
 			/* Connection pool settings for intermittent flow workloads */
 			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
 			config.setMinimumIdle(0);      /* Allow pool to shrink to empty when unused */
@@ -170,6 +171,18 @@ WHERE vtu.VIEW_SCHEMA = ?
 			instance = ds;
 		}
 		return instance;
+	}
+
+	/**
+	 * Enables Connector/J multi-value INSERT rewriting for PreparedStatement batches
+	 * and multi-query rewriting for Statement batches (e.g. DROP TABLE).
+	 * useServerPrepStmts must be false for rewriteBatchedStatements to take effect.
+	 * allowMultiQueries is required when Statement batches are rewritten into one multi-query.
+	 */
+	static void applyMysqlBatchDataSourceProperties(HikariConfig config) {
+		config.addDataSourceProperty("rewriteBatchedStatements", "true");
+		config.addDataSourceProperty("useServerPrepStmts", "false");
+		config.addDataSourceProperty("allowMultiQueries", "true");
 	}
 
 	@Override

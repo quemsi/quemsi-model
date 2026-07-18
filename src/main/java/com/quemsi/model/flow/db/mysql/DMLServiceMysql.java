@@ -124,33 +124,60 @@ public class DMLServiceMysql implements DMLService{
     @Override
     public int writePageData(DbTable table, DataPage dataPage){
 		try(Connection conn = dataSource.getConnection()){
-			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.getName()).append("(");
-			StringBuilder paramsBuilder = new StringBuilder("(");
-			int counter = 0;
- 			for(String columnName : table.columnNames()){
-				sqlBuilder.append("`").append(columnName).append("`");
-				paramsBuilder.append("?");
-				counter++;
-				if(counter < table.columnNames().size()){
-					sqlBuilder.append(", ");
-					paramsBuilder.append(", ");
+			boolean previousAutoCommit = conn.getAutoCommit();
+			try {
+				try (Statement sessionStmt = conn.createStatement()) {
+					sessionStmt.execute("SET FOREIGN_KEY_CHECKS=0, UNIQUE_CHECKS=0");
+				}
+				conn.setAutoCommit(false);
+				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.getName()).append("(");
+				StringBuilder paramsBuilder = new StringBuilder("(");
+				int counter = 0;
+				for(String columnName : table.columnNames()){
+					sqlBuilder.append("`").append(columnName).append("`");
+					paramsBuilder.append("?");
+					counter++;
+					if(counter < table.columnNames().size()){
+						sqlBuilder.append(", ");
+						paramsBuilder.append(", ");
+					}
+				}
+				/* No trailing ';' — rewriteBatchedStatements rewrites PreparedStatement batches */
+				paramsBuilder.append(")");
+				sqlBuilder.append(") values ").append(paramsBuilder.toString());
+				String insertSql = sqlBuilder.toString();
+				log.info("for {} insert sql :{}", table.getName(), insertSql);
+				DbColumn[] orderedColumns = table.orderedColumns();
+				PreparedStatement ps = conn.prepareStatement(insertSql);
+				dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
+					for(int i=0; i < orderedColumns.length; i++){
+						DbColumn c = orderedColumns[i];
+						ps.setObject(c.getOrdinalPosition(), e.getValue()[i]);
+					}
+					ps.addBatch();
+				}));
+				int[] results = ps.executeBatch();
+				conn.commit();
+				log.info("for {} page {} batch inserted {} rows", table.getName(), dataPage.getPageNum(), results.length);
+			} catch (Exception e) {
+				try {
+					conn.rollback();
+				} catch (SQLException rollbackEx) {
+					log.warn("rollback failed for table {} page {}", table.getName(), dataPage.getPageNum(), rollbackEx);
+				}
+				throw e;
+			} finally {
+				try (Statement sessionStmt = conn.createStatement()) {
+					sessionStmt.execute("SET FOREIGN_KEY_CHECKS=1, UNIQUE_CHECKS=1");
+				} catch (SQLException restoreEx) {
+					log.warn("failed to restore FOREIGN_KEY_CHECKS/UNIQUE_CHECKS for table {} page {}", table.getName(), dataPage.getPageNum(), restoreEx);
+				}
+				try {
+					conn.setAutoCommit(previousAutoCommit);
+				} catch (SQLException autoCommitEx) {
+					log.warn("failed to restore autocommit for table {} page {}", table.getName(), dataPage.getPageNum(), autoCommitEx);
 				}
 			}
-			paramsBuilder.append(");");
-			sqlBuilder.append(") values ").append(paramsBuilder.toString());
-			String insertSql = sqlBuilder.toString();
-			log.info("for {} insert sql :{}", table.getName(), insertSql);
-			DbColumn[] orderedColumns = table.orderedColumns();
-			PreparedStatement ps = conn.prepareStatement(insertSql);
-			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
-				for(int i=0; i < orderedColumns.length; i++){
-					DbColumn c = orderedColumns[i];	
-					ps.setObject(c.getOrdinalPosition(), e.getValue()[i]);
-				}
-				ps.addBatch();
-			}));
-			int[] results = ps.executeBatch();
-			log.info("for {} page {} batch result {}", table.getName(), dataPage.getPageNum(), results);
 		}catch(Exception e){
 			e.printStackTrace();
 			throw Exceptions.server("unable-to-write-data").withExtra("table", table.getName()) .withExtra("pageNum", dataPage.getPageNum()).withCause(e).get();

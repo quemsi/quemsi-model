@@ -63,7 +63,8 @@ public class DDLServiceMysql implements DDLService{
 		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
-				s.addBatch("DROP TABLE IF EXISTS " + tableName + ";");
+				/* No trailing ';' — rewriteBatchedStatements joins batch entries with ';' */
+				s.addBatch("DROP TABLE IF EXISTS " + tableName);
 			}
 			s.executeBatch();
 			return true;
@@ -84,7 +85,8 @@ public class DDLServiceMysql implements DDLService{
         try (Connection conn = dataSource.getConnection()) {
             Statement s = conn.createStatement();
             for (String viewName : viewNames) {
-                s.addBatch("DROP VIEW IF EXISTS " + viewName + ";");
+				/* No trailing ';' — rewriteBatchedStatements joins batch entries with ';' */
+                s.addBatch("DROP VIEW IF EXISTS " + viewName);
             }
             s.executeBatch();
             return true;
