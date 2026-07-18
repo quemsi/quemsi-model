@@ -230,10 +230,18 @@ order by n.nspname, p.proname
 			config.setLeakDetectionThreshold(600000); /* 10 minutes leak detection */
 			config.setValidationTimeout(5000); /* 5 seconds validation timeout */
 			config.setPoolName("HikariPool-" + (this.name != null ? this.name : "Postgres")); /* Named pool for monitoring */
+			applyPostgresBatchDataSourceProperties(config);
 			HikariDataSource ds =new HikariDataSource(config);
 			instance = ds;
 		}
 		return instance;
+	}
+
+	/**
+	 * Enables PostgreSQL JDBC multi-value INSERT rewriting for PreparedStatement batches.
+	 */
+	static void applyPostgresBatchDataSourceProperties(HikariConfig config) {
+		config.addDataSourceProperty("reWriteBatchedInserts", "true");
 	}
 
     @Override

@@ -54,8 +54,10 @@ public class DropTables extends AbstractStep{
 				}
 			}
 			if(tables != null && !tables.isEmpty()){
-				/* MySQL dropTables uses FOREIGN_KEY_CHECKS=0 — per-FK ALTERs are redundant */
-				if (!DatasourceType.MYSQL.equals(datasource.type())) {
+				/* MySQL/Postgres/Oracle drop with FK checks off or CASCADE — per-FK ALTERs are redundant.
+				 * SQL Server still needs DROP CONSTRAINT before DROP TABLE. */
+				DatasourceType type = datasource.type();
+				if (DatasourceType.SQLSERVER.equals(type)) {
 					if(dbModel.getReferenceInfos() != null && !dbModel.getReferenceInfos().isEmpty()){
 						ddlService.disableConstraints(new HashSet<>(dbModel.getReferenceInfos()));
 					} else if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){

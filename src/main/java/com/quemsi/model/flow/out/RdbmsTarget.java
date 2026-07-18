@@ -95,12 +95,9 @@ public class RdbmsTarget extends AbstractStorage{
 
                 context.getDbModelProcessors().forEach(p -> p.process(dbModel));
 
+                /* createTables omits all FKs; enableContraints adds them after data load */
                 ddlService.createTables(dbModel);
 
-                /* MySQL createTables omits all FKs until enableContraints after data load */
-                if (!DatasourceType.MYSQL.equals(datasourceFactory.type())) {
-                    ddlService.disableConstraints(dbModel.getCircularIgnore());
-                }
                 List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool, context, dbModel.getCircularIgnore()))
                     .map(t -> {
                         taskRegistry.put(t.getTable().qualifiedName(), new CompletableFuture<>());
@@ -108,18 +105,14 @@ public class RdbmsTarget extends AbstractStorage{
                         return task;
                     }).toList();
                 boolean result = taskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (a, n) -> a && n);
-                if (DatasourceType.MYSQL.equals(datasourceFactory.type())) {
-                    Set<ReferenceInfo> allFks = new LinkedHashSet<>();
-                    if (dbModel.getReferenceInfos() != null) {
-                        allFks.addAll(dbModel.getReferenceInfos());
-                    }
-                    if (dbModel.getCircularIgnore() != null) {
-                        allFks.addAll(dbModel.getCircularIgnore());
-                    }
-                    ddlService.enableContraints(allFks);
-                } else {
-                    ddlService.enableContraints(dbModel.getCircularIgnore());
+                Set<ReferenceInfo> allFks = new LinkedHashSet<>();
+                if (dbModel.getReferenceInfos() != null) {
+                    allFks.addAll(dbModel.getReferenceInfos());
                 }
+                if (dbModel.getCircularIgnore() != null) {
+                    allFks.addAll(dbModel.getCircularIgnore());
+                }
+                ddlService.enableContraints(allFks);
 
                 if(result){
                     ddlService.createFunctions(dbModel);
@@ -254,9 +247,9 @@ public class RdbmsTarget extends AbstractStorage{
             }
             
             try(DMLService dmlService = datasourceFactory.dmlService()){
-                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restoring page {} for {}", dataPage.getPageNum(), table.getName()));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restoring page {} of {} records for {}", dataPage.getPageNum(), dataPage.getSize(), table.getName()));
                 dmlService.writePageData(table, dataPage);
-                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restored page {} for {}", dataPage.getPageNum(), table.getName()));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restored page {} of {} records for {}", dataPage.getPageNum(), dataPage.getSize(), table.getName()));
                 /* Check for global cancellation after processing */
                 if (globalCancellationFlag.get()) {
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("Page restore task for table {} cancelled after processing", table.getName()));

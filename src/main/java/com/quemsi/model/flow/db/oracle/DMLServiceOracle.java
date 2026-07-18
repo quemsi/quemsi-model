@@ -433,32 +433,50 @@ offset ? rows fetch next ? rows only
 	@Override
 	public int writePageData(DbTable table, DataPage dataPage) {
 		try (Connection conn = dataSource.getConnection()) {
-			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
-			StringBuilder paramsBuilder = new StringBuilder("(");
-			DbColumn[] columns = table.orderedColumns();
-			int counter = 0;
-			for (DbColumn column : columns) {
-				sqlBuilder.append(quoteIdentifier(column.getName()));
-				paramsBuilder.append("?");
-				counter++;
-				if (counter < columns.length) {
-					sqlBuilder.append(", ");
-					paramsBuilder.append(", ");
+			boolean previousAutoCommit = conn.getAutoCommit();
+			try {
+				conn.setAutoCommit(false);
+				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
+				StringBuilder paramsBuilder = new StringBuilder("(");
+				DbColumn[] columns = table.orderedColumns();
+				int counter = 0;
+				for (DbColumn column : columns) {
+					sqlBuilder.append(quoteIdentifier(column.getName()));
+					paramsBuilder.append("?");
+					counter++;
+					if (counter < columns.length) {
+						sqlBuilder.append(", ");
+						paramsBuilder.append(", ");
+					}
+				}
+				paramsBuilder.append(")");
+				sqlBuilder.append(") values ").append(paramsBuilder);
+				String insertSql = sqlBuilder.toString();
+				log.info("for {} insert sql :{}", table.getName(), insertSql);
+				PreparedStatement ps = conn.prepareStatement(insertSql);
+				dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
+					for (int i = 0; i < columns.length; i++) {
+						setColumnValue(ps, i + 1, columns[i], e.getValue()[i]);
+					}
+					ps.addBatch();
+				}));
+				int[] results = ps.executeBatch();
+				conn.commit();
+				log.info("for {} page {} batch inserted {} rows", table.getName(), dataPage.getPageNum(), results.length);
+			} catch (Exception e) {
+				try {
+					conn.rollback();
+				} catch (SQLException rollbackEx) {
+					log.warn("rollback failed for table {} page {}", table.getName(), dataPage.getPageNum(), rollbackEx);
+				}
+				throw e;
+			} finally {
+				try {
+					conn.setAutoCommit(previousAutoCommit);
+				} catch (SQLException autoCommitEx) {
+					log.warn("failed to restore autocommit for table {} page {}", table.getName(), dataPage.getPageNum(), autoCommitEx);
 				}
 			}
-			paramsBuilder.append(")");
-			sqlBuilder.append(") values ").append(paramsBuilder);
-			String insertSql = sqlBuilder.toString();
-			log.info("for {} insert sql :{}", table.getName(), insertSql);
-			PreparedStatement ps = conn.prepareStatement(insertSql);
-			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
-				for (int i = 0; i < columns.length; i++) {
-					setColumnValue(ps, i + 1, columns[i], e.getValue()[i]);
-				}
-				ps.addBatch();
-			}));
-			int[] results = ps.executeBatch();
-			log.info("for {} page {} batch result size {}", table.getName(), dataPage.getPageNum(), results.length);
 		} catch (Exception e) {
 			throw Exceptions.server("unable-to-write-data").withExtra("table", table.getName()).withExtra("pageNum", dataPage.getPageNum()).withCause(e).get();
 		} finally {

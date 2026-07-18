@@ -50,14 +50,24 @@ import lombok.extern.slf4j.Slf4j;
 public class DDLServicePostgres implements DDLService{
     private Connection conn;
 
+	/** Builds a single multi-table DROP CASCADE; returns null when there are no names. */
+	static String buildMultiTableDropSql(String... tableNames) {
+		if (tableNames == null || tableNames.length == 0) {
+			return null;
+		}
+		return "DROP TABLE IF EXISTS " + String.join(", ", tableNames) + " CASCADE";
+	}
+
     @Override
     public boolean dropTables(String... tableNames) {
+		String dropSql = buildMultiTableDropSql(tableNames);
+		if (dropSql == null) {
+			return true;
+		}
         try{
 			Statement s = conn.createStatement();
-			for(String tableName : tableNames){
-				s.addBatch("DROP TABLE IF EXISTS " + tableName + ";");
-			}
-			s.executeBatch();
+			log.info("drop tables sql :{}", dropSql);
+			s.executeUpdate(dropSql);
 			return true;
 		}catch(Exception e){
 			e.printStackTrace();
@@ -96,55 +106,50 @@ public class DDLServicePostgres implements DDLService{
 
     @Override
     public void disableConstraints(Set<ReferenceInfo> constraints) {
-        for(ReferenceInfo refInfo : constraints) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTableName()).append(" DROP FOREIGN KEY ")
-            .append(refInfo.getConstraintName()).append(";");
-            try{
-                String dropConstraintSql = sb.toString();
-                log.info("drop constraint sql :{}", dropConstraintSql);
-                Statement s = conn.createStatement();
-                s.executeUpdate(dropConstraintSql);
-            }catch(SQLException ignore){
-                log.info("ignored disable constraint " + refInfo.getConstraintName(), ignore);
-            }
-        }
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (ReferenceInfo refInfo : constraints) {
+				String dropConstraintSql = "ALTER TABLE " + refInfo.srcQualifiedName()
+					+ " DROP CONSTRAINT IF EXISTS \"" + refInfo.getConstraintName() + "\"";
+				log.info("drop constraint sql :{}", dropConstraintSql);
+				s.addBatch(dropConstraintSql);
+			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored disable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored disable constraints", e);
+		}
     }
 
     @Override
     public void enableContraints(Set<ReferenceInfo> constraints) {
-        for(ReferenceInfo refInfo : constraints) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcTableName()).append(" ADD CONSTRAINT ")
-            .append(refInfo.getConstraintName())
-            .append(" FOREIGN KEY (");
-            Iterator<String> cIt = refInfo.getSrcColumnNames().iterator();
-            while(cIt.hasNext()){
-                String cName = cIt.next();
-                sb.append("\"").append(cName).append("\"");
-                if(cIt.hasNext()){
-                    sb.append(", ");
-                }
-            }
-            sb.append(") REFERENCES ").append(refInfo.getRefTableName()).append("(");
-            cIt = refInfo.getRefColumnNames().iterator();
-            while(cIt.hasNext()){
-                String cName = cIt.next();
-                sb.append("\"").append(cName).append("\"");
-                if(cIt.hasNext()){
-                    sb.append(", ");
-                }
-            }
-            sb.append(");");
-            try{
-                String enableConstraintSql = sb.toString();
-                log.info("enable constraint sql :{}", enableConstraintSql);
-                Statement s = conn.createStatement();
-                s.executeUpdate(enableConstraintSql);
-            }catch(SQLException ignore){
-                log.info("ignored enable constraint : " + refInfo.getConstraintName(), ignore);
-            }
-        }
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (ReferenceInfo refInfo : constraints) {
+				String enableConstraintSql = generateAddForeignKeySql(refInfo);
+				if (enableConstraintSql.endsWith(";")) {
+					enableConstraintSql = enableConstraintSql.substring(0, enableConstraintSql.length() - 1);
+				}
+				log.info("enable constraint sql :{}", enableConstraintSql);
+				s.addBatch(enableConstraintSql);
+			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored enable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored enable constraints", e);
+		}
     }
     private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
         if(Set.of("varchar", "bpchar", "character varying", "character", "char").contains(type) && maxLength != null){
@@ -186,7 +191,7 @@ public class DDLServicePostgres implements DDLService{
             seqStringBuilder.append(" CYCLE;");
             scripts.add(seqStringBuilder);
         }
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> new StringBuilder(r.getSrcSchema()).append(".").append(r.getSrcTableName()).toString()));
+		/* FKs are applied after data load via enableContraints — omit from CREATE for faster DDL */
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
@@ -230,35 +235,6 @@ public class DDLServicePostgres implements DDLService{
 				pkConst.append(")");
                 sb.append(pkConst.toString());
 			}
-			if(tableReferences.containsKey(tableName)){
-				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
-				while(refIt.hasNext()){
-					ReferenceInfo ref = refIt.next();
-					if(dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)){
-						continue;
-					}
-					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" FOREIGN KEY (");
-                    Iterator<String> cIt = ref.getSrcColumnNames().iterator();
-                    while(cIt.hasNext()){
-                        String cName = cIt.next();
-                        sb.append("\"").append(cName).append("\"");
-                        if(cIt.hasNext()){
-                            sb.append(", ");
-                        }
-                    }
-					sb.append(") REFERENCES ").append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (");
-                    cIt = ref.getRefColumnNames().iterator();
-                    while(cIt.hasNext()){
-                        String cName = cIt.next();
-                        sb.append("\"").append(cName).append("\"");
-                        if(cIt.hasNext()){
-                            sb.append(", ");
-                        }
-                    }
-                    sb.append(")");
-				}
-			}
 			sb.append(System.lineSeparator()).append(");");
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
@@ -289,11 +265,6 @@ public class DDLServicePostgres implements DDLService{
 			}
 			
 		}
-		if(dbModel.getCircularIgnore() != null){
-			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
-				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
-			}
-		}
         for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
             StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(contraintInfo.getConstraintName()).append("\"").append(" UNIQUE").append(" (");
             Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
@@ -321,11 +292,20 @@ public class DDLServicePostgres implements DDLService{
                     css.execute(csSql.toString());
                 }
             }
+			if (scripts.isEmpty()) {
+				return;
+			}
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
-                log.info("ddl : {}", sb.toString());
-				s.executeUpdate(sb.toString());
+				String sql = sb.toString().trim();
+				while (sql.endsWith(";")) {
+					sql = sql.substring(0, sql.length() - 1).trim();
+				}
+                log.info("ddl : {}", sql);
+				s.addBatch(sql);
 			}
+			log.info("create tables batch size {}", scripts.size());
+			s.executeBatch();
 		}catch(SQLException ignore){
 			log.info("create tables sql", ignore);
 		}

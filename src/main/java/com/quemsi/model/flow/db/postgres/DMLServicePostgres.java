@@ -172,56 +172,75 @@ public class DMLServicePostgres implements DMLService{
     @Override
     public int writePageData(DbTable table, DataPage dataPage) {
         try(Connection conn = dataSource.getConnection()){
-			StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
-			StringBuilder paramsBuilder = new StringBuilder("(");
-			int counter = 0;
- 			for(String columnName : table.columnNames()){
-				sqlBuilder.append("\"").append(columnName).append("\"");
-				if(table.column(columnName).getColumnType().equals("oid")){
-					paramsBuilder.append("lo_from_bytea(0, ?)");
-				}else{
-					paramsBuilder.append("?");	
-				}
-				counter++;
-				if(counter < table.columnNames().size()){
-					sqlBuilder.append(", ");
-					paramsBuilder.append(", ");
-				}
-			}
-			paramsBuilder.append(");");
-			sqlBuilder.append(") values ").append(paramsBuilder.toString());
-			String insertSql = sqlBuilder.toString();
-			log.info("for {} insert sql :{}", table.getName(), insertSql);
-			DbColumn[] orderedColumns = table.orderedColumns();
-			PreparedStatement ps = conn.prepareStatement(insertSql);
-			dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
-				for(int i=0; i < orderedColumns.length; i++){
-					if(e.getValue()[i] == null){
-						ps.setNull(i + 1, java.sql.Types.NULL);
-					} else if(e.getValue()[i] instanceof List listVal){
-						Array arrVal = conn.createArrayOf("varchar", listVal.toArray());
-						ps.setArray(i + 1, arrVal);
-					} else if(e.getValue()[i] instanceof Map mapVal){
-						if("tsvector".equals(mapVal.get("type"))){
-							ps.setString(i + 1, (String)mapVal.get("value"));
-						} else if("oid".equals(mapVal.get("dbType"))){
-							String encodedData = (String)mapVal.get("data");
-							byte[] binaryData = Base64.getDecoder().decode(encodedData);
-							ps.setBytes(i + 1, binaryData);
-						} else{
-							log.error("type {} is not a valid map type", mapVal.get("type"));
-							throw Exceptions.server("column-type-not-supported").withExtra("table", table.getName()).withExtra("columnIndex", i + 1).withExtra("column", table.column(orderedColumns[i].getName())).withExtra("value", mapVal).get();
-						}
-					} else if(e.getValue()[i] instanceof CustomSerializedColumn serializedColumn){
-						ps.setBytes(i + 1, serializedColumn.getData());
-					} else{
-						ps.setObject(i + 1, e.getValue()[i], java.sql.Types.OTHER);
+			boolean previousAutoCommit = conn.getAutoCommit();
+			try {
+				conn.setAutoCommit(false);
+				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
+				StringBuilder paramsBuilder = new StringBuilder("(");
+				int counter = 0;
+				for(String columnName : table.columnNames()){
+					sqlBuilder.append("\"").append(columnName).append("\"");
+					if(table.column(columnName).getColumnType().equals("oid")){
+						paramsBuilder.append("lo_from_bytea(0, ?)");
+					}else{
+						paramsBuilder.append("?");
+					}
+					counter++;
+					if(counter < table.columnNames().size()){
+						sqlBuilder.append(", ");
+						paramsBuilder.append(", ");
 					}
 				}
-				ps.addBatch();
-			}));
-			int[] results = ps.executeBatch();
-			log.info("for {} page {} batch result {}", table.getName(), dataPage.getPageNum(), results);
+				/* No trailing ';' — reWriteBatchedInserts rewrites PreparedStatement batches */
+				paramsBuilder.append(")");
+				sqlBuilder.append(") values ").append(paramsBuilder.toString());
+				String insertSql = sqlBuilder.toString();
+				log.info("for {} insert sql :{}", table.getName(), insertSql);
+				DbColumn[] orderedColumns = table.orderedColumns();
+				PreparedStatement ps = conn.prepareStatement(insertSql);
+				dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
+					for(int i=0; i < orderedColumns.length; i++){
+						if(e.getValue()[i] == null){
+							ps.setNull(i + 1, java.sql.Types.NULL);
+						} else if(e.getValue()[i] instanceof List listVal){
+							Array arrVal = conn.createArrayOf("varchar", listVal.toArray());
+							ps.setArray(i + 1, arrVal);
+						} else if(e.getValue()[i] instanceof Map mapVal){
+							if("tsvector".equals(mapVal.get("type"))){
+								ps.setString(i + 1, (String)mapVal.get("value"));
+							} else if("oid".equals(mapVal.get("dbType"))){
+								String encodedData = (String)mapVal.get("data");
+								byte[] binaryData = Base64.getDecoder().decode(encodedData);
+								ps.setBytes(i + 1, binaryData);
+							} else{
+								log.error("type {} is not a valid map type", mapVal.get("type"));
+								throw Exceptions.server("column-type-not-supported").withExtra("table", table.getName()).withExtra("columnIndex", i + 1).withExtra("column", table.column(orderedColumns[i].getName())).withExtra("value", mapVal).get();
+							}
+						} else if(e.getValue()[i] instanceof CustomSerializedColumn serializedColumn){
+							ps.setBytes(i + 1, serializedColumn.getData());
+						} else{
+							ps.setObject(i + 1, e.getValue()[i], java.sql.Types.OTHER);
+						}
+					}
+					ps.addBatch();
+				}));
+				int[] results = ps.executeBatch();
+				conn.commit();
+				log.info("for {} page {} batch inserted {} rows", table.getName(), dataPage.getPageNum(), results.length);
+			} catch (Exception e) {
+				try {
+					conn.rollback();
+				} catch (SQLException rollbackEx) {
+					log.warn("rollback failed for table {} page {}", table.getName(), dataPage.getPageNum(), rollbackEx);
+				}
+				throw e;
+			} finally {
+				try {
+					conn.setAutoCommit(previousAutoCommit);
+				} catch (SQLException autoCommitEx) {
+					log.warn("failed to restore autocommit for table {} page {}", table.getName(), dataPage.getPageNum(), autoCommitEx);
+				}
+			}
 		}catch(Exception e){
 			e.printStackTrace();
 			throw Exceptions.server("unable-to-write-data").withExtra("table", table.getName()) .withExtra("pageNum", dataPage.getPageNum()).withCause(e).get();

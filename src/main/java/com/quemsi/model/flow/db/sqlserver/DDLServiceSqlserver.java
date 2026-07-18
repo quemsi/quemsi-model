@@ -136,38 +136,52 @@ public class DDLServiceSqlserver implements DDLService{
 
     @Override
     public void disableConstraints(Set<ReferenceInfo> constraints) {
-        for(ReferenceInfo refInfo : constraints) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.getSrcSchema()) .append(refInfo.getSrcTableName()).append("NOCHECK CONSTRAINT ");
-            appendBracketQuoted(sb, refInfo.getConstraintName());
-            sb.append(";");
-            try{
-                String dropConstraintSql = sb.toString();
-                log.info("disable constraint sql :{}", dropConstraintSql);
-                Statement s = conn.createStatement();
-                s.executeUpdate(dropConstraintSql);
-            }catch(SQLException ignore){
-                log.info("ignored disable constraint " + refInfo.getConstraintName(), ignore);
-            }
-        }
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (ReferenceInfo refInfo : constraints) {
+				StringBuilder sb = new StringBuilder("ALTER TABLE ");
+				sb.append(refInfo.srcQualifiedName()).append(" DROP CONSTRAINT ");
+				appendBracketQuoted(sb, refInfo.getConstraintName());
+				String dropConstraintSql = sb.toString();
+				log.info("drop constraint sql :{}", dropConstraintSql);
+				s.addBatch(dropConstraintSql);
+			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored disable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored disable constraints", e);
+		}
     }
 
     @Override
     public void enableContraints(Set<ReferenceInfo> constraints) {
-        for(ReferenceInfo refInfo : constraints) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ");
-            sb.append(refInfo.srcQualifiedName()).append(" WITH CHECK CHECK CONSTRAINT ");
-            appendBracketQuoted(sb, refInfo.getConstraintName());
-            sb.append(";");
-            try{
-                String dropConstraintSql = sb.toString();
-                log.info("enable constraint sql :{}", dropConstraintSql);
-                Statement s = conn.createStatement();
-                s.executeUpdate(dropConstraintSql);
-            }catch(SQLException ignore){
-                log.info("ignored enable constraint " + refInfo.getConstraintName(), ignore);
-            }
-        }
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (ReferenceInfo refInfo : constraints) {
+				String enableConstraintSql = generateAddForeignKeySql(refInfo);
+				if (enableConstraintSql.endsWith(";")) {
+					enableConstraintSql = enableConstraintSql.substring(0, enableConstraintSql.length() - 1);
+				}
+				log.info("enable constraint sql :{}", enableConstraintSql);
+				s.addBatch(enableConstraintSql);
+			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored enable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored enable constraints", e);
+		}
     }
 
     private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
@@ -213,7 +227,6 @@ public class DDLServiceSqlserver implements DDLService{
     @Override
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.srcQualifiedName()));
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
 		Set<String> sequences = new HashSet<>(sequences(dbModel.getSchemas()));
 		if(!dbModel.getSequences().isEmpty()){
@@ -256,6 +269,7 @@ public class DDLServiceSqlserver implements DDLService{
 				scripts.add(seqBuilder);
 			}
 		}
+		/* FKs are applied after data load via enableContraints — omit from CREATE for faster DDL */
 		for(String tableName : dbModel.orderedTableNames()){
 			if(existingTables.contains(tableName)){
 				log.info("table {} already exists in schema {} skipping", tableName, dbModel.getSchemas());
@@ -302,39 +316,6 @@ public class DDLServiceSqlserver implements DDLService{
 					}
 				}
 				sb.append(")");
-			}
-			if(tableReferences.containsKey(tableName)){
-				Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
-				while(refIt.hasNext()){
-					ReferenceInfo ref = refIt.next();
-					if(dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)){
-						continue;
-					}
-					sb.append(",").append(System.lineSeparator())
-						.append("  CONSTRAINT ");
-					appendBracketQuoted(sb, ref.getConstraintName());
-					sb.append(" FOREIGN KEY (");
-						Iterator<String> cIt = ref.getSrcColumnNames().iterator();
-						while(cIt.hasNext()){
-							String cName = cIt.next();
-							sb.append(cName);
-							if(cIt.hasNext()){
-								sb.append(", ");
-							}
-						}
-						sb.append(") REFERENCES ")
-						.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (");
-						cIt = ref.getRefColumnNames().iterator();
-						while(cIt.hasNext()){
-							String cName = cIt.next();
-							sb.append(cName);
-							if(cIt.hasNext()){
-								sb.append(", ");
-							}
-						}
-						sb.append(")");
-						;
-				}
 			}
 			sb.append(System.lineSeparator()).append(");");
 			log.info("create script for {} : {}", tableName, sb.toString());
@@ -390,15 +371,6 @@ public class DDLServiceSqlserver implements DDLService{
 				};
 			}
 		}
-		if(dbModel.getCircularIgnore() != null){
-			for(ReferenceInfo ref : dbModel.getCircularIgnore()){
-				if(existingTables.contains(ref.srcQualifiedName())){
-					log.info("circular FK {} already exists on {} skipping", ref.getConstraintName(), ref.srcQualifiedName());
-					continue;
-				}
-				scripts.add(new StringBuilder(generateAddForeignKeySql(ref)));
-			}
-		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
 			if(existingTables.contains(contraintInfo.qualifiedTableName())){
 				log.info("unique constraint {} already exists on {} skipping", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
@@ -438,11 +410,20 @@ public class DDLServiceSqlserver implements DDLService{
 					css.execute(csSql.toString());
 				}
 			}
+			if (scripts.isEmpty()) {
+				return;
+			}
 			Statement s = conn.createStatement();
 			for(StringBuilder sb : scripts){
-				log.info("sql : {}", sb.toString());
-				s.executeUpdate(sb.toString());
+				String sql = sb.toString().trim();
+				while (sql.endsWith(";")) {
+					sql = sql.substring(0, sql.length() - 1).trim();
+				}
+				log.info("sql : {}", sql);
+				s.addBatch(sql);
 			}
+			log.info("create tables batch size {}", scripts.size());
+			s.executeBatch();
 		}catch(SQLException e){
 			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
 		}
@@ -633,7 +614,6 @@ public class DDLServiceSqlserver implements DDLService{
         String tableName = table.qualifiedName();
 		boolean hasClustedIndex = CommonOps.getOrDefault(dbModel.getIndexes(), tableName, () -> new HashMap<>())
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream().collect(Collectors.groupingBy(r -> r.srcQualifiedName()));
 		
 		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
 		DbColumn[] columns = table.orderedColumns();
@@ -674,36 +654,7 @@ public class DDLServiceSqlserver implements DDLService{
 			}
 			sb.append(")");
 		}
-		if(tableReferences.containsKey(tableName)){
-			Iterator<ReferenceInfo> refIt = tableReferences.get(tableName).iterator();
-			while(refIt.hasNext()){
-				ReferenceInfo ref = refIt.next();
-				sb.append(",").append(System.lineSeparator())
-					.append("  CONSTRAINT ");
-				appendBracketQuoted(sb, ref.getConstraintName());
-				sb.append(" FOREIGN KEY (");
-					Iterator<String> cIt = ref.getSrcColumnNames().iterator();
-					while(cIt.hasNext()){
-						String cName = cIt.next();
-						sb.append(cName);
-						if(cIt.hasNext()){
-							sb.append(", ");
-						}
-					}
-					sb.append(") REFERENCES ")
-					.append(ref.getRefSchema()).append(".").append(ref.getRefTableName()).append(" (");
-					cIt = ref.getRefColumnNames().iterator();
-					while(cIt.hasNext()){
-						String cName = cIt.next();
-						sb.append(cName);
-						if(cIt.hasNext()){
-							sb.append(", ");
-						}
-					}
-					sb.append(")");
-					;
-			}
-		}
+		/* FKs are separate DiffOps / enableContraints — omit from CREATE TABLE */
 		sb.append(System.lineSeparator()).append(");");
 		log.info("create script for {} : {}", tableName, sb.toString());
         return sb.toString();

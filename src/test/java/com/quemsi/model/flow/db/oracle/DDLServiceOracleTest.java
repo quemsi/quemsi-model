@@ -414,7 +414,7 @@ public class DDLServiceOracleTest {
 	}
 
 	@Test
-	public void givenCircularFk_whenGenerateCreateTableViaDdlFrom_thenOmitCircularFkFromCreate() {
+	public void givenForeignKeys_whenGenerateCreateTableViaDdlFrom_thenOmitAllFksFromCreate() {
 		DbTable employees = createTable("HR", "EMPLOYEES");
 		employees.addColumn(createColumn("EMPLOYEE_ID", "NUMBER", false, null, 6, 0));
 		employees.addColumn(createColumn("DEPARTMENT_ID", "NUMBER", true, null, 4, 0));
@@ -456,9 +456,9 @@ public class DDLServiceOracleTest {
 
 		assertThat(statements, hasSize(1));
 		assertThat(statements.get(0), containsString("CREATE TABLE HR.EMPLOYEES"));
-		assertThat(statements.get(0), containsString("EMP_JOB_FK"));
+		assertThat(statements.get(0), not(containsString("FOREIGN KEY")));
+		assertThat(statements.get(0), not(containsString("EMP_JOB_FK")));
 		assertThat(statements.get(0), not(containsString("EMP_DEPT_FK")));
-		assertThat(statements.get(0), not(containsString("REFERENCES HR.DEPARTMENTS")));
 	}
 
 	@Test

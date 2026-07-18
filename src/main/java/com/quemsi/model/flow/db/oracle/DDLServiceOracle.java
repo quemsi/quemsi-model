@@ -159,35 +159,48 @@ public class DDLServiceOracle implements DDLService {
 
 	@Override
 	public void disableConstraints(Set<ReferenceInfo> constraints) {
-		for (ReferenceInfo refInfo : constraints) {
-			StringBuilder sb = new StringBuilder("ALTER TABLE ");
-			sb.append(refInfo.srcQualifiedName()).append(" DISABLE CONSTRAINT ");
-			appendQuoted(sb, refInfo.getConstraintName());
-			try {
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (ReferenceInfo refInfo : constraints) {
+				StringBuilder sb = new StringBuilder("ALTER TABLE ");
+				sb.append(refInfo.srcQualifiedName()).append(" DROP CONSTRAINT ");
+				appendQuoted(sb, refInfo.getConstraintName());
 				String sql = sb.toString();
-				log.info("disable constraint sql :{}", sql);
-				Statement s = conn.createStatement();
-				s.executeUpdate(sql);
-			} catch (SQLException ignore) {
-				log.info("ignored disable constraint " + refInfo.getConstraintName(), ignore);
+				log.info("drop constraint sql :{}", sql);
+				s.addBatch(sql);
 			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored disable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored disable constraints", e);
 		}
 	}
 
 	@Override
 	public void enableContraints(Set<ReferenceInfo> constraints) {
-		for (ReferenceInfo refInfo : constraints) {
-			StringBuilder sb = new StringBuilder("ALTER TABLE ");
-			sb.append(refInfo.srcQualifiedName()).append(" ENABLE CONSTRAINT ");
-			appendQuoted(sb, refInfo.getConstraintName());
-			try {
-				String sql = sb.toString();
+		if (constraints == null || constraints.isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (ReferenceInfo refInfo : constraints) {
+				String sql = generateAddForeignKeySql(refInfo);
 				log.info("enable constraint sql :{}", sql);
-				Statement s = conn.createStatement();
-				s.executeUpdate(sql);
-			} catch (SQLException ignore) {
-				log.info("ignored enable constraint " + refInfo.getConstraintName(), ignore);
+				s.addBatch(sql);
 			}
+			try {
+				s.executeBatch();
+			} catch (SQLException ignore) {
+				log.info("ignored enable constraints batch", ignore);
+			}
+		} catch (SQLException e) {
+			log.info("ignored enable constraints", e);
 		}
 	}
 
@@ -416,17 +429,7 @@ public class DDLServiceOracle implements DDLService {
 				}
 			}
 		}
-		if (dbModel.getCircularIgnore() != null) {
-			for (ReferenceInfo ref : dbModel.getCircularIgnore()) {
-				if (existingConstraints.contains(ref.qualifiedConstraintName())) {
-					log.info("circular FK {} already exists on {} skipping", ref.getConstraintName(), ref.srcQualifiedName());
-					continue;
-				}
-				String fkSql = generateAddForeignKeySql(ref);
-				log.info("deferred circular FK for {} : {}", ref.srcQualifiedName(), fkSql);
-				scripts.add(new StringBuilder(fkSql));
-			}
-		}
+		/* FKs (including circular) are applied after data load via enableContraints */
 		for (ContraintInfo contraintInfo : dbModel.getContraintInfos()) {
 			if (existingConstraints.contains(contraintInfo.qualifiedConstraintName())) {
 				log.info("unique constraint {} already exists on {} skipping", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
@@ -460,11 +463,20 @@ public class DDLServiceOracle implements DDLService {
 					log.warn("Oracle schema/user {} does not exist; skipping schema creation", schema);
 				}
 			}
+			if (scripts.isEmpty()) {
+				return;
+			}
 			Statement s = conn.createStatement();
 			for (StringBuilder sb : scripts) {
-				log.info("sql : {}", sb);
-				s.executeUpdate(sb.toString());
+				String sql = sb.toString().trim();
+				while (sql.endsWith(";")) {
+					sql = sql.substring(0, sql.length() - 1).trim();
+				}
+				log.info("sql : {}", sql);
+				s.addBatch(sql);
 			}
+			log.info("create tables batch size {}", scripts.size());
+			s.executeBatch();
 		} catch (SQLException e) {
 			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
 		}
@@ -663,14 +675,9 @@ public class DDLServiceOracle implements DDLService {
 
 	private String generateCreateTableSql(DbTable table, DbModel dbModel) {
 		String tableName = table.qualifiedName();
-		Map<String, List<ReferenceInfo>> tableReferences = dbModel.getReferenceInfos().stream()
-			.collect(Collectors.groupingBy(ReferenceInfo::srcQualifiedName));
 		Map<String, CheckConstraint> namedNotNulls = namedNotNullConstraints(dbModel)
 			.getOrDefault(tableName, Map.of());
 		Set<String> pkColumns = primaryKeyColumnNamesUpper(table);
-		List<ReferenceInfo> foreignKeys = tableReferences.getOrDefault(tableName, List.of()).stream()
-			.filter(ref -> !isCircularIgnored(dbModel, ref))
-			.toList();
 		boolean hasPrimaryKey = table.getPkColumnNames() != null && !table.getPkColumnNames().isEmpty();
 
 		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
@@ -697,25 +704,9 @@ public class DDLServiceOracle implements DDLService {
 			appendColumnList(sb, table.getPkColumnNames());
 			sb.append(")");
 		}
-		for (ReferenceInfo ref : foreignKeys) {
-			if (!firstElement) {
-				sb.append(",").append(System.lineSeparator());
-			}
-			firstElement = false;
-			sb.append("  CONSTRAINT ");
-			appendQuoted(sb, ref.getConstraintName());
-			sb.append(" FOREIGN KEY (");
-			appendColumnList(sb, ref.getSrcColumnNames());
-			sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
-			appendColumnList(sb, ref.getRefColumnNames());
-			sb.append(")");
-		}
+		/* FKs are separate DiffOps / enableContraints — omit from CREATE TABLE */
 		sb.append(System.lineSeparator()).append(")");
 		return sb.toString();
-	}
-
-	private boolean isCircularIgnored(DbModel dbModel, ReferenceInfo ref) {
-		return dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref);
 	}
 
 	private void appendColumnList(StringBuilder sb, Iterable<String> columnNames) {
