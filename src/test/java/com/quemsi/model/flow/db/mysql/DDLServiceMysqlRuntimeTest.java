@@ -47,6 +47,39 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
+	public void formatColumnDefaultValue_quotesStringLikeAndEmptyDefaults() {
+		assertThat(DDLServiceMysql.formatColumnDefaultValue("char(52)", ""), equalTo("''"));
+		assertThat(DDLServiceMysql.formatColumnDefaultValue("enum('Asia','Europe')", "Asia"), equalTo("'Asia'"));
+		assertThat(DDLServiceMysql.formatColumnDefaultValue("varchar(50)", "O'Brien"), equalTo("'O''Brien'"));
+		assertThat(DDLServiceMysql.formatColumnDefaultValue("int", "0"), equalTo("0"));
+		assertThat(DDLServiceMysql.formatColumnDefaultValue("timestamp", "CURRENT_TIMESTAMP"), equalTo("CURRENT_TIMESTAMP"));
+		assertThat(DDLServiceMysql.formatColumnDefaultValue("datetime", "2020-01-01 00:00:00"), equalTo("'2020-01-01 00:00:00'"));
+	}
+
+	@Test
+	public void createTables_quotesEmptyCharAndEnumDefaults() {
+		RecordingJdbc recording = new RecordingJdbc();
+		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+
+		DbModel dbModel = new DbModel();
+		DbTable country = dbModel.addTable("country");
+		country.addColumn(DbColumn.builder().name("Code").dataType("char").columnType("char(3)")
+			.ordinalPosition(1).nullable(false).build());
+		country.addColumn(DbColumn.builder().name("Name").dataType("char").columnType("char(52)")
+			.ordinalPosition(2).nullable(false).columnDefault("").build());
+		country.addColumn(DbColumn.builder().name("Continent").dataType("enum")
+			.columnType("enum('Asia','Europe','North America','Africa','Oceania','Antarctica','South America')")
+			.ordinalPosition(3).nullable(false).columnDefault("Asia").build());
+		country.getPkColumnNames().add("Code");
+
+		ddl.createTables(dbModel);
+
+		assertThat(recording.batchedSql, hasSize(1));
+		assertThat(recording.batchedSql.get(0), containsString("`Name` char(52) NOT NULL DEFAULT ''"));
+		assertThat(recording.batchedSql.get(0), containsString("`Continent` enum('Asia','Europe','North America','Africa','Oceania','Antarctica','South America') NOT NULL DEFAULT 'Asia'"));
+	}
+
+	@Test
 	public void dropTables_disablesFkChecks_andRunsMultiTableDrop() {
 		RecordingJdbc recording = new RecordingJdbc();
 		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);

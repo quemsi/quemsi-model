@@ -77,6 +77,70 @@ public class DDLServiceMysql implements DDLService{
 		}
 		return trimmed;
 	}
+
+	private static final Set<String> STRING_LIKE_MYSQL_TYPES = Set.of(
+		"CHAR", "VARCHAR", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT",
+		"ENUM", "SET", "BINARY", "VARBINARY", "TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "JSON"
+	);
+	private static final Set<String> TEMPORAL_MYSQL_TYPES = Set.of(
+		"DATE", "TIME", "DATETIME", "TIMESTAMP", "YEAR"
+	);
+
+	/**
+	 * Formats INFORMATION_SCHEMA COLUMN_DEFAULT for MySQL DDL.
+	 * Quotes string-like types (including empty string → '') and enum/char literals;
+	 * leaves numeric values and expression defaults (e.g. CURRENT_TIMESTAMP) unquoted.
+	 */
+	static String formatColumnDefaultValue(String columnType, String columnDefault) {
+		if (columnDefault == null) {
+			return null;
+		}
+		String baseType = mysqlBaseType(columnType);
+		if (STRING_LIKE_MYSQL_TYPES.contains(baseType)) {
+			return "'" + columnDefault.replace("'", "''") + "'";
+		}
+		if (TEMPORAL_MYSQL_TYPES.contains(baseType)) {
+			if (looksLikeMysqlDefaultExpression(columnDefault)) {
+				return columnDefault;
+			}
+			return "'" + columnDefault.replace("'", "''") + "'";
+		}
+		if (looksLikeMysqlDefaultExpression(columnDefault)) {
+			return columnDefault;
+		}
+		return columnDefault;
+	}
+
+	private static String mysqlBaseType(String columnType) {
+		if (columnType == null || columnType.isBlank()) {
+			return "";
+		}
+		String upper = columnType.trim().toUpperCase();
+		int paren = upper.indexOf('(');
+		return paren < 0 ? upper : upper.substring(0, paren).trim();
+	}
+
+	private static boolean looksLikeMysqlDefaultExpression(String value) {
+		String trimmed = value.trim();
+		if (trimmed.isEmpty()) {
+			return false;
+		}
+		if (trimmed.startsWith("(") && trimmed.endsWith(")")) {
+			return true;
+		}
+		return trimmed.matches("(?i)^(CURRENT_TIMESTAMP|CURRENT_DATE|CURRENT_TIME|LOCALTIME|LOCALTIMESTAMP|NULL|TRUE|FALSE)(\\(\\d*\\))?$");
+	}
+
+	private void appendColumnDefault(StringBuilder sb, DbColumn column) {
+		if (column.getColumnDefault() == null) {
+			String baseType = mysqlBaseType(column.getColumnType());
+			if (column.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(baseType)) {
+				sb.append(" DEFAULT NULL");
+			}
+			return;
+		}
+		sb.append(" DEFAULT ").append(formatColumnDefaultValue(column.getColumnType(), column.getColumnDefault()));
+	}
     
     @Override
 	public boolean dropTables(String... tableNames) {
@@ -193,17 +257,7 @@ public class DDLServiceMysql implements DDLService{
 				if(!c.isNullable()){
 					sb.append(" NOT NULL");
 				}
-				if(c.getColumnDefault() == null){
-					if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())){
-						sb.append(" DEFAULT NULL");
-					}
-				}else{
-                    if(c.getColumnType().toUpperCase().contains("VARCHAR")){
-                        sb.append(" DEFAULT '" + c.getColumnDefault() + "'");
-                    } else {
-                        sb.append(" DEFAULT " + c.getColumnDefault());
-                    }
-				}
+				appendColumnDefault(sb, c);
                 if(index < columns.length - 1){
                     sb.append(",").append(System.lineSeparator());
                 }
@@ -293,6 +347,7 @@ public class DDLServiceMysql implements DDLService{
 			s.executeBatch();
 		} catch (SQLException ignore) {
 			log.info("create tables sql", ignore);
+            throw Exceptions.server("failed-to-create-tables").withCause(ignore).get();
 		}
 	}
 
@@ -551,18 +606,7 @@ public class DDLServiceMysql implements DDLService{
             if (!c.isNullable()) {
                 sb.append(" NOT NULL");
             }
-            
-            if (c.getColumnDefault() == null) {
-                if (c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())) {
-                    sb.append(" DEFAULT NULL");
-                }
-            } else {
-                String defValue = c.getColumnDefault();
-                if(c.getColumnType().toUpperCase().contains("VARCHAR")){
-                    defValue = "'" + defValue + "'";
-                }
-                sb.append(" DEFAULT ").append(defValue);
-            }
+			appendColumnDefault(sb, c);
             
             if (index < columns.length - 1) {
                 sb.append(",").append(System.lineSeparator());
@@ -619,12 +663,7 @@ public class DDLServiceMysql implements DDLService{
         if (!column.isNullable()) {
             sb.append(" NOT NULL");
         }
-        
-        if (column.getColumnDefault() != null) {
-            sb.append(" DEFAULT ").append(column.getColumnDefault());
-        } else if (column.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(column.getColumnType().toUpperCase())) {
-            sb.append(" DEFAULT NULL");
-        }
+		appendColumnDefault(sb, column);
         
         sb.append(";");
         return sb.toString();
@@ -641,18 +680,7 @@ public class DDLServiceMysql implements DDLService{
         if (!newColumn.isNullable()) {
             sb.append(" NOT NULL");
         }
-        
-        if (newColumn.getColumnDefault() != null) {
-            sb.append(" DEFAULT ");
-            String dataType = newColumn.getColumnType().toUpperCase();
-            if(dataType.contains("VARCHAR")){
-                sb.append(  "'").append(newColumn.getColumnDefault()).append("'");
-            } else {
-                sb.append(newColumn.getColumnDefault());
-            }
-        } else if (newColumn.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(newColumn.getColumnType().toUpperCase())) {
-            sb.append(" DEFAULT NULL");
-        }
+		appendColumnDefault(sb, newColumn);
         
         sb.append(";");
         statements.add(sb.toString());
