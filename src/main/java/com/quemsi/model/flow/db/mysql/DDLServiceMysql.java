@@ -282,18 +282,11 @@ public class DDLServiceMysql implements DDLService{
 				while(indNameIt.hasNext()){
 					String indName = indNameIt.next();
 					if(!"PRIMARY".equals(indName) && !constraintInfos.containsKey(indName)){
-						sb.append(",").append(System.lineSeparator());
-						sb.append("  KEY ").append(indName);
 						IndexInfo indCols = indexes.get(indName);
+						sb.append(",").append(System.lineSeparator());
+						sb.append("  ").append(mysqlInlineIndexKeyword(indCols)).append(" ").append(indName);
 						sb.append(" (");
-						Iterator<String> icIt = indCols.getColumns().iterator();
-						while(icIt.hasNext()){
-							String ic = icIt.next();
-							sb.append("`").append(ic).append("`");
-							if(icIt.hasNext()){
-								sb.append(" ,");
-							}
-						}
+						appendMysqlIndexColumns(sb, indCols);
 						sb.append(")");
 					}
 
@@ -880,21 +873,57 @@ public class DDLServiceMysql implements DDLService{
         return statements;
     }
     
+	/** Inline CREATE TABLE index keyword: KEY / UNIQUE KEY / FULLTEXT KEY / SPATIAL KEY. */
+	static String mysqlInlineIndexKeyword(IndexInfo index) {
+		String type = index.getIndexType() == null ? "" : index.getIndexType().trim().toUpperCase();
+		if ("FULLTEXT".equals(type)) {
+			return "FULLTEXT KEY";
+		}
+		if ("SPATIAL".equals(type)) {
+			return "SPATIAL KEY";
+		}
+		if (index.isUnique()) {
+			return "UNIQUE KEY";
+		}
+		return "KEY";
+	}
+
+	static void appendMysqlIndexColumns(StringBuilder sb, IndexInfo index) {
+		List<String> columns = index.getColumns();
+		List<Integer> prefixes = index.getColumnPrefixLengths();
+		/* FULLTEXT/SPATIAL reject prefix lengths; STATISTICS.SUB_PART can still be set (e.g. geometry). */
+		boolean allowPrefix = allowsMysqlIndexPrefix(index);
+		for (int i = 0; i < columns.size(); i++) {
+			if (i > 0) {
+				sb.append(", ");
+			}
+			sb.append("`").append(columns.get(i)).append("`");
+			if (allowPrefix && prefixes != null && i < prefixes.size()) {
+				Integer prefix = prefixes.get(i);
+				if (prefix != null && prefix > 0) {
+					sb.append("(").append(prefix).append(")");
+				}
+			}
+		}
+	}
+
+	static boolean allowsMysqlIndexPrefix(IndexInfo index) {
+		String type = index.getIndexType() == null ? "" : index.getIndexType().trim().toUpperCase();
+		return !"FULLTEXT".equals(type) && !"SPATIAL".equals(type);
+	}
+
     private String generateCreateIndexSql(IndexInfo index, String tableQualifiedName) {
         StringBuilder sb = new StringBuilder("CREATE ");
-        if (index.isUnique()) {
+		String type = index.getIndexType() == null ? "" : index.getIndexType().trim().toUpperCase();
+		if ("FULLTEXT".equals(type)) {
+			sb.append("FULLTEXT ");
+		} else if ("SPATIAL".equals(type)) {
+			sb.append("SPATIAL ");
+		} else if (index.isUnique()) {
             sb.append("UNIQUE ");
         }
         sb.append("INDEX ").append(index.getIndexName()).append(" ON ").append(tableQualifiedName).append(" (");
-        
-        Iterator<String> icIt = index.getColumns().iterator();
-        while (icIt.hasNext()) {
-            String ic = icIt.next();
-            sb.append("`").append(ic).append("`");
-            if (icIt.hasNext()) {
-                sb.append(", ");
-            }
-        }
+		appendMysqlIndexColumns(sb, index);
         sb.append(");");
         
         return sb.toString();

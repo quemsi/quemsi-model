@@ -17,5 +17,6 @@ public class DataSourceFactoryMySqlBatchPropsTest {
 		assertThat(config.getDataSourceProperties().getProperty("rewriteBatchedStatements"), equalTo("true"));
 		assertThat(config.getDataSourceProperties().getProperty("useServerPrepStmts"), equalTo("false"));
 		assertThat(config.getDataSourceProperties().getProperty("allowMultiQueries"), equalTo("true"));
+		assertThat(config.getDataSourceProperties().getProperty("yearIsDateType"), equalTo("false"));
 	}
 }

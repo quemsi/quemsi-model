@@ -80,7 +80,8 @@ SELECT
     st.COLUMN_NAME,
     st.SEQ_IN_INDEX,
     st.NON_UNIQUE,
-    st.INDEX_TYPE
+    st.INDEX_TYPE,
+    st.SUB_PART
 FROM INFORMATION_SCHEMA.STATISTICS st
 WHERE TABLE_SCHEMA = ?
   and not exists (
@@ -179,11 +180,13 @@ WHERE vtu.VIEW_SCHEMA = ?
 	 * and multi-query rewriting for Statement batches (e.g. DROP TABLE).
 	 * useServerPrepStmts must be false for rewriteBatchedStatements to take effect.
 	 * allowMultiQueries is required when Statement batches are rewritten into one multi-query.
+	 * yearIsDateType=false maps YEAR to Short so backup/restore does not round-trip via java.sql.Date.
 	 */
 	static void applyMysqlBatchDataSourceProperties(HikariConfig config) {
 		config.addDataSourceProperty("rewriteBatchedStatements", "true");
 		config.addDataSourceProperty("useServerPrepStmts", "false");
 		config.addDataSourceProperty("allowMultiQueries", "true");
+		config.addDataSourceProperty("yearIsDateType", "false");
 	}
 
 	@Override
@@ -294,6 +297,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 				String columnName = irs.getString("COLUMN_NAME");
 				boolean nonUnique = irs.getBoolean("NON_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
+				Integer subPart = toIntegerOrNull(irs.getObject("SUB_PART"));
 				String fullIndexName = new StringBuilder(dbName).append(".").append(tableName).toString();
 				if(cur == null || !fullIndexName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
@@ -302,6 +306,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 					cur = new IndexInfo(schemaName, tableName, indexName, !nonUnique, indexType);
 				}
 				cur.getColumns().add(columnName);
+				cur.getColumnPrefixLengths().add(subPart);
 			}
 			if(cur != null){
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
@@ -501,5 +506,16 @@ WHERE vtu.VIEW_SCHEMA = ?
 
 	private static String backtickQuoted(String name) {
 		return "`" + name.replace("`", "``") + "`";
+	}
+
+	/** JDBC may return SUB_PART as Integer or Long depending on connector/server. */
+	static Integer toIntegerOrNull(Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof Number number) {
+			return number.intValue();
+		}
+		throw new ClassCastException("Expected Number for index prefix length, got " + value.getClass().getName());
 	}
 }

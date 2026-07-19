@@ -54,6 +54,27 @@ public class DMLServiceMysqlWritePageDataTest {
 	}
 
 	@Test
+	public void writePageData_convertsYearDateAndStringToInt() {
+		RecordingConnection recording = new RecordingConnection(false);
+		DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection));
+
+		DbTable table = new DbTable(null, "film");
+		table.addColumn(DbColumn.builder().name("film_id").dataType("smallint").columnType("smallint")
+			.ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("release_year").dataType("year").columnType("year")
+			.ordinalPosition(2).nullable(true).build());
+
+		dml.writePageData(table, new DataPage(0, Map.of(
+			1, new Object[] { 1, java.sql.Date.valueOf("2006-01-01") },
+			2, new Object[] { 2, "2007-01-01" }
+		)));
+
+		assertThat(recording.setIntCalls.get(), equalTo(2));
+		assertThat(recording.executeBatchCalls.get(), equalTo(1));
+		assertThat(recording.commitCalls.get(), equalTo(1));
+	}
+
+	@Test
 	public void writePageData_onBatchFailure_rollsBackAndRestoresSession() {
 		RecordingConnection recording = new RecordingConnection(true);
 		DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection));
@@ -104,6 +125,7 @@ public class DMLServiceMysqlWritePageDataTest {
 		final AtomicInteger rollbackCalls = new AtomicInteger();
 		final AtomicInteger executeBatchCalls = new AtomicInteger();
 		final AtomicInteger addBatchCalls = new AtomicInteger();
+		final AtomicInteger setIntCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
 		final boolean failOnExecuteBatch;
@@ -185,7 +207,12 @@ public class DMLServiceMysqlWritePageDataTest {
 				new Class<?>[] { PreparedStatement.class },
 				(proxy, method, args) -> {
 					String name = method.getName();
-					if ("setObject".equals(name)) {
+					if ("setInt".equals(name)) {
+						setIntCalls.incrementAndGet();
+						return null;
+					}
+					if ("setObject".equals(name) || "setNull".equals(name) || "setBytes".equals(name)
+						|| "setLong".equals(name) || "setShort".equals(name) || "setString".equals(name)) {
 						return null;
 					}
 					if ("addBatch".equals(name) && (args == null || args.length == 0)) {

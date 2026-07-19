@@ -355,6 +355,8 @@ public class DbModel {
         private boolean unique;
         private String indexType;
         private LinkedList<String> columns;
+        /** Per-column index prefix lengths (MySQL SUB_PART); null entry means full column. */
+        private LinkedList<Integer> columnPrefixLengths;
         private LinkedList<String> extraColumns;
         public IndexInfo(String schemaName, String tableName, String indexName, boolean unique, String indexType){
             this.schemaName = schemaName;
@@ -363,6 +365,7 @@ public class DbModel {
             this.unique = unique;
             this.indexType = indexType;
             this.columns = new LinkedList<>();
+            this.columnPrefixLengths = new LinkedList<>();
             this.extraColumns = new LinkedList<>();
         }
         public String qualifiedTableName(){
