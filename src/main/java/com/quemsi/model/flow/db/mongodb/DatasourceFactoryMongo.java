@@ -3,6 +3,7 @@ package com.quemsi.model.flow.db.mongodb;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -215,6 +216,7 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
 
     @Override
     public DbModel getDbModel(Consumer<LogMessage> progress) {
+        long startTime = System.currentTimeMillis();
         DbModel dbModel = new DbModel();
         dbModel.setSourceType(DatasourceType.MONGODB.name());
         dbModel.setFormat("json");
@@ -238,7 +240,7 @@ public class DatasourceFactoryMongo implements DataSourceFactory {
             readIndexes(database.getCollection(collectionName), dbModel, collectionName);
         }
         reportProgress(progress, LogMessage.info("Scanned {} collections", dbModel.getTables().size()));
-        reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
+        reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
         return dbModel;
     }
 

@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -197,6 +198,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 
 	@Override
 	public DbModel getDbModel(Consumer<LogMessage> progress) {
+		long startTime = System.currentTimeMillis();
 		DbModel dbModel = new DbModel();
 		dbModel.setSourceType(DatasourceType.MYSQL.name());
 		try(
@@ -363,7 +365,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
-			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}

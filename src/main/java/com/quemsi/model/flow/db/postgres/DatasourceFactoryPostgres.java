@@ -4,6 +4,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -23,12 +24,12 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
-import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbView;
@@ -246,6 +247,7 @@ order by n.nspname, p.proname
 
     @Override
     public DbModel getDbModel(Consumer<LogMessage> progress) {
+		long startTime = System.currentTimeMillis();
         DbModel dbModel = new DbModel();
 		dbModel.setSchemas(getSchemas());
 		dbModel.setSourceType(DatasourceType.POSTGRES.name());
@@ -442,7 +444,7 @@ order by n.nspname, p.proname
 			}
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
-			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}

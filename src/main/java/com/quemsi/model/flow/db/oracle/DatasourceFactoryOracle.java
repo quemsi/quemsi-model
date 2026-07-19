@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
@@ -404,6 +405,7 @@ where tc.OWNER in {inValues}
 
 	@Override
 	public DbModel getDbModel(Consumer<LogMessage> progress) {
+		long startTime = System.currentTimeMillis();
 		DbModel dbModel = new DbModel();
 		try (Connection con = getDataSource().getConnection()) {
 			reportProgress(progress, LogMessage.info("Resolving schemas..."));
@@ -674,7 +676,7 @@ where tc.OWNER in {inValues}
 			}
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
-			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views)", dbModel.getTables().size(), dbModel.getViews().size()));
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
 			}
 		} catch (BaseRuntimeException e) {
 			throw e;
