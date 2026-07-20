@@ -446,8 +446,8 @@ public class DDLServiceSqlserverTest {
 
         List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
         assertThat(statements, hasSize(2));
-        assertThat(statements.get(0), containsString("DROP VIEW IF EXISTS dbo.v_demo"));
-        assertThat(statements.get(1), containsString("CREATE VIEW dbo.v_demo AS SELECT 1 AS n"));
+        assertThat(statements.get(0), containsString("DROP VIEW IF EXISTS [dbo].[v_demo]"));
+        assertThat(statements.get(1), containsString("CREATE VIEW [dbo].[v_demo] AS SELECT 1 AS n"));
     }
 
     @Test

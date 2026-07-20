@@ -28,6 +28,8 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbDomainType;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -35,6 +37,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbTrigger;
 import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
@@ -187,6 +190,55 @@ where schema_name(v.schema_id) in {inValues}
 ;
 			""";
 
+	/** Alias UDTs (CREATE TYPE ... FROM); excludes table types and CLR. */
+	static final String SQL_FOR_ALIAS_TYPES = """
+select
+	schema_name(t.schema_id) as schema_name,
+	t.name as type_name,
+	st.name as base_type,
+	t.max_length,
+	t.precision,
+	t.scale,
+	t.is_nullable
+from sys.types t
+inner join sys.types st on t.system_type_id = st.user_type_id and st.is_user_defined = 0
+where t.is_user_defined = 1
+  and t.is_table_type = 0
+  and schema_name(t.schema_id) in {inValues}
+order by schema_name(t.schema_id), t.name
+;
+			""";
+
+	/** T-SQL procedures and functions (excludes CLR when definition is unavailable). */
+	static final String SQL_FOR_ROUTINES = """
+select
+	schema_name(o.schema_id) as schema_name,
+	o.name as routine_name,
+	case when o.[type] in ('P', 'PC') then 'PROCEDURE' else 'FUNCTION' end as routine_type,
+	coalesce(m.definition, object_definition(o.object_id)) as definition
+from sys.objects o
+left join sys.sql_modules m on o.object_id = m.object_id
+where o.[type] in ('P', 'PC', 'FN', 'IF', 'TF', 'FS', 'FT')
+  and schema_name(o.schema_id) in {inValues}
+order by schema_name(o.schema_id), o.name
+;
+			""";
+
+	static final String SQL_FOR_TRIGGERS = """
+select
+	schema_name(t.schema_id) as schema_name,
+	t.name as table_name,
+	tr.name as trigger_name,
+	coalesce(m.definition, object_definition(tr.object_id)) as definition
+from sys.triggers tr
+inner join sys.tables t on tr.parent_id = t.object_id
+left join sys.sql_modules m on tr.object_id = m.object_id
+where tr.parent_class = 1
+  and schema_name(t.schema_id) in {inValues}
+order by schema_name(t.schema_id), t.name, tr.name
+;
+			""";
+
 	private static final Pattern CREATE_VIEW_AS = Pattern.compile(
 		"(?is)^\\s*create\\s+(?:or\\s+alter\\s+)?view\\s+.+?\\s+as\\s+(.*)$"
 	);
@@ -252,15 +304,40 @@ where schema_name(v.schema_id) in {inValues}
 		reportProgress(progress, LogMessage.info("Loading model for schemas: {}", getSchemas()));
 		try(
 			Connection con = getDataSource().getConnection();
+			PreparedStatement tps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ALIAS_TYPES, schemas.size()));
 			PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, schemas.size()));
 			PreparedStatement cps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CONSTRAINTS, schemas.size()));
 			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, schemas.size()));
 			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, schemas.size()));
 			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
 			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DEFAULT_CONSTRAINTS, schemas.size()));
+			PreparedStatement rps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ROUTINES, schemas.size()));
+			PreparedStatement trps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TRIGGERS, schemas.size()));
 			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 		){
+			reportProgress(progress, LogMessage.info("Loading alias data types..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> tps.setString(i, schema)));
+			try (ResultSet trs = tps.executeQuery()) {
+				RsHelper typeHelper = new RsHelper(trs);
+				while (trs.next()) {
+					String schemaName = trs.getString("SCHEMA_NAME");
+					String typeName = trs.getString("TYPE_NAME");
+					String baseType = trs.getString("BASE_TYPE");
+					Integer maxLength = typeHelper.getInt("MAX_LENGTH");
+					Integer precision = typeHelper.getInt("PRECISION");
+					Integer scale = typeHelper.getInt("SCALE");
+					boolean nullable = trs.getBoolean("IS_NULLABLE");
+					dbModel.getDomainTypes().add(DbDomainType.builder()
+						.schema(schemaName)
+						.name(typeName)
+						.baseType(formatAliasBaseType(baseType, maxLength, precision, scale))
+						.notNull(!nullable)
+						.build());
+				}
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} alias data types", dbModel.getDomainTypes().size()));
+
 			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			try (ResultSet rs = ps.executeQuery()) {
@@ -284,6 +361,7 @@ where schema_name(v.schema_id) in {inValues}
 					table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
 				}
 			}
+			applyAliasTypesToColumns(dbModel);
 			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
@@ -412,6 +490,44 @@ where schema_name(v.schema_id) in {inValues}
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
+			reportProgress(progress, LogMessage.info("Loading procedures and functions..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> rps.setString(i, schema)));
+			try (ResultSet rrs = rps.executeQuery()) {
+				while (rrs.next()) {
+					String schemaName = rrs.getString("SCHEMA_NAME");
+					String routineName = rrs.getString("ROUTINE_NAME");
+					String routineType = rrs.getString("ROUTINE_TYPE");
+					String definition = rrs.getString("DEFINITION");
+					requireDefinition(routineType != null ? routineType.toLowerCase() : "routine", schemaName, null, routineName, definition);
+					dbModel.getFunctions().add(DbFunction.builder()
+						.schema(schemaName)
+						.name(routineName)
+						.routineType(routineType)
+						.definition(definition)
+						.build());
+				}
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} routines", dbModel.getFunctions().size()));
+
+			reportProgress(progress, LogMessage.info("Loading triggers..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> trps.setString(i, schema)));
+			try (ResultSet trrs = trps.executeQuery()) {
+				while (trrs.next()) {
+					String schemaName = trrs.getString("SCHEMA_NAME");
+					String tableName = trrs.getString("TABLE_NAME");
+					String triggerName = trrs.getString("TRIGGER_NAME");
+					String definition = trrs.getString("DEFINITION");
+					requireDefinition("trigger", schemaName, tableName, triggerName, definition);
+					dbModel.getTriggers().add(DbTrigger.builder()
+						.schema(schemaName)
+						.tableName(tableName)
+						.name(triggerName)
+						.definition(definition)
+						.build());
+				}
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} triggers", dbModel.getTriggers().size()));
+
 			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
@@ -445,7 +561,10 @@ where schema_name(v.schema_id) in {inValues}
 			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
-			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views, {} routines, {} triggers, {} types) in {} secs",
+				dbModel.getTables().size(), dbModel.getViews().size(), dbModel.getFunctions().size(),
+				dbModel.getTriggers().size(), dbModel.getDomainTypes().size(),
+				Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
 		}catch(BaseRuntimeException e){
 			throw e;
 		}catch(Exception e){
@@ -480,6 +599,64 @@ where schema_name(v.schema_id) in {inValues}
 			ex.withExtra("tableName", tableName);
 		}
 		throw ex.get();
+	}
+
+	/** Point columns at alias UDTs so CREATE TABLE emits the type name (lengths live on the type). */
+	static void applyAliasTypesToColumns(DbModel dbModel) {
+		if (dbModel.getDomainTypes() == null || dbModel.getDomainTypes().isEmpty() || dbModel.getTables() == null) {
+			return;
+		}
+		Set<String> typeNames = new HashSet<>();
+		Set<String> qualifiedNames = new HashSet<>();
+		for (DbDomainType domain : dbModel.getDomainTypes()) {
+			typeNames.add(domain.getName());
+			qualifiedNames.add(domain.qualifiedName());
+		}
+		for (DbTable table : dbModel.getTables().values()) {
+			for (DbColumn column : table.orderedColumns()) {
+				String columnType = column.getColumnType();
+				if (columnType == null) {
+					continue;
+				}
+				boolean match = typeNames.contains(columnType)
+					|| qualifiedNames.contains(columnType)
+					|| qualifiedNames.contains(CommonHelpers.qualifiedName(table.getSchema(), columnType));
+				if (!match) {
+					continue;
+				}
+				column.setDataType(columnType.contains(".") ? columnType.substring(columnType.lastIndexOf('.') + 1) : columnType);
+				column.setMaxLength(null);
+				column.setNumPrecision(null);
+				column.setNumScale(null);
+			}
+		}
+	}
+
+	/**
+	 * Formats the base type clause for {@code CREATE TYPE ... FROM}, using sys.types max_length
+	 * (bytes: nchar/nvarchar are 2 bytes per character).
+	 */
+	static String formatAliasBaseType(String baseType, Integer maxLength, Integer precision, Integer scale) {
+		if (baseType == null) {
+			return null;
+		}
+		String type = baseType.toLowerCase();
+		if (Set.of("char", "varchar", "binary", "varbinary").contains(type) && maxLength != null) {
+			if (maxLength == -1) {
+				return type + "(max)";
+			}
+			return type + "(" + maxLength + ")";
+		}
+		if (Set.of("nchar", "nvarchar").contains(type) && maxLength != null) {
+			if (maxLength == -1) {
+				return type + "(max)";
+			}
+			return type + "(" + (maxLength / 2) + ")";
+		}
+		if (Set.of("decimal", "numeric").contains(type) && precision != null) {
+			return type + "(" + precision + "," + (scale != null ? scale : 0) + ")";
+		}
+		return type;
 	}
 
 	static String stripCreateViewWrapper(String definition) {

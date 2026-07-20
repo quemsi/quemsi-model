@@ -18,6 +18,8 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbDomainType;
+import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
@@ -25,6 +27,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbTrigger;
 import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
@@ -422,6 +425,7 @@ public class DDLServiceSqlserver implements DDLService{
 					css.execute(csSql.toString());
 				}
 			}
+			createDomainTypes(dbModel);
 			if (scripts.isEmpty()) {
 				return;
 			}
@@ -440,6 +444,51 @@ public class DDLServiceSqlserver implements DDLService{
 			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
 		}
     }
+
+	private void createDomainTypes(DbModel dbModel) throws SQLException {
+		if (dbModel.getDomainTypes() == null || dbModel.getDomainTypes().isEmpty()) {
+			return;
+		}
+		try (Statement s = conn.createStatement()) {
+			for (DbDomainType domain : dbModel.getDomainTypes()) {
+				String qualified = CommonHelpers.bracketQuotedQualified(domain.getSchema(), domain.getName());
+				if (typeExists(domain.getSchema(), domain.getName())) {
+					log.info("alias type {} already exists skipping", qualified);
+					continue;
+				}
+				String sql = createAliasTypeSql(domain);
+				log.info("ddl : {}", sql);
+				s.executeUpdate(sql);
+			}
+		}
+	}
+
+	static String createAliasTypeSql(DbDomainType domain) {
+		if (domain.getBaseType() == null || domain.getBaseType().isBlank()) {
+			throw Exceptions.server("missing-object-definition")
+				.withExtra("objectType", "alias-type")
+				.withExtra("objectName", domain.qualifiedName())
+				.get();
+		}
+		StringBuilder sb = new StringBuilder("CREATE TYPE ")
+			.append(CommonHelpers.bracketQuotedQualified(domain.getSchema(), domain.getName()))
+			.append(" FROM ").append(domain.getBaseType());
+		if (domain.isNotNull()) {
+			sb.append(" NOT NULL");
+		}
+		return sb.toString();
+	}
+
+	private boolean typeExists(String schema, String typeName) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement(
+				"select 1 from sys.types t where schema_name(t.schema_id) = ? and t.name = ? and t.is_user_defined = 1")) {
+			ps.setString(1, schema);
+			ps.setString(2, typeName);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next();
+			}
+		}
+	}
 
 	@Override
 	public void createViews(DbModel dbModel) {
@@ -466,16 +515,97 @@ public class DDLServiceSqlserver implements DDLService{
 
 	@Override
 	public void createFunctions(DbModel dbModel) {
-		// SQL Server routines not included in view backup yet
+		if (dbModel.getFunctions() == null || dbModel.getFunctions().isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbFunction function : dbModel.getFunctions()) {
+				String dropSql = dropRoutineSql(function);
+				log.info("ddl : {}", dropSql);
+				s.executeUpdate(dropSql);
+				String sql = createRoutineSql(function);
+				log.info("ddl : {}", sql);
+				s.execute(sql);
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-functions").withCause(e).get();
+		}
+	}
+
+	@Override
+	public void createTriggers(DbModel dbModel) {
+		if (dbModel.getTriggers() == null || dbModel.getTriggers().isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbTrigger trigger : dbModel.getTriggers()) {
+				String dropSql = dropTriggerSql(trigger);
+				log.info("ddl : {}", dropSql);
+				s.executeUpdate(dropSql);
+				String createSql = trigger.getDefinition();
+				if (createSql == null || createSql.isBlank()) {
+					throw Exceptions.server("view-definition-permission-required")
+						.withExtra("requiredPermission", "VIEW DEFINITION")
+						.withExtra("objectType", "trigger")
+						.withExtra("objectName", trigger.getName())
+						.withExtra("tableName", trigger.qualifiedTableName())
+						.get();
+				}
+				log.info("ddl : {}", createSql);
+				s.execute(createSql);
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-triggers").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropDomains(String... domainNames) {
+		if (domainNames == null || domainNames.length == 0) {
+			return true;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (String domainName : domainNames) {
+				s.addBatch("DROP TYPE IF EXISTS " + CommonHelpers.bracketQuotedQualified(domainName));
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-domains").withCause(e).get();
+		}
+	}
+
+	static String dropRoutineSql(DbFunction function) {
+		String kind = DbFunction.TYPE_PROCEDURE.equalsIgnoreCase(function.resolvedRoutineType()) ? "PROCEDURE" : "FUNCTION";
+		return "DROP " + kind + " IF EXISTS " + CommonHelpers.bracketQuotedQualified(function.getSchema(), function.getName());
+	}
+
+	static String createRoutineSql(DbFunction function) {
+		String def = function.getDefinition();
+		if (def == null || def.isBlank()) {
+			throw Exceptions.server("view-definition-permission-required")
+				.withExtra("requiredPermission", "VIEW DEFINITION")
+				.withExtra("objectType", function.resolvedRoutineType().toLowerCase())
+				.withExtra("objectName", function.qualifiedName())
+				.get();
+		}
+		return def.trim();
+	}
+
+	static String dropTriggerSql(DbTrigger trigger) {
+		return "DROP TRIGGER IF EXISTS " + CommonHelpers.bracketQuotedQualified(trigger.getSchema(), trigger.getName());
 	}
 
 	static String dropViewSql(String qualifiedName) {
-		return "DROP VIEW IF EXISTS " + qualifiedName;
+		return "DROP VIEW IF EXISTS " + CommonHelpers.bracketQuotedQualified(qualifiedName);
 	}
 
 	static String createViewSql(DbView view) {
 		String def = view.getDefinition();
-		String sql = "CREATE VIEW " + view.qualifiedName() + " AS " + def;
+		String sql = "CREATE VIEW " + CommonHelpers.bracketQuotedQualified(view.getSchema(), view.getName()) + " AS " + def;
 		if (def != null && def.trim().endsWith(";")) {
 			return sql;
 		}
