@@ -25,6 +25,12 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServicePostgresWritePageDataTest {
 
 	@Test
+	public void quotedTable_preservesMixedCaseForChinookStyleNames() {
+		DbTable genre = new DbTable("public", "Genre");
+		assertThat(DMLServicePostgres.quotedTable(genre), equalTo("\"public\".\"Genre\""));
+	}
+
+	@Test
 	public void writePageData_commitsBatch_andRestoresAutocommit() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
 		try (DMLServicePostgres dml = new DMLServicePostgres(dataSource(recording.connection))) {

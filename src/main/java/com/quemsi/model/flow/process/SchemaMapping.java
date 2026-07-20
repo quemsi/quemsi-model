@@ -122,6 +122,12 @@ public class SchemaMapping extends AbstractStep{
                     }
                 });
             }
+
+            if (dbModel.getEnumTypes() != null) {
+                dbModel.getEnumTypes().stream().filter(t -> StringUtils.equalsIgnoreCase(t.getSchema(), sourceSchema)).forEach(t -> {
+                    t.setSchema(targetSchema);
+                });
+            }
             
             dbModel.getIndexes().values().stream().flatMap(i -> i.values().stream()).filter(i -> StringUtils.equalsIgnoreCase(i.getSchemaName(), sourceSchema)).forEach(i ->{
                 i.setSchemaName(targetSchema);

@@ -36,6 +36,8 @@ public class DbModel {
     protected List<DbSequence> sequences;
     protected List<DbView> views;
     protected List<DbFunction> functions;
+    /** PostgreSQL ENUM types (and similar) required before CREATE TABLE. */
+    protected List<DbEnumType> enumTypes;
     
     public DbModel(){
         tables = new HashMap<>();
@@ -47,6 +49,7 @@ public class DbModel {
         sequences = new LinkedList<>();
         views = new LinkedList<>();
         functions = new LinkedList<>();
+        enumTypes = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
         return addTable(tableName, null);

@@ -74,7 +74,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE TABLE IF NOT EXISTS test_table"));
+        assertThat(statements.get(0), containsString("CREATE TABLE IF NOT EXISTS \"test_table\""));
         assertThat(statements.get(0), containsString("\"id\""));
         assertThat(statements.get(0), containsString("\"name\""));
         assertThat(statements.get(0), containsString("varchar(100)"));
@@ -95,7 +95,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS old_table;"));
+        assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS \"old_table\";"));
     }
 
     @Test
@@ -115,7 +115,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE test_table ADD COLUMN"));
+        assertThat(statements.get(0), containsString("ALTER TABLE \"test_table\" ADD COLUMN"));
         assertThat(statements.get(0), containsString("\"new_col\""));
         assertThat(statements.get(0), containsString("varchar(50)"));
         assertThat(statements.get(0), containsString("NOT NULL"));
@@ -137,7 +137,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("ALTER TABLE test_table DROP COLUMN \"old_col\";"));
+        assertThat(statements.get(0), equalTo("ALTER TABLE \"test_table\" DROP COLUMN \"old_col\";"));
     }
 
     @Test
@@ -230,9 +230,9 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT \"fk_test\""));
+        assertThat(statements.get(0), containsString("ALTER TABLE \"child\" ADD CONSTRAINT \"fk_test\""));
         assertThat(statements.get(0), containsString("FOREIGN KEY"));
-        assertThat(statements.get(0), containsString("REFERENCES parent"));
+        assertThat(statements.get(0), containsString("REFERENCES \"parent\""));
     }
 
     @Test
@@ -258,7 +258,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("ALTER TABLE child DROP CONSTRAINT \"fk_test\";"));
+        assertThat(statements.get(0), equalTo("ALTER TABLE \"child\" DROP CONSTRAINT \"fk_test\";"));
     }
 
     @Test
@@ -281,7 +281,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE ONLY users ADD CONSTRAINT \"uk_email\" UNIQUE"));
+        assertThat(statements.get(0), containsString("ALTER TABLE ONLY \"users\" ADD CONSTRAINT \"uk_email\" UNIQUE"));
         assertThat(statements.get(0), containsString("\"email\""));
     }
 
@@ -305,7 +305,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("ALTER TABLE ONLY users DROP CONSTRAINT \"uk_email\";"));
+        assertThat(statements.get(0), equalTo("ALTER TABLE ONLY \"users\" DROP CONSTRAINT \"uk_email\";"));
     }
 
     @Test
@@ -328,7 +328,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE products ADD CONSTRAINT \"ck_price\" CHECK (price > 0);"));
+        assertThat(statements.get(0), containsString("ALTER TABLE \"products\" ADD CONSTRAINT \"ck_price\" CHECK (price > 0);"));
     }
 
     @Test
@@ -351,7 +351,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("ALTER TABLE products DROP CONSTRAINT \"ck_price\";"));
+        assertThat(statements.get(0), equalTo("ALTER TABLE \"products\" DROP CONSTRAINT \"ck_price\";"));
     }
 
     @Test
@@ -371,8 +371,8 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE INDEX IF NOT EXISTS idx_email"));
-        assertThat(statements.get(0), containsString("ON users"));
+        assertThat(statements.get(0), containsString("CREATE INDEX IF NOT EXISTS \"idx_email\""));
+        assertThat(statements.get(0), containsString("ON \"users\""));
         assertThat(statements.get(0), containsString("USING btree"));
         assertThat(statements.get(0), containsString("\"email\""));
     }
@@ -394,7 +394,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE UNIQUE INDEX IF NOT EXISTS idx_email"));
+        assertThat(statements.get(0), containsString("CREATE UNIQUE INDEX IF NOT EXISTS \"idx_email\""));
     }
 
     @Test
@@ -414,7 +414,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("DROP INDEX idx_email;"));
+        assertThat(statements.get(0), equalTo("DROP INDEX \"idx_email\";"));
     }
 
     @Test
@@ -441,7 +441,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE SEQUENCE IF NOT EXISTS seq_test"));
+        assertThat(statements.get(0), containsString("CREATE SEQUENCE IF NOT EXISTS \"seq_test\""));
         assertThat(statements.get(0), containsString("INCREMENT BY 1"));
         assertThat(statements.get(0), containsString("MINVALUE 1"));
         assertThat(statements.get(0), containsString("MAXVALUE 1000"));
@@ -468,7 +468,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("DROP SEQUENCE IF EXISTS seq_test;"));
+        assertThat(statements.get(0), equalTo("DROP SEQUENCE IF EXISTS \"seq_test\";"));
     }
 
     @Test
@@ -501,7 +501,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER SEQUENCE seq_test"));
+        assertThat(statements.get(0), containsString("ALTER SEQUENCE \"seq_test\""));
         assertThat(statements.get(0), containsString("INCREMENT BY 2"));
         assertThat(statements.get(0), containsString("MINVALUE 10"));
         assertThat(statements.get(0), containsString("MAXVALUE 2000"));
@@ -607,7 +607,7 @@ public class DDLServicePostgresTest {
         assertThat(statements, hasSize(2));
         assertThat(statements.get(0), containsString("DROP CONSTRAINT"));
         assertThat(statements.get(1), containsString("ADD CONSTRAINT"));
-        assertThat(statements.get(1), containsString("REFERENCES new_parent"));
+        assertThat(statements.get(1), containsString("REFERENCES \"new_parent\""));
     }
 
     @Test
@@ -626,7 +626,7 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("public.test_table"));
+        assertThat(statements.get(0), containsString("\"public\".\"test_table\""));
     }
 
     @Test
@@ -657,10 +657,10 @@ public class DDLServicePostgresTest {
         List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
 
         assertThat(statements, hasSize(4));
-        assertThat(statements.get(0), containsString("DROP VIEW IF EXISTS public.v_aircrafts"));
-        assertThat(statements.get(1), containsString("DROP TABLE IF EXISTS public.aircrafts_data"));
-        assertThat(statements.get(2), containsString("CREATE VIEW public.v_aircrafts AS"));
-        assertThat(statements.get(3), containsString("CREATE VIEW public.v_new AS"));
+        assertThat(statements.get(0), containsString("DROP VIEW IF EXISTS \"public\".\"v_aircrafts\""));
+        assertThat(statements.get(1), containsString("DROP TABLE IF EXISTS \"public\".\"aircrafts_data\""));
+        assertThat(statements.get(2), containsString("CREATE VIEW \"public\".\"v_aircrafts\" AS"));
+        assertThat(statements.get(3), containsString("CREATE VIEW \"public\".\"v_new\" AS"));
     }
 
     @Test
@@ -671,9 +671,9 @@ public class DDLServicePostgresTest {
             .definition("SELECT 1;")
             .build();
         assertThat(DDLServicePostgres.dropViewSql(view.qualifiedName()),
-            equalTo("DROP VIEW IF EXISTS bookings.aircrafts;"));
+            equalTo("DROP VIEW IF EXISTS \"bookings\".\"aircrafts\";"));
         assertThat(DDLServicePostgres.createViewSql(view),
-            equalTo("CREATE VIEW bookings.aircrafts AS SELECT 1;"));
+            equalTo("CREATE VIEW \"bookings\".\"aircrafts\" AS SELECT 1;"));
     }
 
     @Test
@@ -686,6 +686,18 @@ public class DDLServicePostgresTest {
         String sql = DDLServicePostgres.createFunctionSql(function);
         assertThat(sql, containsString("CREATE OR REPLACE FUNCTION"));
         assertThat(sql, containsString("bookings.lang()"));
+    }
+
+    @Test
+    public void givenAggregateDefinition_whenCreateFunctionSql_thenKeepCreateAggregate() {
+        String def = "CREATE AGGREGATE public.group_concat(text) (SFUNC = public._group_concat, STYPE = text)";
+        DbFunction aggregate = DbFunction.builder()
+            .schema("public")
+            .name("group_concat")
+            .routineType(DbFunction.TYPE_AGGREGATE)
+            .definition(def)
+            .build();
+        assertThat(DDLServicePostgres.createFunctionSql(aggregate), equalTo(def));
     }
 
     // Helper methods

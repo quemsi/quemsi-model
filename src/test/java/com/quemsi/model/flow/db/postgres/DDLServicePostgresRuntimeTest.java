@@ -23,6 +23,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -30,9 +31,20 @@ import com.quemsi.model.flow.db.sql.DbTable;
 public class DDLServicePostgresRuntimeTest {
 
 	@Test
+	public void createEnumTypeSql_quotesSchemaAndEscapesLabels() {
+		DbEnumType rating = DbEnumType.builder()
+			.schema("public")
+			.name("mpaa_rating")
+			.labels(List.of("G", "PG", "PG-13", "R", "NC-17"))
+			.build();
+		assertThat(DDLServicePostgres.createEnumTypeSql(rating),
+			equalTo("CREATE TYPE \"public\".\"mpaa_rating\" AS ENUM ('G', 'PG', 'PG-13', 'R', 'NC-17')"));
+	}
+
+	@Test
 	public void buildMultiTableDropSql_joinsNamesWithCascade() {
 		assertThat(DDLServicePostgres.buildMultiTableDropSql("a", "b", "c"),
-			equalTo("DROP TABLE IF EXISTS a, b, c CASCADE"));
+			equalTo("DROP TABLE IF EXISTS \"a\", \"b\", \"c\" CASCADE"));
 		assertThat(DDLServicePostgres.buildMultiTableDropSql(), nullValue());
 		assertThat(DDLServicePostgres.buildMultiTableDropSql((String[]) null), nullValue());
 	}
@@ -45,7 +57,7 @@ public class DDLServicePostgresRuntimeTest {
 		}
 
 		assertThat(recording.executedSql, hasItem(
-			"DROP TABLE IF EXISTS public.orderdetails, public.orders, public.customers CASCADE"));
+			"DROP TABLE IF EXISTS \"public\".\"orderdetails\", \"public\".\"orders\", \"public\".\"customers\" CASCADE"));
 	}
 
 	@Test
@@ -109,7 +121,7 @@ public class DDLServicePostgresRuntimeTest {
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasItem(
-			"ALTER TABLE public.orders DROP CONSTRAINT IF EXISTS \"orders_customer_fk\""));
+			"ALTER TABLE \"public\".\"orders\" DROP CONSTRAINT IF EXISTS \"orders_customer_fk\""));
 	}
 
 	@Test

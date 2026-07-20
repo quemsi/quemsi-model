@@ -24,6 +24,7 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
@@ -165,25 +166,103 @@ where cv.relkind = 'v'
 ;
 			""";
 
-	/** Functions referenced by views in the configured schemas (excludes pg_catalog / information_schema). */
-	private static final String SQL_FOR_VIEW_FUNCTIONS = """
-select distinct
+	/**
+	 * Routines referenced by views in the configured schemas (excludes pg_catalog / information_schema).
+	 * Aggregates cannot use {@code pg_get_functiondef}; they are reconstructed from {@code pg_aggregate}.
+	 * MATERIALIZED CTEs keep the planner from evaluating {@code pg_get_functiondef} on aggregates.
+	 */
+	static final String SQL_FOR_VIEW_FUNCTIONS = """
+with view_dep_procs as materialized (
+	select distinct
+		p.oid,
+		p.prokind,
+		n.nspname as schema_name,
+		p.proname as function_name
+	from pg_catalog.pg_depend d
+	inner join pg_catalog.pg_rewrite r on d.objid = r.oid
+	inner join pg_catalog.pg_class c on r.ev_class = c.oid
+	inner join pg_catalog.pg_namespace nv on c.relnamespace = nv.oid
+	inner join pg_catalog.pg_proc p on d.refobjid = p.oid
+	inner join pg_catalog.pg_namespace n on p.pronamespace = n.oid
+	where c.relkind = 'v'
+	  and d.refclassid = 'pg_proc'::regclass
+	  and d.deptype = 'n'
+	  and nv.nspname in {inValues}
+	  and n.nspname not in ('pg_catalog', 'information_schema')
+),
+expanded as materialized (
+	select oid, prokind, schema_name, function_name
+	from view_dep_procs
+	union
+	select sp.oid, sp.prokind, sn.nspname, sp.proname
+	from view_dep_procs vp
+	inner join pg_catalog.pg_aggregate a on a.aggfnoid = vp.oid
+	inner join pg_catalog.pg_proc sp on sp.oid = a.aggtransfn
+	inner join pg_catalog.pg_namespace sn on sn.oid = sp.pronamespace
+	where vp.prokind = 'a'
+	  and sn.nspname not in ('pg_catalog', 'information_schema')
+	union
+	select fp.oid, fp.prokind, fn.nspname, fp.proname
+	from view_dep_procs vp
+	inner join pg_catalog.pg_aggregate a on a.aggfnoid = vp.oid
+	inner join pg_catalog.pg_proc fp on fp.oid = a.aggfinalfn
+	inner join pg_catalog.pg_namespace fn on fn.oid = fp.pronamespace
+	where vp.prokind = 'a'
+	  and a.aggfinalfn <> 0
+	  and fn.nspname not in ('pg_catalog', 'information_schema')
+),
+plain as materialized (
+	select oid, prokind, schema_name, function_name
+	from expanded
+	where prokind in ('f', 'p')
+)
+select
+	schema_name,
+	function_name,
+	pg_catalog.pg_get_function_identity_arguments(oid) as identity_arguments,
+	pg_catalog.pg_get_functiondef(oid) as definition,
+	case when prokind = 'p' then 'PROCEDURE' else 'FUNCTION' end as routine_type,
+	0 as create_order
+from plain
+union all
+select
+	e.schema_name,
+	e.function_name,
+	pg_catalog.pg_get_function_identity_arguments(e.oid) as identity_arguments,
+	(
+		select format(
+			'CREATE AGGREGATE %s (SFUNC = %s, STYPE = %s%s%s%s%s)',
+			a.aggfnoid::regprocedure,
+			a.aggtransfn,
+			a.aggtranstype::regtype,
+			coalesce(', SORTOP = ' || nullif(a.aggsortop, 0)::regoper, ''),
+			coalesce(', INITCOND = ' || quote_literal(a.agginitval), ''),
+			coalesce(', FINALFUNC = ' || nullif(a.aggfinalfn, 0)::regproc, ''),
+			case when a.aggfinalextra then ', FINALFUNC_EXTRA' else '' end
+		)
+		from pg_catalog.pg_aggregate a
+		where a.aggfnoid = e.oid
+	) as definition,
+	'AGGREGATE' as routine_type,
+	1 as create_order
+from expanded e
+where e.prokind = 'a'
+order by create_order, schema_name, function_name
+;
+			""";
+
+	static final String SQL_FOR_ENUM_TYPES = """
+select
 	n.nspname as schema_name,
-	p.proname as function_name,
-	pg_catalog.pg_get_function_identity_arguments(p.oid) as identity_arguments,
-	pg_catalog.pg_get_functiondef(p.oid) as definition
-from pg_catalog.pg_depend d
-inner join pg_catalog.pg_rewrite r on d.objid = r.oid
-inner join pg_catalog.pg_class c on r.ev_class = c.oid
-inner join pg_catalog.pg_namespace nv on c.relnamespace = nv.oid
-inner join pg_catalog.pg_proc p on d.refobjid = p.oid
-inner join pg_catalog.pg_namespace n on p.pronamespace = n.oid
-where c.relkind = 'v'
-  and d.refclassid = 'pg_proc'::regclass
-  and d.deptype = 'n'
-  and nv.nspname in {inValues}
-  and n.nspname not in ('pg_catalog', 'information_schema')
-order by n.nspname, p.proname
+	t.typname as type_name,
+	e.enumlabel as enum_label,
+	e.enumsortorder as sort_order
+from pg_catalog.pg_type t
+inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
+inner join pg_catalog.pg_enum e on e.enumtypid = t.oid
+where t.typtype = 'e'
+  and n.nspname in {inValues}
+order by n.nspname, t.typname, e.enumsortorder
 ;
 			""";
 
@@ -262,6 +341,7 @@ order by n.nspname, p.proname
 			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_FUNCTIONS, schemas.size()));
+			PreparedStatement eps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ENUM_TYPES, schemas.size()));
 		){
 			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
@@ -387,6 +467,28 @@ order by n.nspname, p.proname
 					.build();
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
+			reportProgress(progress, LogMessage.info("Loading enum types..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> eps.setString(i, schema)));
+			ResultSet ers = eps.executeQuery();
+			Map<String, DbEnumType> enumByName = new HashMap<>();
+			while (ers.next()) {
+				String schemaName = ers.getString("SCHEMA_NAME");
+				String typeName = ers.getString("TYPE_NAME");
+				String label = ers.getString("ENUM_LABEL");
+				String key = CommonHelpers.qualifiedName(schemaName, typeName);
+				DbEnumType enumType = enumByName.get(key);
+				if (enumType == null) {
+					enumType = DbEnumType.builder()
+						.schema(schemaName)
+						.name(typeName)
+						.labels(new java.util.ArrayList<>())
+						.build();
+					enumByName.put(key, enumType);
+					dbModel.getEnumTypes().add(enumType);
+				}
+				enumType.getLabels().add(label);
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} enum types", dbModel.getEnumTypes().size()));
 			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
@@ -429,6 +531,7 @@ order by n.nspname, p.proname
 				String functionName = vfrs.getString("FUNCTION_NAME");
 				String identityArguments = vfrs.getString("IDENTITY_ARGUMENTS");
 				String definition = vfrs.getString("DEFINITION");
+				String routineType = vfrs.getString("ROUTINE_TYPE");
 				String key = CommonHelpers.qualifiedName(schemaName, functionName)
 					+ "(" + (identityArguments != null ? identityArguments : "") + ")";
 				if (!seenFunctions.add(key)) {
@@ -437,7 +540,7 @@ order by n.nspname, p.proname
 				dbModel.getFunctions().add(DbFunction.builder()
 					.schema(schemaName)
 					.name(functionName)
-					.routineType(DbFunction.TYPE_FUNCTION)
+					.routineType(routineType != null ? routineType : DbFunction.TYPE_FUNCTION)
 					.identityArguments(identityArguments)
 					.definition(definition)
 					.build());

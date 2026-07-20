@@ -37,25 +37,30 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @NoArgsConstructor
 public class DMLServicePostgres implements DMLService{
-    private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ? offset ?";
-	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(\"%s\") as max_val FROM %s";
+	private static final String GET_TABLE_DATA_PAGE_FORMAT = "select * from %s t order by %s limit ? offset ?";
+	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(%s) as max_val FROM %s";
 	private static final String UPDATE_SEQUENCE_SQL = "SELECT setval(?, ?, false)";
 
 	private static final int maxPages = 10;
 	private static final int maxRowsPerPage = 100000;
 	private DataSource dataSource;
 
+	static String quotedTable(DbTable table) {
+		return CommonHelpers.doubleQuotedQualified(table.getSchema(), table.getName());
+	}
+
 	@Override
 	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
 		int totalRows = 0;
+		String from = quotedTable(table);
 		try (Connection conn = dataSource.getConnection();
 			 Statement stmt = conn.createStatement();
-			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", table.qualifiedName()))) {
+			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", from))) {
 			if (rs.next()) {
 				totalRows = rs.getInt(1);
 			}
 		} catch (SQLException e) {
-			log.warn("Could not determine row count for {}. Using expectedPageSize {}", table.qualifiedName(), expectedPageSize, e);
+			log.warn("Could not determine row count for {}. Using expectedPageSize {}", from, expectedPageSize, e);
 			return expectedPageSize;
 		}
 		int calculatedPageSize = (int) Math.ceil((double) totalRows / maxPages);
@@ -67,15 +72,16 @@ public class DMLServicePostgres implements DMLService{
         try(Connection conn = dataSource.getConnection()){
 			String sortColumnNames;
 			if (!CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())) {
-				sortColumnNames = request.getTable().getPkColumnNames().stream().map(c -> "\"" + c + "\"").collect(Collectors.joining(", "));
+				sortColumnNames = request.getTable().getPkColumnNames().stream().map(CommonHelpers::doubleQuoted).collect(Collectors.joining(", "));
 			} else {
 				List<String> orderable = request.getTable().orderableColumnNames();
 				sortColumnNames = orderable.isEmpty()
 					? "(SELECT NULL)"
-					: orderable.stream().map(c -> "\"" + c + "\"").collect(Collectors.joining(", "));
+					: orderable.stream().map(CommonHelpers::doubleQuoted).collect(Collectors.joining(", "));
 			}
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().qualifiedName(), sortColumnNames);
-			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
+			String from = quotedTable(request.getTable());
+			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, from, sortColumnNames);
+			log.info("sql for {} :{} offset :{} count: {}", from, sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageSize());
 			ps.setInt(2, request.getPageNum() * request.getPageSize());
@@ -175,11 +181,11 @@ public class DMLServicePostgres implements DMLService{
 			boolean previousAutoCommit = conn.getAutoCommit();
 			try {
 				conn.setAutoCommit(false);
-				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
+				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(quotedTable(table)).append("(");
 				StringBuilder paramsBuilder = new StringBuilder("(");
 				int counter = 0;
 				for(String columnName : table.columnNames()){
-					sqlBuilder.append("\"").append(columnName).append("\"");
+					sqlBuilder.append(CommonHelpers.doubleQuoted(columnName));
 					if(table.column(columnName).getColumnType().equals("oid")){
 						paramsBuilder.append("lo_from_bytea(0, ?)");
 					}else{
@@ -253,7 +259,7 @@ public class DMLServicePostgres implements DMLService{
         try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
-				s.addBatch("delete from " + tableName);
+				s.addBatch("delete from " + CommonHelpers.doubleQuotedQualified(tableName));
 			}
 			s.executeBatch();
 			return true;
@@ -265,7 +271,9 @@ public class DMLServicePostgres implements DMLService{
 
 	@Override
 	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
-        String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);
+        String sql = String.format(GET_MAX_COLUMN_VALUE_SQL,
+			CommonHelpers.doubleQuoted(columnName),
+			CommonHelpers.doubleQuotedQualified(qualifiedTableName));
         try (Connection conn = dataSource.getConnection();
 			Statement stmt = conn.createStatement();) {
 			ResultSet rs = stmt.executeQuery(sql);
@@ -287,7 +295,8 @@ public class DMLServicePostgres implements DMLService{
     public void updateSequence(String qualifiedSequenceName, Long newValue) {
 		try (Connection conn = dataSource.getConnection();
 		PreparedStatement ps = conn.prepareStatement(UPDATE_SEQUENCE_SQL)) {
-			ps.setString(1, qualifiedSequenceName);
+			/* setval(regclass) needs a quoted identity for mixed-case sequence names */
+			ps.setString(1, CommonHelpers.doubleQuotedQualified(qualifiedSequenceName));
 			ps.setLong(2, newValue);
 			ps.executeQuery();
 		} catch (SQLException e) {

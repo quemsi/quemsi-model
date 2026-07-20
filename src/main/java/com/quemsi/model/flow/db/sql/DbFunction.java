@@ -14,12 +14,13 @@ import lombok.NoArgsConstructor;
 public class DbFunction {
     public static final String TYPE_FUNCTION = "FUNCTION";
     public static final String TYPE_PROCEDURE = "PROCEDURE";
+    public static final String TYPE_AGGREGATE = "AGGREGATE";
 
     private String schema;
     private String name;
-    /** FUNCTION or PROCEDURE (defaults to FUNCTION when null for older backups). */
+    /** FUNCTION, PROCEDURE, or AGGREGATE (defaults to FUNCTION when null for older backups). */
     private String routineType;
-    /** Full CREATE [OR REPLACE] FUNCTION/PROCEDURE statement. */
+    /** Full CREATE [OR REPLACE] FUNCTION/PROCEDURE or CREATE AGGREGATE statement. */
     private String definition;
     /** Identity argument list (e.g. Postgres pg_get_function_identity_arguments). */
     private String identityArguments;

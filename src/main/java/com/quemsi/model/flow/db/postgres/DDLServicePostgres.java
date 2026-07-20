@@ -6,16 +6,19 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
@@ -54,7 +57,10 @@ public class DDLServicePostgres implements DDLService{
 		if (tableNames == null || tableNames.length == 0) {
 			return null;
 		}
-		return "DROP TABLE IF EXISTS " + String.join(", ", tableNames) + " CASCADE";
+		String quoted = Arrays.stream(tableNames)
+			.map(CommonHelpers::doubleQuotedQualified)
+			.collect(Collectors.joining(", "));
+		return "DROP TABLE IF EXISTS " + quoted + " CASCADE";
 	}
 
     @Override
@@ -79,7 +85,7 @@ public class DDLServicePostgres implements DDLService{
         try{
             Statement s = conn.createStatement();
             for(String sequenceName : sequenceNames){
-                s.addBatch("DROP SEQUENCE IF EXISTS " + sequenceName + ";");
+                s.addBatch("DROP SEQUENCE IF EXISTS " + CommonHelpers.doubleQuotedQualified(sequenceName) + ";");
             }
             s.executeBatch();
             return true;
@@ -94,7 +100,7 @@ public class DDLServicePostgres implements DDLService{
         try {
             Statement s = conn.createStatement();
             for (String viewName : viewNames) {
-                s.addBatch("DROP VIEW IF EXISTS " + viewName + ";");
+                s.addBatch("DROP VIEW IF EXISTS " + CommonHelpers.doubleQuotedQualified(viewName) + ";");
             }
             s.executeBatch();
             return true;
@@ -111,8 +117,8 @@ public class DDLServicePostgres implements DDLService{
 		try {
 			Statement s = conn.createStatement();
 			for (ReferenceInfo refInfo : constraints) {
-				String dropConstraintSql = "ALTER TABLE " + refInfo.srcQualifiedName()
-					+ " DROP CONSTRAINT IF EXISTS \"" + refInfo.getConstraintName() + "\"";
+				String dropConstraintSql = "ALTER TABLE " + CommonHelpers.doubleQuotedQualified(refInfo.srcQualifiedName())
+					+ " DROP CONSTRAINT IF EXISTS " + CommonHelpers.doubleQuoted(refInfo.getConstraintName());
 				log.info("drop constraint sql :{}", dropConstraintSql);
 				s.addBatch(dropConstraintSql);
 			}
@@ -151,6 +157,10 @@ public class DDLServicePostgres implements DDLService{
 		}
     }
     private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
+		if (type != null && type.startsWith("_") && type.length() > 1) {
+			/* information_schema / pg udt_name for arrays is _text, _int4, ... */
+			return type.substring(1) + "[]";
+		}
         if(Set.of("varchar", "bpchar", "character varying", "character", "char").contains(type) && maxLength != null){
             return new StringBuffer(type).append("(").append(maxLength).append(")").toString();
         } else if(Set.of("numeric", "decimal", "real", "double precision").contains(type) && precision != null && scale != null){
@@ -158,11 +168,41 @@ public class DDLServicePostgres implements DDLService{
         }
         return type;
     }
+
+	static String createEnumTypeSql(DbEnumType enumType) {
+		StringBuilder sb = new StringBuilder("CREATE TYPE ")
+			.append(CommonHelpers.doubleQuotedQualified(enumType.getSchema(), enumType.getName()))
+			.append(" AS ENUM (");
+		List<String> labels = enumType.getLabels();
+		for (int i = 0; i < labels.size(); i++) {
+			if (i > 0) {
+				sb.append(", ");
+			}
+			sb.append("'").append(labels.get(i).replace("'", "''")).append("'");
+		}
+		sb.append(")");
+		return sb.toString();
+	}
+
+	private boolean typeExists(String schema, String typeName) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement(
+			"select 1 from pg_catalog.pg_type t "
+				+ "inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace "
+				+ "where n.nspname = ? and t.typname = ?")) {
+			ps.setString(1, schema);
+			ps.setString(2, typeName);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next();
+			}
+		}
+	}
+
     @Override
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
         for(DbSequence seq : dbModel.getSequences()){
-            StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(CommonHelpers.qualifiedName(seq.getSchema(), seq.getName()));
+            StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ")
+				.append(CommonHelpers.doubleQuotedQualified(seq.getSchema(), seq.getName()));
             if(seq.getIncrementBy() != null){
                 seqStringBuilder.append(" INCREMENT BY ").append(seq.getIncrementBy());
             }
@@ -193,11 +233,12 @@ public class DDLServicePostgres implements DDLService{
 		/* FKs are applied after data load via enableContraints — omit from CREATE for faster DDL */
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
-			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
+			String quotedTable = CommonHelpers.doubleQuotedQualified(table.getSchema(), table.getName());
+			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(quotedTable).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			int index = 0;
             for(DbColumn c : columns){
-				sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+				sb.append("  ").append(CommonHelpers.doubleQuoted(c.getName())).append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 				if(c.getColumnDefault() == null){
 					if(c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())){
 						sb.append(" DEFAULT NULL");
@@ -223,10 +264,10 @@ public class DDLServicePostgres implements DDLService{
 					if(pkConst.length() == 0){
                         pkConst.append("  ").append("CONSTRAINT ");
                         if(pkConstraintName != null){
-                            pkConst.append("\"").append(pkConstraintName).append("\"").append(" PRIMARY KEY (");
+                            pkConst.append(CommonHelpers.doubleQuoted(pkConstraintName)).append(" PRIMARY KEY (");
                         }
                     }
-                    pkConst.append("\"").append(cName).append("\"");
+                    pkConst.append(CommonHelpers.doubleQuoted(cName));
 					if(cIt.hasNext()){
 						pkConst.append(", ");
 					}
@@ -247,12 +288,12 @@ public class DDLServicePostgres implements DDLService{
                     if(indCols.isUnique()){
                         indBuilder.append("UNIQUE ");
                     }
-                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append("\"").append(indName).append("\"");
-                    indBuilder.append(" ON ").append("\"").append(tableName).append("\"").append(" USING ").append(indCols.getIndexType()).append(" (");
+                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append(CommonHelpers.doubleQuoted(indName));
+                    indBuilder.append(" ON ").append(quotedTable).append(" USING ").append(indCols.getIndexType()).append(" (");
                     Iterator<String> icIt = indCols.getColumns().iterator();
                     while(icIt.hasNext()){
                         String ic = icIt.next();
-                        indBuilder.append("\"").append(ic).append("\"");
+                        indBuilder.append(CommonHelpers.doubleQuoted(ic));
                         if(icIt.hasNext()){
                             indBuilder.append(", ");
                         }
@@ -265,11 +306,13 @@ public class DDLServicePostgres implements DDLService{
 			
 		}
         for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
-            StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(contraintInfo.getConstraintName()).append("\"").append(" UNIQUE").append(" (");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ")
+				.append(CommonHelpers.doubleQuotedQualified(contraintInfo.qualifiedTableName()))
+				.append(" ADD CONSTRAINT ").append(CommonHelpers.doubleQuoted(contraintInfo.getConstraintName())).append(" UNIQUE").append(" (");
             Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
             while(cIt.hasNext()){
                 String cName = cIt.next();
-                sb.append("\"").append(cName).append("\"");
+                sb.append(CommonHelpers.doubleQuoted(cName));
                 if(cIt.hasNext()){
                     sb.append(", ");
                 }
@@ -279,7 +322,9 @@ public class DDLServicePostgres implements DDLService{
             scripts.add(sb);
         }
         for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ").append("\"").append(checkConstraint.getConstraintName()).append("\"").append(" ").append(checkConstraint.getCondef()).append(";");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ")
+				.append(CommonHelpers.doubleQuotedQualified(checkConstraint.qualifiedTableName()))
+				.append(" ADD CONSTRAINT ").append(CommonHelpers.doubleQuoted(checkConstraint.getConstraintName())).append(" ").append(checkConstraint.getCondef()).append(";");
             log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
             scripts.add(sb);
         }
@@ -291,6 +336,18 @@ public class DDLServicePostgres implements DDLService{
                     css.execute(csSql.toString());
                 }
             }
+			if (dbModel.getEnumTypes() != null) {
+				for (DbEnumType enumType : dbModel.getEnumTypes()) {
+					if (typeExists(enumType.getSchema(), enumType.getName())) {
+						continue;
+					}
+					String sql = createEnumTypeSql(enumType);
+					log.info("ddl : {}", sql);
+					try (Statement s = conn.createStatement()) {
+						s.executeUpdate(sql);
+					}
+				}
+			}
 			if (scripts.isEmpty()) {
 				return;
 			}
@@ -305,8 +362,9 @@ public class DDLServicePostgres implements DDLService{
 			}
 			log.info("create tables batch size {}", scripts.size());
 			s.executeBatch();
-		}catch(SQLException ignore){
-			log.info("create tables sql", ignore);
+		}catch(SQLException e){
+			log.error("create tables sql failed", e);
+			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
 		}
     }
 
@@ -334,6 +392,10 @@ public class DDLServicePostgres implements DDLService{
                 .withExtra("function", function.qualifiedName()).get();
         }
         String trimmed = def.trim();
+        if (DbFunction.TYPE_AGGREGATE.equalsIgnoreCase(function.resolvedRoutineType())
+            || trimmed.regionMatches(true, 0, "CREATE AGGREGATE", 0, "CREATE AGGREGATE".length())) {
+            return trimmed;
+        }
         // pg_get_functiondef may return CREATE FUNCTION; prefer OR REPLACE for restore
         if (trimmed.regionMatches(true, 0, "CREATE FUNCTION", 0, "CREATE FUNCTION".length())
             && !trimmed.regionMatches(true, 0, "CREATE OR REPLACE FUNCTION", 0, "CREATE OR REPLACE FUNCTION".length())) {
@@ -366,11 +428,11 @@ public class DDLServicePostgres implements DDLService{
     }
 
     static String dropViewSql(String qualifiedName) {
-        return "DROP VIEW IF EXISTS " + qualifiedName + ";";
+        return "DROP VIEW IF EXISTS " + CommonHelpers.doubleQuotedQualified(qualifiedName) + ";";
     }
 
     static String createViewSql(DbView view) {
-        return "CREATE VIEW " + view.qualifiedName() + " AS " + view.getDefinition()
+        return "CREATE VIEW " + CommonHelpers.doubleQuotedQualified(view.getSchema(), view.getName()) + " AS " + view.getDefinition()
             + (view.getDefinition() != null && view.getDefinition().trim().endsWith(";") ? "" : ";");
     }
 
@@ -497,13 +559,13 @@ public class DDLServicePostgres implements DDLService{
                 break;
             case DROP:
                 if (operation.getOldTable() != null) {
-                    statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
+                    statements.add("DROP TABLE IF EXISTS " + CommonHelpers.doubleQuotedQualified(operation.getQualifiedName()) + ";");
                 }
                 break;
             case MODIFY:
                 // For MODIFY, we drop and recreate the table
                 if (operation.getOldTable() != null) {
-                    statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
+                    statements.add("DROP TABLE IF EXISTS " + CommonHelpers.doubleQuotedQualified(operation.getQualifiedName()) + ";");
                 }
                 if (operation.getNewTable() != null) {
                     statements.add(generateCreateTableSql(operation.getNewTable()));
@@ -515,12 +577,13 @@ public class DDLServicePostgres implements DDLService{
     }
     
     private String generateCreateTableSql(DbTable table) {
-        StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(table.qualifiedName()).append(" (").append(System.lineSeparator());
+        StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ")
+			.append(CommonHelpers.doubleQuotedQualified(table.getSchema(), table.getName())).append(" (").append(System.lineSeparator());
         DbColumn[] columns = table.orderedColumns();
         int index = 0;
         
         for (DbColumn c : columns) {
-            sb.append("  ").append("\"").append(c.getName()).append("\"").append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+            sb.append("  ").append(CommonHelpers.doubleQuoted(c.getName())).append(" ").append(columnType(c.getColumnType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
             
             if (c.getColumnDefault() == null) {
                 if (c.isNullable() && !Set.of("TINYBLOB", "BLOB", "MEDIUMBLOB", "LONGBLOB", "TINYTEXT", "TEXT", "MEDIUMTEXT", "LONGTEXT").contains(c.getColumnType().toUpperCase())) {
@@ -551,10 +614,10 @@ public class DDLServicePostgres implements DDLService{
                 if (pkConst.length() == 0) {
                     pkConst.append("  ").append("CONSTRAINT ");
                     if (pkConstraintName != null) {
-                        pkConst.append("\"").append(pkConstraintName).append("\"").append(" PRIMARY KEY (");
+                        pkConst.append(CommonHelpers.doubleQuoted(pkConstraintName)).append(" PRIMARY KEY (");
                     }
                 }
-                pkConst.append("\"").append(cName).append("\"");
+                pkConst.append(CommonHelpers.doubleQuoted(cName));
                 if (cIt.hasNext()) {
                     pkConst.append(", ");
                 }
@@ -569,7 +632,7 @@ public class DDLServicePostgres implements DDLService{
     
     private List<String> generateColumnSql(DbColumnDiffOp operation, DiffOpType opType) {
         List<String> statements = new ArrayList<>();
-        String tableName = operation.getTableQualifiedName();
+        String tableName = CommonHelpers.doubleQuotedQualified(operation.getTableQualifiedName());
         String columnName = operation.getColumnName();
         
         switch (opType) {
@@ -579,7 +642,7 @@ public class DDLServicePostgres implements DDLService{
                 }
                 break;
             case DROP:
-                statements.add("ALTER TABLE " + tableName + " DROP COLUMN \"" + columnName + "\";");
+                statements.add("ALTER TABLE " + tableName + " DROP COLUMN " + CommonHelpers.doubleQuoted(columnName) + ";");
                 break;
             case MODIFY:
                 if (operation.getOldColumn() != null && operation.getNewColumn() != null) {
@@ -592,7 +655,7 @@ public class DDLServicePostgres implements DDLService{
     }
     
     private String generateAddColumnSql(String tableName, DbColumn column) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD COLUMN \"").append(column.getName()).append("\" ");
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD COLUMN ").append(CommonHelpers.doubleQuoted(column.getName())).append(" ");
         sb.append(columnType(column.getColumnType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale()));
         
         if (column.getColumnDefault() != null) {
@@ -616,16 +679,16 @@ public class DDLServicePostgres implements DDLService{
             !Objects.equals(oldColumn.getNumPrecision(), newColumn.getNumPrecision()) ||
             !Objects.equals(oldColumn.getNumScale(), newColumn.getNumScale())
         ) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
-                .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" TYPE ")
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
+                .append(" ALTER COLUMN ").append(CommonHelpers.doubleQuoted(newColumn.getName())).append(" TYPE ")
                 .append(columnType(newColumn.getColumnType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale())).append(";");
             statements.add(sb.toString());
         }
         
         // Nullable change
         if (oldColumn.isNullable() != newColumn.isNullable()) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
-                .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" ");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
+                .append(" ALTER COLUMN ").append(CommonHelpers.doubleQuoted(newColumn.getName())).append(" ");
             if (newColumn.isNullable()) {
                 sb.append("DROP NOT NULL");
             } else {
@@ -637,8 +700,8 @@ public class DDLServicePostgres implements DDLService{
         
         // Default change
         if (!Objects.equals(oldColumn.getColumnDefault(), newColumn.getColumnDefault())) {
-            StringBuilder sb = new StringBuilder("ALTER TABLE ").append("\"").append(tableName).append("\"")
-                .append(" ALTER COLUMN \"").append(newColumn.getName()).append("\" ");
+            StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
+                .append(" ALTER COLUMN ").append(CommonHelpers.doubleQuoted(newColumn.getName())).append(" ");
             if (newColumn.getColumnDefault() == null) {
                 sb.append("DROP DEFAULT");
             } else {
@@ -663,14 +726,16 @@ public class DDLServicePostgres implements DDLService{
             case DROP:
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT \"" + ref.getConstraintName() + "\";");
+                    statements.add("ALTER TABLE " + CommonHelpers.doubleQuotedQualified(ref.srcQualifiedName())
+						+ " DROP CONSTRAINT " + CommonHelpers.doubleQuoted(ref.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT \"" + ref.getConstraintName() + "\";");
+                    statements.add("ALTER TABLE " + CommonHelpers.doubleQuotedQualified(ref.srcQualifiedName())
+						+ " DROP CONSTRAINT " + CommonHelpers.doubleQuoted(ref.getConstraintName()) + ";");
                 }
                 if (operation.getNewReference() != null) {
                     statements.add(generateAddForeignKeySql(operation.getNewReference()));
@@ -682,24 +747,24 @@ public class DDLServicePostgres implements DDLService{
     }
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
-            .append(" ADD CONSTRAINT ").append("\"").append(ref.getConstraintName()).append("\"").append(" ")
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.doubleQuotedQualified(ref.srcQualifiedName()))
+            .append(" ADD CONSTRAINT ").append(CommonHelpers.doubleQuoted(ref.getConstraintName())).append(" ")
             .append(" FOREIGN KEY (");
         
         Iterator<String> cIt = ref.getSrcColumnNames().iterator();
         while (cIt.hasNext()) {
             String cName = cIt.next();
-            sb.append("\"").append(cName).append("\"");
+            sb.append(CommonHelpers.doubleQuoted(cName));
             if (cIt.hasNext()) {
                 sb.append(", ");
             }
         }
         
-        sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
+        sb.append(") REFERENCES ").append(CommonHelpers.doubleQuotedQualified(ref.refQualifiedName())).append(" (");
         cIt = ref.getRefColumnNames().iterator();
         while (cIt.hasNext()) {
             String cName = cIt.next();
-            sb.append("\"").append(cName).append("\"");
+            sb.append(CommonHelpers.doubleQuoted(cName));
             if (cIt.hasNext()) {
                 sb.append(", ");
             }
@@ -721,14 +786,16 @@ public class DDLServicePostgres implements DDLService{
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                    statements.add("ALTER TABLE ONLY " + CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName())
+						+ " DROP CONSTRAINT " + CommonHelpers.doubleQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE ONLY " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                    statements.add("ALTER TABLE ONLY " + CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName())
+						+ " DROP CONSTRAINT " + CommonHelpers.doubleQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
@@ -740,13 +807,13 @@ public class DDLServicePostgres implements DDLService{
     }
     
     private String generateAddUniqueConstraintSql(ContraintInfo constraint) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(constraint.qualifiedTableName())
-            .append(" ADD CONSTRAINT ").append("\"").append(constraint.getConstraintName()).append("\"").append(" UNIQUE (");
+        StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ").append(CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName()))
+            .append(" ADD CONSTRAINT ").append(CommonHelpers.doubleQuoted(constraint.getConstraintName())).append(" UNIQUE (");
         
         Iterator<String> cIt = constraint.getColumnNames().iterator();
         while (cIt.hasNext()) {
             String cName = cIt.next();
-            sb.append("\"").append(cName).append("\"");
+            sb.append(CommonHelpers.doubleQuoted(cName));
             if (cIt.hasNext()) {
                 sb.append(", ");
             }
@@ -763,24 +830,28 @@ public class DDLServicePostgres implements DDLService{
             case CREATE:
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT \"" + constraint.getConstraintName() + "\" " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName())
+						+ " ADD CONSTRAINT " + CommonHelpers.doubleQuoted(constraint.getConstraintName()) + " " + constraint.getCondef() + ";");
                 }
                 break;
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                    statements.add("ALTER TABLE " + CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName())
+						+ " DROP CONSTRAINT " + CommonHelpers.doubleQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT \"" + constraint.getConstraintName() + "\";");
+                    statements.add("ALTER TABLE " + CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName())
+						+ " DROP CONSTRAINT " + CommonHelpers.doubleQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " ADD CONSTRAINT \"" + constraint.getConstraintName() + "\" " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.doubleQuotedQualified(constraint.qualifiedTableName())
+						+ " ADD CONSTRAINT " + CommonHelpers.doubleQuoted(constraint.getConstraintName()) + " " + constraint.getCondef() + ";");
                 }
                 break;
         }
@@ -800,7 +871,7 @@ public class DDLServicePostgres implements DDLService{
             case DROP:
                 if (operation.getOldIndex() != null) {
                     IndexInfo index = operation.getOldIndex();
-                    String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
+                    String qualifiedIndexName = CommonHelpers.doubleQuotedQualified(index.getSchemaName(), index.getIndexName());
                     statements.add("DROP INDEX " + qualifiedIndexName + ";");
                 }
                 break;
@@ -808,7 +879,7 @@ public class DDLServicePostgres implements DDLService{
                 // Drop old and create new
                 if (operation.getOldIndex() != null) {
                     IndexInfo index = operation.getOldIndex();
-                    String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
+                    String qualifiedIndexName = CommonHelpers.doubleQuotedQualified(index.getSchemaName(), index.getIndexName());
                     statements.add("DROP INDEX " + qualifiedIndexName + ";");
                 }
                 if (operation.getNewIndex() != null) {
@@ -827,8 +898,8 @@ public class DDLServicePostgres implements DDLService{
         }
         sb.append("INDEX IF NOT EXISTS ");
         
-        String qualifiedIndexName = index.getIndexName();
-        sb.append(qualifiedIndexName).append(" ON ").append(tableQualifiedName);
+        sb.append(CommonHelpers.doubleQuoted(index.getIndexName()))
+			.append(" ON ").append(CommonHelpers.doubleQuotedQualified(tableQualifiedName));
         
         if (index.getIndexType() != null && !index.getIndexType().isEmpty()) {
             sb.append(" USING ").append(index.getIndexType());
@@ -838,7 +909,7 @@ public class DDLServicePostgres implements DDLService{
         Iterator<String> icIt = index.getColumns().iterator();
         while (icIt.hasNext()) {
             String ic = icIt.next();
-            sb.append("\"").append(ic).append("\"");
+            sb.append(CommonHelpers.doubleQuoted(ic));
             if (icIt.hasNext()) {
                 sb.append(", ");
             }
@@ -859,7 +930,7 @@ public class DDLServicePostgres implements DDLService{
                 break;
             case DROP:
                 if (operation.getOldSequence() != null) {
-                    statements.add("DROP SEQUENCE IF EXISTS " + operation.getQualifiedName() + ";");
+                    statements.add("DROP SEQUENCE IF EXISTS " + CommonHelpers.doubleQuotedQualified(operation.getQualifiedName()) + ";");
                 }
                 break;
             case MODIFY:
@@ -873,7 +944,8 @@ public class DDLServicePostgres implements DDLService{
     }
     
     private String generateCreateSequenceSql(DbSequence seq) {
-        StringBuilder sb = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ").append(seq.qualifiedName());
+        StringBuilder sb = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ")
+			.append(CommonHelpers.doubleQuotedQualified(seq.getSchema(), seq.getName()));
         
         if (seq.getIncrementBy() != null) {
             sb.append(" INCREMENT BY ").append(seq.getIncrementBy());
@@ -911,7 +983,8 @@ public class DDLServicePostgres implements DDLService{
     
     private List<String> generateAlterSequenceSql(DbSequence oldSeq, DbSequence newSeq) {
         List<String> statements = new ArrayList<>();
-        StringBuilder sb = new StringBuilder("ALTER SEQUENCE ").append(newSeq.qualifiedName());
+        StringBuilder sb = new StringBuilder("ALTER SEQUENCE ")
+			.append(CommonHelpers.doubleQuotedQualified(newSeq.getSchema(), newSeq.getName()));
         boolean hasChanges = false;
         
         if (!Objects.equals(oldSeq.getIncrementBy(), newSeq.getIncrementBy()) && newSeq.getIncrementBy() != null) {

@@ -16,6 +16,37 @@ public class CommonHelpers {
         sb.append(name);
         return sb.toString();
     }
+
+    /** ANSI/PostgreSQL identifier quoting; escape " as "". */
+    public static String doubleQuoted(String identifier) {
+        if (identifier == null) {
+            return null;
+        }
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
+    }
+
+    /** Quotes schema and name separately: {@code "schema"."name"}. */
+    public static String doubleQuotedQualified(String schema, String name) {
+        if (StringUtils.isEmptyOrNull(schema)) {
+            return doubleQuoted(name);
+        }
+        return doubleQuoted(schema) + "." + doubleQuoted(name);
+    }
+
+    /**
+     * Quotes a {@code schema.name} (or bare name) for PostgreSQL SQL.
+     * Splits on the first {@code .} so mixed-case Chinook-style names like {@code public.Genre} work.
+     */
+    public static String doubleQuotedQualified(String qualifiedName) {
+        if (qualifiedName == null) {
+            return null;
+        }
+        int dot = qualifiedName.indexOf('.');
+        if (dot < 0) {
+            return doubleQuoted(qualifiedName);
+        }
+        return doubleQuoted(qualifiedName.substring(0, dot)) + "." + doubleQuoted(qualifiedName.substring(dot + 1));
+    }
     public static String dataFileName(String qualifiedName){
         return "data-" + qualifiedName + ".json";
     }

@@ -30,6 +30,7 @@ import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
+import com.quemsi.model.flow.db.postgres.PostgresEnumSupport;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -94,6 +95,10 @@ public class RdbmsTarget extends AbstractStorage{
                 }
 
                 context.getDbModelProcessors().forEach(p -> p.process(dbModel));
+
+                if (DatasourceType.POSTGRES.name().equals(dbModel.getSourceType())) {
+                    PostgresEnumSupport.ensureEnumTypes(dbModel, namedPackages, objectMapper);
+                }
 
                 /* createTables omits all FKs; enableContraints adds them after data load */
                 ddlService.createTables(dbModel);
