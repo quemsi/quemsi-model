@@ -18,6 +18,7 @@ import javax.annotation.PostConstruct;
 import javax.annotation.PreDestroy;
 import javax.sql.DataSource;
 
+import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.LogMessage;
@@ -142,7 +143,8 @@ select
 	SCHEMA_NAME(t.schema_id) as table_schema,
 	t.name as table_name,
 	cc.name as constraint_name,
-	OBJECT_DEFINITION(cc.object_id) as condef
+	/* Both need VIEW DEFINITION; coalesce covers older engines / edge cases. */
+	coalesce(cc.definition, OBJECT_DEFINITION(cc.object_id)) as condef
 from sys.check_constraints cc
 inner join sys.tables t on cc.parent_object_id = t.object_id
 where SCHEMA_NAME(t.schema_id) in {inValues}
@@ -291,9 +293,14 @@ where schema_name(v.schema_id) in {inValues}
 					String tableName = dcrs.getString("TABLE_NAME");
 					String columnName = dcrs.getString("COLUMN_NAME");
 					String constraintName = dcrs.getString("CONSTRAINT_NAME");
+					String definition = dcrs.getString("DEFINITION");
+					requireDefinition("default-constraint", schemaName, tableName, constraintName, definition);
 					DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
 					DbColumn column = table.findColumn(columnName).orElseThrow(Exceptions.server("unknow-column").withExtra("schemaName", schemaName).withExtra("tableName", tableName).withExtra("columnName", columnName).supplier());
 					column.setDefaultConstraintName(constraintName);
+					if (column.getColumnDefault() == null || column.getColumnDefault().isBlank()) {
+						column.setColumnDefault(definition);
+					}
 				}
 			}
 
@@ -396,6 +403,7 @@ where schema_name(v.schema_id) in {inValues}
 				String tableName = ckrs.getString("TABLE_NAME");
 				String constraintName = ckrs.getString("CONSTRAINT_NAME");
 				String condef = ckrs.getString("CONDEF");
+				requireDefinition("check-constraint", schemaName, tableName, constraintName, condef);
 				CheckConstraint checkConstraint = CheckConstraint.builder()
 					.schema(schemaName)
 					.tableName(tableName)
@@ -412,6 +420,7 @@ where schema_name(v.schema_id) in {inValues}
 				String schemaName = vrs.getString("SCHEMA_NAME");
 				String viewName = vrs.getString("VIEW_NAME");
 				String definition = stripCreateViewWrapper(vrs.getString("DEFINITION"));
+				requireDefinition("view", schemaName, null, viewName, definition);
 				DbView view = DbView.builder()
 					.schema(schemaName)
 					.name(viewName)
@@ -437,6 +446,8 @@ where schema_name(v.schema_id) in {inValues}
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
 			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
+		}catch(BaseRuntimeException e){
+			throw e;
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
@@ -450,6 +461,25 @@ where schema_name(v.schema_id) in {inValues}
 			log.info("{}", message);
 		}
 		progress.accept(message);
+	}
+
+	/**
+	 * SQL Server hides module/constraint text unless the login has VIEW DEFINITION.
+	 * Fail the backup rather than shipping an incomplete model that cannot restore correctly.
+	 */
+	static void requireDefinition(String objectType, String schemaName, String tableName, String objectName, String definition) {
+		if (definition != null && !definition.isBlank()) {
+			return;
+		}
+		Exceptions ex = Exceptions.server("view-definition-permission-required")
+				.withExtra("requiredPermission", "VIEW DEFINITION")
+				.withExtra("objectType", objectType)
+				.withExtra("schemaName", schemaName)
+				.withExtra("objectName", objectName);
+		if (tableName != null) {
+			ex.withExtra("tableName", tableName);
+		}
+		throw ex.get();
 	}
 
 	static String stripCreateViewWrapper(String definition) {

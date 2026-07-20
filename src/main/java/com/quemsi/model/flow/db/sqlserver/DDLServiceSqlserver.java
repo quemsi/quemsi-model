@@ -181,24 +181,30 @@ public class DDLServiceSqlserver implements DDLService{
     }
 
     private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
-        if("varchar".equals(type) && maxLength != null){
-            return new StringBuffer(type).append("(").append(maxLength).append(")").toString();
-        } else if(Set.of("varbinary", "nvarchar", "nchar").contains(type)){
-            StringBuilder sb = new StringBuilder(type);
-            if(maxLength != null){
-                sb.append("(");
-                if(maxLength == -1){
-                    sb.append("MAX");
-                }else{
-                    sb.append(maxLength / 2);
-                }
-                sb.append(")");
-                return sb.toString();
-            }
-        } else if(Set.of("decimal", "numeric").contains(type)){
-            return new StringBuffer(type).append("(").append(precision).append(",").append(scale).append(")").toString();
-        }
-        return type;
+		/* sys.columns.max_length is bytes: nchar/nvarchar use 2 bytes per char; char/varchar/binary are 1:1. */
+		if (Set.of("char", "varchar", "binary", "varbinary").contains(type) && maxLength != null) {
+			StringBuilder sb = new StringBuilder(type).append("(");
+			if (maxLength == -1) {
+				sb.append("MAX");
+			} else {
+				sb.append(maxLength);
+			}
+			return sb.append(")").toString();
+		}
+		if (Set.of("nchar", "nvarchar").contains(type) && maxLength != null) {
+			StringBuilder sb = new StringBuilder(type).append("(");
+			if (maxLength == -1) {
+				sb.append("MAX");
+			} else {
+				sb.append(maxLength / 2);
+			}
+			return sb.append(")").toString();
+		}
+		if (Set.of("decimal", "numeric").contains(type) && precision != null) {
+			return new StringBuilder(type).append("(").append(precision).append(",")
+					.append(scale != null ? scale : 0).append(")").toString();
+		}
+		return type;
     }
     private StringBuilder escape(StringBuilder sb, String columnName){
 		if(DatasourceFactorySqlserver.RESERVED_KEYS.contains(columnName.toUpperCase())){
@@ -277,6 +283,7 @@ public class DDLServiceSqlserver implements DDLService{
 			String quotedTableName = CommonHelpers.bracketQuotedQualified(tableName);
 			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(quotedTableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
+			int index = 0;
 			for(DbColumn c : columns){
 				sb.append("  [");
 				escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
@@ -294,9 +301,13 @@ public class DDLServiceSqlserver implements DDLService{
 					// 	sb.append(" DEFAULT NULL");
 					// }
                 }
-				sb.append(",").append(System.lineSeparator());
+				if(index < columns.length - 1){
+					sb.append(",").append(System.lineSeparator());
+				}
+				index++;
 			}
 			if(table.getPkColumnNames().size() > 0){
+				sb.append(",").append(System.lineSeparator());
 				sb.append("  CONSTRAINT ");
 				appendBracketQuoted(sb, table.getPkConstraintName());
 				sb.append(" PRIMARY KEY ");
@@ -388,6 +399,14 @@ public class DDLServiceSqlserver implements DDLService{
 			if(existingTables.contains(checkConstraint.qualifiedTableName())){
 				log.info("check constraint {} already exists on {} skipping", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName());
 				continue;
+			}
+			if (StringUtils.isEmptyOrNull(checkConstraint.getCondef())) {
+				throw Exceptions.server("view-definition-permission-required")
+						.withExtra("requiredPermission", "VIEW DEFINITION")
+						.withExtra("objectType", "check-constraint")
+						.withExtra("objectName", checkConstraint.getConstraintName())
+						.withExtra("tableName", checkConstraint.qualifiedTableName())
+						.get();
 			}
 			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.bracketQuotedQualified(checkConstraint.qualifiedTableName())).append(" WITH CHECK ADD CONSTRAINT ");
 			appendBracketQuoted(sb, checkConstraint.getConstraintName());
@@ -611,6 +630,7 @@ public class DDLServiceSqlserver implements DDLService{
 		
 		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(quotedTableName).append(" (").append(System.lineSeparator());
 		DbColumn[] columns = table.orderedColumns();
+		int index = 0;
 		for(DbColumn c : columns){
 			sb.append("  [");
 			escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
@@ -628,9 +648,13 @@ public class DDLServiceSqlserver implements DDLService{
 				// 	sb.append(" DEFAULT NULL");
 				// }
 			}
-			sb.append(",").append(System.lineSeparator());
+			if(index < columns.length - 1){
+				sb.append(",").append(System.lineSeparator());
+			}
+			index++;
 		}
 		if(table.getPkColumnNames().size() > 0){
+			sb.append(",").append(System.lineSeparator());
 			sb.append("  CONSTRAINT ");
 			appendBracketQuoted(sb, table.getPkConstraintName());
 			sb.append(" PRIMARY KEY ");
@@ -862,8 +886,7 @@ public class DDLServiceSqlserver implements DDLService{
         switch (opType) {
             case CREATE:
                 if (operation.getNewConstraint() != null) {
-                    CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
+                    addCheckConstraintCreateSql(statements, operation.getNewConstraint());
                 }
                 break;
             case DROP:
@@ -879,14 +902,27 @@ public class DDLServiceSqlserver implements DDLService{
                     statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
-                    CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
+                    addCheckConstraintCreateSql(statements, operation.getNewConstraint());
                 }
                 break;
         }
         
         return statements;
     }
+
+	private void addCheckConstraintCreateSql(List<String> statements, CheckConstraint constraint) {
+		if (StringUtils.isEmptyOrNull(constraint.getCondef())) {
+			throw Exceptions.server("view-definition-permission-required")
+					.withExtra("requiredPermission", "VIEW DEFINITION")
+					.withExtra("objectType", "check-constraint")
+					.withExtra("objectName", constraint.getConstraintName())
+					.withExtra("tableName", constraint.qualifiedTableName())
+					.get();
+		}
+		statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName())
+				+ " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName())
+				+ " CHECK " + constraint.getCondef() + ";");
+	}
     
     private List<String> generateIndexSql(DbIndexDiffOp operation, DiffOpType opType) {
         List<String> statements = new ArrayList<>();

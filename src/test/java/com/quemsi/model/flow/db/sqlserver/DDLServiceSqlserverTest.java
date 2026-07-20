@@ -240,6 +240,75 @@ public class DDLServiceSqlserverTest {
     }
 
     @Test
+    public void givenCheckConstraintWithoutDefinition_whenDdlFrom_thenThrow() {
+        DbModelDiff diff = new DbModelDiff();
+        CheckConstraint constraint = CheckConstraint.builder()
+            .schema("dbo")
+            .tableName("authors")
+            .constraintName("CK__authors__au_id")
+            .condef(null)
+            .build();
+
+        diff.getOperations().add(DbCheckConstraintDiffOp.builder()
+            .opType(DiffOpType.CREATE)
+            .qualifiedName("CK__authors__au_id")
+            .newConstraint(constraint)
+            .build());
+
+        try {
+            ddlService.ddlFrom(diff, createEmptyDbModel());
+            throw new AssertionError("expected view-definition-permission-required");
+        } catch (com.quemsi.commons.util.BaseRuntimeException e) {
+            assertThat(e.getMessageId(), equalTo("view-definition-permission-required"));
+            assertThat(e.getExtra().get("requiredPermission"), equalTo("VIEW DEFINITION"));
+        }
+    }
+
+    @Test
+    public void givenCharAndBinaryColumns_whenDdlFrom_thenIncludeLengths() {
+        DbModelDiff diff = new DbModelDiff();
+        DbTable table = createTable("dbo", "authors");
+        table.addColumn(createColumn("phone", "char", false, 12));
+        table.addColumn(createColumn("logo", "varbinary", true, 50));
+        table.addColumn(createColumn("name", "nchar", true, 20));
+
+        diff.getOperations().add(DbTableDiffOp.builder()
+            .opType(DiffOpType.CREATE)
+            .qualifiedName("dbo.authors")
+            .newTable(table)
+            .build());
+
+        List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+        assertThat(statements, hasSize(1));
+        assertThat(statements.get(0), containsString("[phone] char(12)"));
+        assertThat(statements.get(0), containsString("[logo] varbinary(50)"));
+        assertThat(statements.get(0), containsString("[name] nchar(10)"));
+    }
+
+    @Test
+    public void givenTableWithoutPrimaryKey_whenDdlFrom_thenNoTrailingComma() {
+        DbModelDiff diff = new DbModelDiff();
+        DbTable table = createTable("dbo", "discounts");
+        table.addColumn(createColumn("discounttype", "varchar", false, 40));
+        table.addColumn(createColumn("discount", "decimal", false));
+        table.findColumn("discount").ifPresent(c -> {
+            c.setNumPrecision(4);
+            c.setNumScale(2);
+        });
+
+        diff.getOperations().add(DbTableDiffOp.builder()
+            .opType(DiffOpType.CREATE)
+            .qualifiedName("dbo.discounts")
+            .newTable(table)
+            .build());
+
+        List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+        assertThat(statements, hasSize(1));
+        assertThat(statements.get(0), containsString("decimal(4,2)"));
+        assertThat(statements.get(0).replaceAll("\\s+", " "), containsString("NOT NULL )"));
+    }
+
+    @Test
     public void givenIndexCreateOperation_whenDdlFrom_thenReturnCreateIndexStatement() {
         DbModelDiff diff = new DbModelDiff();
         IndexInfo index = new IndexInfo(null, "users", "idx_email", false, "NONCLUSTERED");
