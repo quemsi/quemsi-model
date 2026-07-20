@@ -116,6 +116,30 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
+	public void createTables_resolvesIndexWhenMapKeyedByBareTableName() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			DbModel dbModel = new DbModel();
+			DbTable table = dbModel.addTable("department_manager", "employees");
+			table.addColumn(DbColumn.builder().name("department_id").dataType("char").columnType("char(4)")
+				.ordinalPosition(1).nullable(false).build());
+			table.getPkColumnNames().add("department_id");
+
+			IndexInfo index = new IndexInfo("employees", "department_manager", "idx_16985_dept_no", false, "BTREE");
+			index.getColumns().add("department_id");
+			index.getColumnPrefixLengths().add(null);
+			// Legacy / mismatched backup key: bare table name while table is schema-qualified
+			dbModel.getIndexes().computeIfAbsent("department_manager", k -> new java.util.HashMap<>())
+				.put(index.getIndexName(), index);
+
+			ddl.createTables(dbModel);
+		}
+
+		assertThat(recording.batchedSql, hasSize(1));
+		assertThat(recording.batchedSql.get(0), containsString("KEY idx_16985_dept_no (`department_id`)"));
+	}
+
+	@Test
 	public void mysqlInlineIndexKeyword_handlesFulltextSpatialUnique() {
 		assertThat(DDLServiceMysql.mysqlInlineIndexKeyword(new IndexInfo(null, "t", "i", false, "FULLTEXT")),
 			equalTo("FULLTEXT KEY"));

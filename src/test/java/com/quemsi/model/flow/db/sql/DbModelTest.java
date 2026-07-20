@@ -11,6 +11,7 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 
 public class DbModelTest {
@@ -357,6 +358,31 @@ public class DbModelTest {
         assertThat(ordered.contains("HR.DEPARTMENTS"), equalTo(true));
         assertThat(ordered.indexOf("HR.JOBS") < ordered.indexOf("HR.EMPLOYEES"), equalTo(true));
         assertThat(ordered.indexOf("HR.LOCATIONS") < ordered.indexOf("HR.DEPARTMENTS"), equalTo(true));
+    }
+
+    @Test
+    public void indexesForTable_resolvesBareKeyWhenLookupIsSchemaQualified() {
+        DbModel dbModel = new DbModel();
+        IndexInfo index = new IndexInfo("employees", "department_manager", "idx_16985_dept_no", false, "btree");
+        index.getColumns().add("department_id");
+        dbModel.getIndexes().computeIfAbsent("department_manager", k -> new java.util.HashMap<>())
+            .put(index.getIndexName(), index);
+
+        var resolved = dbModel.indexesForTable("employees.department_manager");
+        assertThat(resolved.containsKey("idx_16985_dept_no"), equalTo(true));
+        assertThat(resolved.get("idx_16985_dept_no").getColumns(), contains("department_id"));
+    }
+
+    @Test
+    public void indexesForTable_resolvesWhenMapKeyedBySchemaAndIndexName() {
+        DbModel dbModel = new DbModel();
+        IndexInfo index = new IndexInfo("public", "realm_enabled_event_types", "idx_realm_evt_types_realm", false, "btree");
+        index.getColumns().add("realm_id");
+        dbModel.getIndexes().computeIfAbsent("public.idx_realm_evt_types_realm", k -> new java.util.HashMap<>())
+            .put(index.getIndexName(), index);
+
+        var resolved = dbModel.indexesForTable("public.realm_enabled_event_types");
+        assertThat(resolved.containsKey("idx_realm_evt_types_realm"), equalTo(true));
     }
 
 }

@@ -3,6 +3,7 @@ package com.quemsi.model.flow.db.sql;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -178,6 +179,48 @@ public class DbModel {
     }
     public LinkedList<DbTable> orderedTables(){
         return this.orderedTableNames().stream().map(tName -> tables.get(tName)).collect(Collectors.toCollection(LinkedList::new));
+    }
+
+    /**
+     * Indexes for a table during restore/DDL.
+     * Tries the map key first, then matches {@link IndexInfo} schema/table fields so backups
+     * keyed by bare table name or (historically) {@code schema.indexName} still resolve.
+     */
+    public Map<String, IndexInfo> indexesForTable(String qualifiedTableName) {
+        if (indexes == null || indexes.isEmpty() || qualifiedTableName == null) {
+            return Map.of();
+        }
+        Map<String, IndexInfo> direct = indexes.get(qualifiedTableName);
+        if (direct != null && !direct.isEmpty()) {
+            return direct;
+        }
+        Map<String, IndexInfo> matched = new LinkedHashMap<>();
+        for (Map<String, IndexInfo> byName : indexes.values()) {
+            if (byName == null) {
+                continue;
+            }
+            for (IndexInfo idx : byName.values()) {
+                if (idx == null) {
+                    continue;
+                }
+                String idxQualified = CommonHelpers.qualifiedName(idx.getSchemaName(), idx.getTableName());
+                if (qualifiedTableName.equals(idxQualified) || qualifiedTableName.equals(idx.getTableName())) {
+                    matched.putIfAbsent(idx.getIndexName(), idx);
+                }
+            }
+        }
+        if (!matched.isEmpty()) {
+            return matched;
+        }
+        int dot = qualifiedTableName.indexOf('.');
+        if (dot > 0) {
+            String bare = qualifiedTableName.substring(dot + 1);
+            direct = indexes.get(bare);
+            if (direct != null && !direct.isEmpty()) {
+                return direct;
+            }
+        }
+        return matched;
     }
 
     /**

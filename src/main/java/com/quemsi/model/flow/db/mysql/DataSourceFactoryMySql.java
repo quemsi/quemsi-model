@@ -291,17 +291,18 @@ WHERE vtu.VIEW_SCHEMA = ?
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
 			while (irs.next()) {
-				String schemaName = null; 
+				String schemaName = null;
 				String tableName = irs.getString("TABLE_NAME");
 				String indexName = irs.getString("INDEX_NAME");
 				String columnName = irs.getString("COLUMN_NAME");
 				boolean nonUnique = irs.getBoolean("NON_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
 				Integer subPart = toIntegerOrNull(irs.getObject("SUB_PART"));
-				String fullIndexName = new StringBuilder(dbName).append(".").append(tableName).toString();
-				if(cur == null || !fullIndexName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
+				// Tables are keyed without schema in MySQL models; keep the same for indexes.
+				String tableKey = tableName;
+				if(cur == null || !tableKey.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
-						CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
+						CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
 					}
 					cur = new IndexInfo(schemaName, tableName, indexName, !nonUnique, indexType);
 				}
@@ -309,7 +310,7 @@ WHERE vtu.VIEW_SCHEMA = ?
 				cur.getColumnPrefixLengths().add(subPart);
 			}
 			if(cur != null){
-				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
+				CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
 			reportProgress(progress, LogMessage.info("Loading check constraints..."));
 			ckps.setString(1, dbName);

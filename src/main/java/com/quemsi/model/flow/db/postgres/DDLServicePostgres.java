@@ -304,31 +304,28 @@ public class DDLServicePostgres implements DDLService{
 			sb.append(System.lineSeparator()).append(");");
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
-            if(dbModel.getIndexes().containsKey(tableName)){
-				Map<String, IndexInfo> indexes = dbModel.getIndexes().get(tableName);
-				Iterator<String> indNameIt = indexes.keySet().iterator();
-                while(indNameIt.hasNext()){
-					String indName = indNameIt.next();
-					IndexInfo indCols = indexes.get(indName);
-                    StringBuilder indBuilder = new StringBuilder("CREATE ");
-                    if(indCols.isUnique()){
-                        indBuilder.append("UNIQUE ");
+            Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
+            for (Map.Entry<String, IndexInfo> entry : indexes.entrySet()) {
+                String indName = entry.getKey();
+                IndexInfo indCols = entry.getValue();
+                StringBuilder indBuilder = new StringBuilder("CREATE ");
+                if(indCols.isUnique()){
+                    indBuilder.append("UNIQUE ");
+                }
+                indBuilder.append("INDEX ").append("IF NOT EXISTS ").append(CommonHelpers.doubleQuoted(indName));
+                indBuilder.append(" ON ").append(quotedTable).append(" USING ").append(indCols.getIndexType()).append(" (");
+                Iterator<String> icIt = indCols.getColumns().iterator();
+                while(icIt.hasNext()){
+                    String ic = icIt.next();
+                    indBuilder.append(CommonHelpers.doubleQuoted(ic));
+                    if(icIt.hasNext()){
+                        indBuilder.append(", ");
                     }
-                    indBuilder.append("INDEX ").append("IF NOT EXISTS ").append(CommonHelpers.doubleQuoted(indName));
-                    indBuilder.append(" ON ").append(quotedTable).append(" USING ").append(indCols.getIndexType()).append(" (");
-                    Iterator<String> icIt = indCols.getColumns().iterator();
-                    while(icIt.hasNext()){
-                        String ic = icIt.next();
-                        indBuilder.append(CommonHelpers.doubleQuoted(ic));
-                        if(icIt.hasNext()){
-                            indBuilder.append(", ");
-                        }
-                    }
-                    indBuilder.append(");");
-                    log.info("create index {} for table {} : {}", indName, tableName, indBuilder);
-                    scripts.add(indBuilder);
-				};
-			}
+                }
+                indBuilder.append(");");
+                log.info("create index {} for table {} : {}", indName, tableName, indBuilder);
+                scripts.add(indBuilder);
+            }
 			
 		}
         for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){

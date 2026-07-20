@@ -275,7 +275,7 @@ public class DDLServiceSqlserver implements DDLService{
 				continue;
 			}
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
-			boolean hasClustedIndex = CommonOps.getOrDefault(dbModel.getIndexes(), tableName, () -> new HashMap<>())
+			boolean hasClustedIndex = dbModel.indexesForTable(tableName)
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
 			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
@@ -319,14 +319,12 @@ public class DDLServiceSqlserver implements DDLService{
 			sb.append(System.lineSeparator()).append(");");
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
-			if(dbModel.getIndexes().containsKey(tableName)){
-				Map<String, IndexInfo> indexes = dbModel.getIndexes().get(tableName);
-				Iterator<String> indNameIt = indexes.keySet().iterator();
-				while(indNameIt.hasNext()){
+			Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
+			for (Map.Entry<String, IndexInfo> entry : indexes.entrySet()) {
 					boolean withRowguid = false;
-					String indName = indNameIt.next();
+					String indName = entry.getKey();
 					StringBuilder indBuilder = new StringBuilder("CREATE ");
-					IndexInfo indCols = indexes.get(indName);
+					IndexInfo indCols = entry.getValue();
 					if(indCols.isUnique()){
 						indBuilder.append("UNIQUE");
 					}
@@ -367,7 +365,6 @@ public class DDLServiceSqlserver implements DDLService{
 						log.info("index sql : {}", indBuilder);
 						scripts.add(indBuilder);
 					}
-				};
 			}
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
@@ -611,7 +608,7 @@ public class DDLServiceSqlserver implements DDLService{
     
     private String generateCreateTableSql(DbTable table, DbModel dbModel) {
         String tableName = table.qualifiedName();
-		boolean hasClustedIndex = CommonOps.getOrDefault(dbModel.getIndexes(), tableName, () -> new HashMap<>())
+		boolean hasClustedIndex = dbModel.indexesForTable(tableName)
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
 		
 		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());

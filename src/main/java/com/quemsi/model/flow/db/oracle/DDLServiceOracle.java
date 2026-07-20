@@ -9,7 +9,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
-import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Locale;
@@ -252,32 +251,8 @@ public class DDLServiceOracle implements DDLService {
 		return "'" + value.replace("'", "''") + "'";
 	}
 
-	/**
-	 * Resolve indexes for a table by qualified table name, with fallback for backups
-	 * keyed incorrectly by schema.indexName (pre-IndexInfo.qualifiedTableName fix).
-	 */
 	private Map<String, IndexInfo> indexesForTable(DbModel dbModel, String qualifiedTableName) {
-		Map<String, IndexInfo> direct = dbModel.getIndexes() != null
-			? dbModel.getIndexes().get(qualifiedTableName)
-			: null;
-		if (direct != null && !direct.isEmpty()) {
-			return direct;
-		}
-		Map<String, IndexInfo> matched = new LinkedHashMap<>();
-		if (dbModel.getIndexes() == null) {
-			return matched;
-		}
-		for (Map<String, IndexInfo> byName : dbModel.getIndexes().values()) {
-			if (byName == null) {
-				continue;
-			}
-			for (IndexInfo idx : byName.values()) {
-				if (idx != null && qualifiedTableName.equals(CommonHelpers.qualifiedName(idx.getSchemaName(), idx.getTableName()))) {
-					matched.put(idx.getIndexName(), idx);
-				}
-			}
-		}
-		return matched;
+		return dbModel.indexesForTable(qualifiedTableName);
 	}
 
 	private void appendColumnDefault(StringBuilder sb, DbColumn column) {

@@ -276,21 +276,19 @@ public class DDLServiceMysql implements DDLService{
 				}
 				sb.append(")");
 			}
-			if(dbModel.getIndexes().containsKey(tableName)){
-				Map<String, IndexInfo> indexes = dbModel.getIndexes().get(tableName);
-				Iterator<String> indNameIt = indexes.keySet().iterator();
-				while(indNameIt.hasNext()){
-					String indName = indNameIt.next();
+			Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
+			if(!indexes.isEmpty()){
+				for(Map.Entry<String, IndexInfo> entry : indexes.entrySet()){
+					String indName = entry.getKey();
 					if(!"PRIMARY".equals(indName) && !constraintInfos.containsKey(indName)){
-						IndexInfo indCols = indexes.get(indName);
+						IndexInfo indCols = entry.getValue();
 						sb.append(",").append(System.lineSeparator());
 						sb.append("  ").append(mysqlInlineIndexKeyword(indCols)).append(" ").append(indName);
 						sb.append(" (");
 						appendMysqlIndexColumns(sb, indCols);
 						sb.append(")");
 					}
-
-				};
+				}
 			}
 			sb.append(System.lineSeparator()).append(") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;");
 			log.info("create script for {} : {}", tableName, sb.toString());

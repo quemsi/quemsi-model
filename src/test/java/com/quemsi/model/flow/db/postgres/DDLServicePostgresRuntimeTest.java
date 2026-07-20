@@ -14,6 +14,7 @@ import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -26,6 +27,7 @@ import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbTrigger;
@@ -127,6 +129,32 @@ public class DDLServicePostgresRuntimeTest {
 			assertThat(sql, not(containsString("FOREIGN KEY")));
 			assertThat(sql.endsWith(";"), equalTo(false));
 		}
+	}
+
+	@Test
+	public void createTables_resolvesIndexWhenMapKeyedByBareTableName() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			DbModel dbModel = new DbModel();
+			dbModel.setSchemas(new HashSet<>());
+			DbTable table = dbModel.addTable("department_manager", "employees");
+			table.addColumn(DbColumn.builder().name("department_id").dataType("bpchar").columnType("bpchar")
+				.ordinalPosition(1).nullable(false).build());
+			table.getPkColumnNames().add("department_id");
+			table.setPkConstraintName("department_manager_pkey");
+
+			IndexInfo index = new IndexInfo("employees", "department_manager", "idx_16985_dept_no", false, "btree");
+			index.getColumns().add("department_id");
+			dbModel.getIndexes().computeIfAbsent("department_manager", k -> new HashMap<>())
+				.put(index.getIndexName(), index);
+
+			ddl.createTables(dbModel);
+		}
+
+		assertThat(recording.batchedSql.stream().anyMatch(s -> s.contains("idx_16985_dept_no")), equalTo(true));
+		assertThat(recording.batchedSql.stream().anyMatch(s ->
+			s.contains("CREATE INDEX IF NOT EXISTS \"idx_16985_dept_no\"")
+				&& s.contains("\"employees\".\"department_manager\"")), equalTo(true));
 	}
 
 	@Test

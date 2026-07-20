@@ -513,7 +513,7 @@ order by table_schema, table_name, trigger_name
 				cur.getColumns().add(columnName);
 			}
 			if(cur != null){
-				CommonOps.getOrInit(dbModel.getIndexes(), cur.getTableName(), HashMap::new).put(cur.getIndexName(), cur);
+				CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
 			reportProgress(progress, LogMessage.info("Loading sequences..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
