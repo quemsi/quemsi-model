@@ -101,7 +101,9 @@ public class RdbmsTarget extends AbstractStorage{
                 }
 
                 /* createTables omits all FKs; enableContraints adds them after data load */
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("schema will be created with {} tables", dbModel.getTables().size()));
                 ddlService.createTables(dbModel);
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("schema is created with {} tables", dbModel.getTables().size()));
 
                 List<ForkJoinTask<Boolean>> taskList = dbModel.orderedTables().stream().map(table -> new RdmsRestoreTask(table, namedPackages, pool, context, dbModel.getCircularIgnore()))
                     .map(t -> {
