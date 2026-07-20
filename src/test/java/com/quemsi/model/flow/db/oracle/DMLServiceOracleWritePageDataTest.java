@@ -25,14 +25,14 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServiceOracleWritePageDataTest {
 
 	@Test
-	public void writePageData_commitsBatch_andRestoresAutocommit() {
+	public void writePageData_commitsBatch_andRestoresAutocommit() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
-		DMLServiceOracle dml = new DMLServiceOracle(dataSource(recording.connection), null);
-
-		dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(
-			1, new Object[] { 1L, "a" },
-			2, new Object[] { 2L, "b" }
-		)));
+		try (DMLServiceOracle dml = new DMLServiceOracle(dataSource(recording.connection), null)) {
+			dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(
+				1, new Object[] { 1L, "a" },
+				2, new Object[] { 2L, "b" }
+			)));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.commitCalls.get(), equalTo(1));
@@ -42,12 +42,12 @@ public class DMLServiceOracleWritePageDataTest {
 	}
 
 	@Test
-	public void writePageData_onBatchFailure_rollsBackAndRestoresAutocommit() {
+	public void writePageData_onBatchFailure_rollsBackAndRestoresAutocommit() throws Exception {
 		RecordingConnection recording = new RecordingConnection(true);
-		DMLServiceOracle dml = new DMLServiceOracle(dataSource(recording.connection), null);
-
-		assertThrows(BaseRuntimeException.class, () ->
-			dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(1, new Object[] { 1L, "a" }))));
+		try (DMLServiceOracle dml = new DMLServiceOracle(dataSource(recording.connection), null)) {
+			assertThrows(BaseRuntimeException.class, () ->
+				dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(1, new Object[] { 1L, "a" }))));
+		}
 
 		assertThat(recording.rollbackCalls.get(), equalTo(1));
 		assertThat(recording.commitCalls.get(), equalTo(0));

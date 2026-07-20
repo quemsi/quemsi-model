@@ -30,17 +30,17 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServiceMysqlWritePageDataTest {
 
 	@Test
-	public void writePageData_disablesChecks_commitsBatch_andRestoresSession() {
+	public void writePageData_disablesChecks_commitsBatch_andRestoresSession() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
-		DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection));
+		try (DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection))) {
+			DbTable table = tableWithIdName();
+			DataPage page = new DataPage(0, Map.of(
+				1, new Object[] { 1, "a" },
+				2, new Object[] { 2, "b" }
+			));
 
-		DbTable table = tableWithIdName();
-		DataPage page = new DataPage(0, Map.of(
-			1, new Object[] { 1, "a" },
-			2, new Object[] { 2, "b" }
-		));
-
-		dml.writePageData(table, page);
+			dml.writePageData(table, page);
+		}
 
 		assertThat(recording.executedSql, contains(
 			"SET FOREIGN_KEY_CHECKS=0, UNIQUE_CHECKS=0",
@@ -54,20 +54,20 @@ public class DMLServiceMysqlWritePageDataTest {
 	}
 
 	@Test
-	public void writePageData_convertsYearDateAndStringToInt() {
+	public void writePageData_convertsYearDateAndStringToInt() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
-		DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection));
+		try (DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection))) {
+			DbTable table = new DbTable(null, "film");
+			table.addColumn(DbColumn.builder().name("film_id").dataType("smallint").columnType("smallint")
+				.ordinalPosition(1).nullable(false).build());
+			table.addColumn(DbColumn.builder().name("release_year").dataType("year").columnType("year")
+				.ordinalPosition(2).nullable(true).build());
 
-		DbTable table = new DbTable(null, "film");
-		table.addColumn(DbColumn.builder().name("film_id").dataType("smallint").columnType("smallint")
-			.ordinalPosition(1).nullable(false).build());
-		table.addColumn(DbColumn.builder().name("release_year").dataType("year").columnType("year")
-			.ordinalPosition(2).nullable(true).build());
-
-		dml.writePageData(table, new DataPage(0, Map.of(
-			1, new Object[] { 1, java.sql.Date.valueOf("2006-01-01") },
-			2, new Object[] { 2, "2007-01-01" }
-		)));
+			dml.writePageData(table, new DataPage(0, Map.of(
+				1, new Object[] { 1, java.sql.Date.valueOf("2006-01-01") },
+				2, new Object[] { 2, "2007-01-01" }
+			)));
+		}
 
 		assertThat(recording.setIntCalls.get(), equalTo(2));
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
@@ -75,14 +75,14 @@ public class DMLServiceMysqlWritePageDataTest {
 	}
 
 	@Test
-	public void writePageData_onBatchFailure_rollsBackAndRestoresSession() {
+	public void writePageData_onBatchFailure_rollsBackAndRestoresSession() throws Exception {
 		RecordingConnection recording = new RecordingConnection(true);
-		DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection));
+		try (DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection))) {
+			DbTable table = tableWithIdName();
+			DataPage page = new DataPage(0, Map.of(1, new Object[] { 1, "a" }));
 
-		DbTable table = tableWithIdName();
-		DataPage page = new DataPage(0, Map.of(1, new Object[] { 1, "a" }));
-
-		assertThrows(BaseRuntimeException.class, () -> dml.writePageData(table, page));
+			assertThrows(BaseRuntimeException.class, () -> dml.writePageData(table, page));
+		}
 
 		assertThat(recording.executedSql, hasItem("SET FOREIGN_KEY_CHECKS=0, UNIQUE_CHECKS=0"));
 		assertThat(recording.executedSql, hasItem("SET FOREIGN_KEY_CHECKS=1, UNIQUE_CHECKS=1"));

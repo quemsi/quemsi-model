@@ -24,42 +24,42 @@ import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 public class DDLServiceOracleRuntimeTest {
 
 	@Test
-	public void disableConstraints_batchesDropConstraint() {
+	public void disableConstraints_batchesDropConstraint() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceOracle ddl = new DDLServiceOracle(recording.connection);
+		try (DDLServiceOracle ddl = new DDLServiceOracle(recording.connection)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"FK_EMP_DEPT",
+				"HR",
+				"EMPLOYEES",
+				new LinkedHashSet<>(List.of("DEPT_ID")),
+				"HR",
+				"DEPARTMENTS",
+				new LinkedHashSet<>(List.of("ID"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"FK_EMP_DEPT",
-			"HR",
-			"EMPLOYEES",
-			new LinkedHashSet<>(List.of("DEPT_ID")),
-			"HR",
-			"DEPARTMENTS",
-			new LinkedHashSet<>(List.of("ID"))
-		);
-
-		ddl.disableConstraints(Set.of(ref));
+			ddl.disableConstraints(Set.of(ref));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasItem("ALTER TABLE HR.EMPLOYEES DROP CONSTRAINT \"FK_EMP_DEPT\""));
 	}
 
 	@Test
-	public void enableContraints_batchesAddForeignKey() {
+	public void enableContraints_batchesAddForeignKey() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceOracle ddl = new DDLServiceOracle(recording.connection);
+		try (DDLServiceOracle ddl = new DDLServiceOracle(recording.connection)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"FK_EMP_DEPT",
+				"HR",
+				"EMPLOYEES",
+				new LinkedHashSet<>(List.of("DEPT_ID")),
+				"HR",
+				"DEPARTMENTS",
+				new LinkedHashSet<>(List.of("ID"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"FK_EMP_DEPT",
-			"HR",
-			"EMPLOYEES",
-			new LinkedHashSet<>(List.of("DEPT_ID")),
-			"HR",
-			"DEPARTMENTS",
-			new LinkedHashSet<>(List.of("ID"))
-		);
-
-		ddl.enableContraints(Set.of(ref));
+			ddl.enableContraints(Set.of(ref));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(1));

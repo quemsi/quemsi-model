@@ -24,42 +24,42 @@ import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 public class DDLServiceSqlserverRuntimeTest {
 
 	@Test
-	public void disableConstraints_batchesDropConstraintWithQualifiedTable() {
+	public void disableConstraints_batchesDropConstraintWithQualifiedTable() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceSqlserver ddl = new DDLServiceSqlserver(recording.connection);
+		try (DDLServiceSqlserver ddl = new DDLServiceSqlserver(recording.connection)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"FK_Orders_Customers",
+				"dbo",
+				"Orders",
+				new LinkedHashSet<>(List.of("CustomerID")),
+				"dbo",
+				"Customers",
+				new LinkedHashSet<>(List.of("CustomerID"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"FK_Orders_Customers",
-			"dbo",
-			"Orders",
-			new LinkedHashSet<>(List.of("CustomerID")),
-			"dbo",
-			"Customers",
-			new LinkedHashSet<>(List.of("CustomerID"))
-		);
-
-		ddl.disableConstraints(Set.of(ref));
+			ddl.disableConstraints(Set.of(ref));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasItem("ALTER TABLE dbo.Orders DROP CONSTRAINT [FK_Orders_Customers]"));
 	}
 
 	@Test
-	public void enableContraints_batchesAddForeignKey() {
+	public void enableContraints_batchesAddForeignKey() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceSqlserver ddl = new DDLServiceSqlserver(recording.connection);
+		try (DDLServiceSqlserver ddl = new DDLServiceSqlserver(recording.connection)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"FK_Orders_Customers",
+				"dbo",
+				"Orders",
+				new LinkedHashSet<>(List.of("CustomerID")),
+				"dbo",
+				"Customers",
+				new LinkedHashSet<>(List.of("CustomerID"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"FK_Orders_Customers",
-			"dbo",
-			"Orders",
-			new LinkedHashSet<>(List.of("CustomerID")),
-			"dbo",
-			"Customers",
-			new LinkedHashSet<>(List.of("CustomerID"))
-		);
-
-		ddl.enableContraints(Set.of(ref));
+			ddl.enableContraints(Set.of(ref));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(1));

@@ -38,49 +38,49 @@ public class DDLServicePostgresRuntimeTest {
 	}
 
 	@Test
-	public void dropTables_runsMultiTableCascadeDrop() {
+	public void dropTables_runsMultiTableCascadeDrop() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServicePostgres ddl = new DDLServicePostgres(recording.connection);
-
-		ddl.dropTables("public.orderdetails", "public.orders", "public.customers");
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			ddl.dropTables("public.orderdetails", "public.orders", "public.customers");
+		}
 
 		assertThat(recording.executedSql, hasItem(
 			"DROP TABLE IF EXISTS public.orderdetails, public.orders, public.customers CASCADE"));
 	}
 
 	@Test
-	public void createTables_batchesScripts_andOmitsAllForeignKeys() {
+	public void createTables_batchesScripts_andOmitsAllForeignKeys() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServicePostgres ddl = new DDLServicePostgres(recording.connection);
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			DbModel dbModel = new DbModel();
+			dbModel.setSchemas(new HashSet<>());
+			DbTable offices = dbModel.addTable("public.offices");
+			offices.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar")
+				.ordinalPosition(1).nullable(false).build());
+			offices.getPkColumnNames().add("officeCode");
+			offices.setPkConstraintName("offices_pkey");
 
-		DbModel dbModel = new DbModel();
-		dbModel.setSchemas(new HashSet<>());
-		DbTable offices = dbModel.addTable("public.offices");
-		offices.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar")
-			.ordinalPosition(1).nullable(false).build());
-		offices.getPkColumnNames().add("officeCode");
-		offices.setPkConstraintName("offices_pkey");
+			DbTable employees = dbModel.addTable("public.employees");
+			employees.addColumn(DbColumn.builder().name("employeeNumber").dataType("int").columnType("int")
+				.ordinalPosition(1).nullable(false).build());
+			employees.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar")
+				.ordinalPosition(2).nullable(false).build());
+			employees.getPkColumnNames().add("employeeNumber");
+			employees.setPkConstraintName("employees_pkey");
 
-		DbTable employees = dbModel.addTable("public.employees");
-		employees.addColumn(DbColumn.builder().name("employeeNumber").dataType("int").columnType("int")
-			.ordinalPosition(1).nullable(false).build());
-		employees.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar")
-			.ordinalPosition(2).nullable(false).build());
-		employees.getPkColumnNames().add("employeeNumber");
-		employees.setPkConstraintName("employees_pkey");
+			ReferenceInfo officeFk = new ReferenceInfo(
+				"employees_office_fk",
+				"public",
+				"employees",
+				new LinkedHashSet<>(List.of("officeCode")),
+				"public",
+				"offices",
+				new LinkedHashSet<>(List.of("officeCode"))
+			);
+			dbModel.getReferenceInfos().add(officeFk);
 
-		ReferenceInfo officeFk = new ReferenceInfo(
-			"employees_office_fk",
-			"public",
-			"employees",
-			new LinkedHashSet<>(List.of("officeCode")),
-			"public",
-			"offices",
-			new LinkedHashSet<>(List.of("officeCode"))
-		);
-		dbModel.getReferenceInfos().add(officeFk);
-
-		ddl.createTables(dbModel);
+			ddl.createTables(dbModel);
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(2));
@@ -91,21 +91,21 @@ public class DDLServicePostgresRuntimeTest {
 	}
 
 	@Test
-	public void disableConstraints_batchesDropConstraint() {
+	public void disableConstraints_batchesDropConstraint() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServicePostgres ddl = new DDLServicePostgres(recording.connection);
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"orders_customer_fk",
+				"public",
+				"orders",
+				new LinkedHashSet<>(List.of("customerNumber")),
+				"public",
+				"customers",
+				new LinkedHashSet<>(List.of("customerNumber"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"orders_customer_fk",
-			"public",
-			"orders",
-			new LinkedHashSet<>(List.of("customerNumber")),
-			"public",
-			"customers",
-			new LinkedHashSet<>(List.of("customerNumber"))
-		);
-
-		ddl.disableConstraints(Set.of(ref));
+			ddl.disableConstraints(Set.of(ref));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasItem(
@@ -113,21 +113,21 @@ public class DDLServicePostgresRuntimeTest {
 	}
 
 	@Test
-	public void enableContraints_batchesAddForeignKey() {
+	public void enableContraints_batchesAddForeignKey() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServicePostgres ddl = new DDLServicePostgres(recording.connection);
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"employees_office_fk",
+				"public",
+				"employees",
+				new LinkedHashSet<>(List.of("officeCode")),
+				"public",
+				"offices",
+				new LinkedHashSet<>(List.of("officeCode"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"employees_office_fk",
-			"public",
-			"employees",
-			new LinkedHashSet<>(List.of("officeCode")),
-			"public",
-			"offices",
-			new LinkedHashSet<>(List.of("officeCode"))
-		);
-
-		ddl.enableContraints(Set.of(ref));
+			ddl.enableContraints(Set.of(ref));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(1));

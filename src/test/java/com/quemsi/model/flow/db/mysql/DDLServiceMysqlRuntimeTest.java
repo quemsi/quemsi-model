@@ -58,22 +58,22 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void createTables_quotesEmptyCharAndEnumDefaults() {
+	public void createTables_quotesEmptyCharAndEnumDefaults() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			DbModel dbModel = new DbModel();
+			DbTable country = dbModel.addTable("country");
+			country.addColumn(DbColumn.builder().name("Code").dataType("char").columnType("char(3)")
+				.ordinalPosition(1).nullable(false).build());
+			country.addColumn(DbColumn.builder().name("Name").dataType("char").columnType("char(52)")
+				.ordinalPosition(2).nullable(false).columnDefault("").build());
+			country.addColumn(DbColumn.builder().name("Continent").dataType("enum")
+				.columnType("enum('Asia','Europe','North America','Africa','Oceania','Antarctica','South America')")
+				.ordinalPosition(3).nullable(false).columnDefault("Asia").build());
+			country.getPkColumnNames().add("Code");
 
-		DbModel dbModel = new DbModel();
-		DbTable country = dbModel.addTable("country");
-		country.addColumn(DbColumn.builder().name("Code").dataType("char").columnType("char(3)")
-			.ordinalPosition(1).nullable(false).build());
-		country.addColumn(DbColumn.builder().name("Name").dataType("char").columnType("char(52)")
-			.ordinalPosition(2).nullable(false).columnDefault("").build());
-		country.addColumn(DbColumn.builder().name("Continent").dataType("enum")
-			.columnType("enum('Asia','Europe','North America','Africa','Oceania','Antarctica','South America')")
-			.ordinalPosition(3).nullable(false).columnDefault("Asia").build());
-		country.getPkColumnNames().add("Code");
-
-		ddl.createTables(dbModel);
+			ddl.createTables(dbModel);
+		}
 
 		assertThat(recording.batchedSql, hasSize(1));
 		assertThat(recording.batchedSql.get(0), containsString("`Name` char(52) NOT NULL DEFAULT ''"));
@@ -81,34 +81,34 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void createTables_emitsFulltextKeyAndPrefixLengths() {
+	public void createTables_emitsFulltextKeyAndPrefixLengths() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			DbModel dbModel = new DbModel();
+			DbTable filmText = dbModel.addTable("film_text");
+			filmText.addColumn(DbColumn.builder().name("film_id").dataType("smallint").columnType("smallint")
+				.ordinalPosition(1).nullable(false).build());
+			filmText.addColumn(DbColumn.builder().name("title").dataType("varchar").columnType("varchar(255)")
+				.ordinalPosition(2).nullable(false).build());
+			filmText.addColumn(DbColumn.builder().name("description").dataType("text").columnType("text")
+				.ordinalPosition(3).nullable(true).build());
+			filmText.getPkColumnNames().add("film_id");
 
-		DbModel dbModel = new DbModel();
-		DbTable filmText = dbModel.addTable("film_text");
-		filmText.addColumn(DbColumn.builder().name("film_id").dataType("smallint").columnType("smallint")
-			.ordinalPosition(1).nullable(false).build());
-		filmText.addColumn(DbColumn.builder().name("title").dataType("varchar").columnType("varchar(255)")
-			.ordinalPosition(2).nullable(false).build());
-		filmText.addColumn(DbColumn.builder().name("description").dataType("text").columnType("text")
-			.ordinalPosition(3).nullable(true).build());
-		filmText.getPkColumnNames().add("film_id");
+			IndexInfo fulltext = new IndexInfo(null, "film_text", "idx_title_description", false, "FULLTEXT");
+			fulltext.getColumns().add("title");
+			fulltext.getColumns().add("description");
+			fulltext.getColumnPrefixLengths().add(null);
+			fulltext.getColumnPrefixLengths().add(null);
+			dbModel.getIndexes().computeIfAbsent("film_text", k -> new java.util.HashMap<>())
+				.put(fulltext.getIndexName(), fulltext);
 
-		IndexInfo fulltext = new IndexInfo(null, "film_text", "idx_title_description", false, "FULLTEXT");
-		fulltext.getColumns().add("title");
-		fulltext.getColumns().add("description");
-		fulltext.getColumnPrefixLengths().add(null);
-		fulltext.getColumnPrefixLengths().add(null);
-		dbModel.getIndexes().computeIfAbsent("film_text", k -> new java.util.HashMap<>())
-			.put(fulltext.getIndexName(), fulltext);
+			IndexInfo prefixIdx = new IndexInfo(null, "film_text", "idx_description_prefix", false, "BTREE");
+			prefixIdx.getColumns().add("description");
+			prefixIdx.getColumnPrefixLengths().add(100);
+			dbModel.getIndexes().get("film_text").put(prefixIdx.getIndexName(), prefixIdx);
 
-		IndexInfo prefixIdx = new IndexInfo(null, "film_text", "idx_description_prefix", false, "BTREE");
-		prefixIdx.getColumns().add("description");
-		prefixIdx.getColumnPrefixLengths().add(100);
-		dbModel.getIndexes().get("film_text").put(prefixIdx.getIndexName(), prefixIdx);
-
-		ddl.createTables(dbModel);
+			ddl.createTables(dbModel);
+		}
 
 		assertThat(recording.batchedSql, hasSize(1));
 		assertThat(recording.batchedSql.get(0), containsString("FULLTEXT KEY idx_title_description (`title`, `description`)"));
@@ -128,25 +128,25 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void createTables_spatialIndex_ignoresSubPartPrefix() {
+	public void createTables_spatialIndex_ignoresSubPartPrefix() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			DbModel dbModel = new DbModel();
+			DbTable address = dbModel.addTable("address");
+			address.addColumn(DbColumn.builder().name("address_id").dataType("smallint").columnType("smallint")
+				.ordinalPosition(1).nullable(false).build());
+			address.addColumn(DbColumn.builder().name("location").dataType("geometry").columnType("geometry")
+				.ordinalPosition(2).nullable(false).build());
+			address.getPkColumnNames().add("address_id");
 
-		DbModel dbModel = new DbModel();
-		DbTable address = dbModel.addTable("address");
-		address.addColumn(DbColumn.builder().name("address_id").dataType("smallint").columnType("smallint")
-			.ordinalPosition(1).nullable(false).build());
-		address.addColumn(DbColumn.builder().name("location").dataType("geometry").columnType("geometry")
-			.ordinalPosition(2).nullable(false).build());
-		address.getPkColumnNames().add("address_id");
+			IndexInfo spatial = new IndexInfo(null, "address", "idx_location", false, "SPATIAL");
+			spatial.getColumns().add("location");
+			spatial.getColumnPrefixLengths().add(32);
+			dbModel.getIndexes().computeIfAbsent("address", k -> new java.util.HashMap<>())
+				.put(spatial.getIndexName(), spatial);
 
-		IndexInfo spatial = new IndexInfo(null, "address", "idx_location", false, "SPATIAL");
-		spatial.getColumns().add("location");
-		spatial.getColumnPrefixLengths().add(32);
-		dbModel.getIndexes().computeIfAbsent("address", k -> new java.util.HashMap<>())
-			.put(spatial.getIndexName(), spatial);
-
-		ddl.createTables(dbModel);
+			ddl.createTables(dbModel);
+		}
 
 		assertThat(recording.batchedSql, hasSize(1));
 		assertThat(recording.batchedSql.get(0), containsString("SPATIAL KEY idx_location (`location`)"));
@@ -154,11 +154,11 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void dropTables_disablesFkChecks_andRunsMultiTableDrop() {
+	public void dropTables_disablesFkChecks_andRunsMultiTableDrop() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
-
-		ddl.dropTables("orderdetails", "orders", "customers");
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			ddl.dropTables("orderdetails", "orders", "customers");
+		}
 
 		assertThat(recording.executedSql, contains(
 			"SET FOREIGN_KEY_CHECKS=0",
@@ -169,48 +169,48 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void createTables_batchesScripts_andOmitsAllForeignKeys() {
+	public void createTables_batchesScripts_andOmitsAllForeignKeys() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			DbModel dbModel = new DbModel();
+			DbTable offices = dbModel.addTable("offices");
+			offices.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar(10)")
+				.ordinalPosition(1).nullable(false).build());
+			offices.getPkColumnNames().add("officeCode");
 
-		DbModel dbModel = new DbModel();
-		DbTable offices = dbModel.addTable("offices");
-		offices.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar(10)")
-			.ordinalPosition(1).nullable(false).build());
-		offices.getPkColumnNames().add("officeCode");
+			DbTable employees = dbModel.addTable("employees");
+			employees.addColumn(DbColumn.builder().name("employeeNumber").dataType("int").columnType("int")
+				.ordinalPosition(1).nullable(false).build());
+			employees.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar(10)")
+				.ordinalPosition(2).nullable(false).build());
+			employees.addColumn(DbColumn.builder().name("reportsTo").dataType("int").columnType("int")
+				.ordinalPosition(3).nullable(true).build());
+			employees.getPkColumnNames().add("employeeNumber");
 
-		DbTable employees = dbModel.addTable("employees");
-		employees.addColumn(DbColumn.builder().name("employeeNumber").dataType("int").columnType("int")
-			.ordinalPosition(1).nullable(false).build());
-		employees.addColumn(DbColumn.builder().name("officeCode").dataType("varchar").columnType("varchar(10)")
-			.ordinalPosition(2).nullable(false).build());
-		employees.addColumn(DbColumn.builder().name("reportsTo").dataType("int").columnType("int")
-			.ordinalPosition(3).nullable(true).build());
-		employees.getPkColumnNames().add("employeeNumber");
+			ReferenceInfo officeFk = new ReferenceInfo(
+				"employees_ibfk_2",
+				null,
+				"employees",
+				new LinkedHashSet<>(List.of("officeCode")),
+				null,
+				"offices",
+				new LinkedHashSet<>(List.of("officeCode"))
+			);
+			ReferenceInfo circular = new ReferenceInfo(
+				"employees_ibfk_1",
+				null,
+				"employees",
+				new LinkedHashSet<>(List.of("reportsTo")),
+				null,
+				"employees",
+				new LinkedHashSet<>(List.of("employeeNumber"))
+			);
+			dbModel.getReferenceInfos().add(officeFk);
+			dbModel.getReferenceInfos().add(circular);
+			dbModel.getCircularIgnore().add(circular);
 
-		ReferenceInfo officeFk = new ReferenceInfo(
-			"employees_ibfk_2",
-			null,
-			"employees",
-			new LinkedHashSet<>(List.of("officeCode")),
-			null,
-			"offices",
-			new LinkedHashSet<>(List.of("officeCode"))
-		);
-		ReferenceInfo circular = new ReferenceInfo(
-			"employees_ibfk_1",
-			null,
-			"employees",
-			new LinkedHashSet<>(List.of("reportsTo")),
-			null,
-			"employees",
-			new LinkedHashSet<>(List.of("employeeNumber"))
-		);
-		dbModel.getReferenceInfos().add(officeFk);
-		dbModel.getReferenceInfos().add(circular);
-		dbModel.getCircularIgnore().add(circular);
-
-		ddl.createTables(dbModel);
+			ddl.createTables(dbModel);
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(2));
@@ -225,21 +225,21 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void disableConstraints_batchesOnSingleConnection() {
+	public void disableConstraints_batchesOnSingleConnection() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"orders_ibfk_1",
+				null,
+				"orders",
+				new LinkedHashSet<>(List.of("customerNumber")),
+				null,
+				"customers",
+				new LinkedHashSet<>(List.of("customerNumber"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"orders_ibfk_1",
-			null,
-			"orders",
-			new LinkedHashSet<>(List.of("customerNumber")),
-			null,
-			"customers",
-			new LinkedHashSet<>(List.of("customerNumber"))
-		);
-
-		ddl.disableConstraints(Set.of(ref));
+			ddl.disableConstraints(Set.of(ref));
+		}
 
 		assertThat(recording.getConnectionCalls.get(), equalTo(1));
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
@@ -247,21 +247,21 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
-	public void enableContraints_disablesFkChecks_andBatchesAddFk() {
+	public void enableContraints_disablesFkChecks_andBatchesAddFk() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
-		DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource);
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			ReferenceInfo ref = new ReferenceInfo(
+				"employees_ibfk_1",
+				null,
+				"employees",
+				new LinkedHashSet<>(List.of("reportsTo")),
+				null,
+				"employees",
+				new LinkedHashSet<>(List.of("employeeNumber"))
+			);
 
-		ReferenceInfo ref = new ReferenceInfo(
-			"employees_ibfk_1",
-			null,
-			"employees",
-			new LinkedHashSet<>(List.of("reportsTo")),
-			null,
-			"employees",
-			new LinkedHashSet<>(List.of("employeeNumber"))
-		);
-
-		ddl.enableContraints(Set.of(ref));
+			ddl.enableContraints(Set.of(ref));
+		}
 
 		assertThat(recording.getConnectionCalls.get(), equalTo(1));
 		assertThat(recording.executedSql, contains(

@@ -25,14 +25,14 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServicePostgresWritePageDataTest {
 
 	@Test
-	public void writePageData_commitsBatch_andRestoresAutocommit() {
+	public void writePageData_commitsBatch_andRestoresAutocommit() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
-		DMLServicePostgres dml = new DMLServicePostgres(dataSource(recording.connection));
-
-		dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(
-			1, new Object[] { 1, "a" },
-			2, new Object[] { 2, "b" }
-		)));
+		try (DMLServicePostgres dml = new DMLServicePostgres(dataSource(recording.connection))) {
+			dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(
+				1, new Object[] { 1, "a" },
+				2, new Object[] { 2, "b" }
+			)));
+		}
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.commitCalls.get(), equalTo(1));
@@ -42,12 +42,12 @@ public class DMLServicePostgresWritePageDataTest {
 	}
 
 	@Test
-	public void writePageData_onBatchFailure_rollsBackAndRestoresAutocommit() {
+	public void writePageData_onBatchFailure_rollsBackAndRestoresAutocommit() throws Exception {
 		RecordingConnection recording = new RecordingConnection(true);
-		DMLServicePostgres dml = new DMLServicePostgres(dataSource(recording.connection));
-
-		assertThrows(BaseRuntimeException.class, () ->
-			dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(1, new Object[] { 1, "a" }))));
+		try (DMLServicePostgres dml = new DMLServicePostgres(dataSource(recording.connection))) {
+			assertThrows(BaseRuntimeException.class, () ->
+				dml.writePageData(tableWithIdName(), new DataPage(0, Map.of(1, new Object[] { 1, "a" }))));
+		}
 
 		assertThat(recording.rollbackCalls.get(), equalTo(1));
 		assertThat(recording.commitCalls.get(), equalTo(0));
