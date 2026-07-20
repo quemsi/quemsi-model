@@ -60,6 +60,31 @@ public class DMLServiceSqlserverWritePageDataTest {
 		assertThat(DMLServiceSqlserver.quotedTable(table), equalTo("[dbo].[Order Details]"));
 	}
 
+	@Test
+	public void writePageData_imageColumn_decodesBase64ToBytes() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("dbo", "pub_info");
+		table.addColumn(DbColumn.builder().name("pub_id").dataType("char").columnType("char").ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("logo").dataType("image").columnType("image").ordinalPosition(2).nullable(true).build());
+
+		String base64 = java.util.Base64.getEncoder().encodeToString(new byte[] { 1, 2, 3 });
+		try (DMLServiceSqlserver dml = new DMLServiceSqlserver(dataSource(recording.connection), null)) {
+			dml.writePageData(table, new DataPage(0, Map.of("0736", new Object[] { "0736", base64 })));
+		}
+
+		assertThat(recording.setBytesCalls.get(), equalTo(1));
+		assertThat(recording.setObjectCalls.get(), equalTo(1));
+		assertThat(recording.commitCalls.get(), equalTo(1));
+	}
+
+	@Test
+	public void isBinaryColumnType_coversImageBinaryVarbinary() {
+		assertThat(DMLServiceSqlserver.isBinaryColumnType("image"), equalTo(true));
+		assertThat(DMLServiceSqlserver.isBinaryColumnType("varbinary"), equalTo(true));
+		assertThat(DMLServiceSqlserver.isBinaryColumnType("binary"), equalTo(true));
+		assertThat(DMLServiceSqlserver.isBinaryColumnType("varchar"), equalTo(false));
+	}
+
 	private static DbTable tableWithIdName() {
 		DbTable table = new DbTable("dbo", "offices");
 		table.addColumn(DbColumn.builder().name("id").dataType("int").columnType("int").ordinalPosition(1).nullable(false).build());
@@ -98,6 +123,8 @@ public class DMLServiceSqlserverWritePageDataTest {
 		final AtomicInteger rollbackCalls = new AtomicInteger();
 		final AtomicInteger executeBatchCalls = new AtomicInteger();
 		final AtomicInteger addBatchCalls = new AtomicInteger();
+		final AtomicInteger setBytesCalls = new AtomicInteger();
+		final AtomicInteger setObjectCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
 		final boolean failOnExecuteBatch;
@@ -145,7 +172,15 @@ public class DMLServiceSqlserverWritePageDataTest {
 				new Class<?>[] { PreparedStatement.class },
 				(proxy, method, args) -> {
 					String name = method.getName();
-					if ("setObject".equals(name) || "setNull".equals(name) || "setBytes".equals(name)) {
+					if ("setBytes".equals(name)) {
+						setBytesCalls.incrementAndGet();
+						return null;
+					}
+					if ("setObject".equals(name)) {
+						setObjectCalls.incrementAndGet();
+						return null;
+					}
+					if ("setNull".equals(name)) {
 						return null;
 					}
 					if ("addBatch".equals(name) && (args == null || args.length == 0)) {

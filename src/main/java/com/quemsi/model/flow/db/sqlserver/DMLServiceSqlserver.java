@@ -12,6 +12,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -22,6 +23,7 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.in.CustomSerializedColumn;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
@@ -33,6 +35,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class DMLServiceSqlserver implements DMLService{
+	private static final Set<String> BINARY_COLUMN_TYPES = Set.of("VARBINARY", "BINARY", "IMAGE");
+
 	private static final String GET_TABLE_DATA_PAGE_FORMAT = """
 select * from (
 	select *, ROW_NUMBER() OVER (ORDER BY %s ) AS RowNum from %s
@@ -185,18 +189,7 @@ select * from (
 				PreparedStatement ps = conn.prepareStatement(insertSql);
 				dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
 					for(int i=0; i < orderedColumns.length; i++){
-						DbColumn c = orderedColumns[i];
-						if("varbinary".equals(c.getColumnType())){
-							if(e.getValue()[i] == null){
-								ps.setNull(i + 1, Types.VARBINARY);
-							}else{
-								String encodedStr = (String)e.getValue()[i];
-								byte[] decodedBin = Base64.getDecoder().decode(encodedStr);
-								ps.setBytes(i + 1, decodedBin);
-							}
-						} else{
-							ps.setObject(i + 1, e.getValue()[i]);
-						}
+						setColumnValue(ps, i + 1, orderedColumns[i], e.getValue()[i]);
 					}
 					ps.addBatch();
 				}));
@@ -226,6 +219,65 @@ select * from (
 			}
 		}
 		return 0;		
+	}
+
+	static void setColumnValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
+		if (value == null) {
+			ps.setNull(parameterIndex, isBinaryColumnType(column) ? Types.VARBINARY : Types.NULL);
+			return;
+		}
+		if (value instanceof CustomSerializedColumn serializedColumn) {
+			ps.setBytes(parameterIndex, serializedColumn.getData());
+			return;
+		}
+		if (value instanceof Map<?, ?> mapValue && isDeserializedBinaryColumn(column, mapValue)) {
+			Object data = mapValue.get("data");
+			if (data == null) {
+				ps.setNull(parameterIndex, Types.VARBINARY);
+				return;
+			}
+			ps.setBytes(parameterIndex, decodeBinaryData(data));
+			return;
+		}
+		if (isBinaryColumnType(column)) {
+			ps.setBytes(parameterIndex, decodeBinaryData(value));
+			return;
+		}
+		ps.setObject(parameterIndex, value);
+	}
+
+	static boolean isBinaryColumnType(DbColumn column) {
+		return isBinaryColumnType(column.getColumnType()) || isBinaryColumnType(column.getDataType());
+	}
+
+	static boolean isBinaryColumnType(Object columnType) {
+		return columnType != null && BINARY_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	static boolean isDeserializedBinaryColumn(DbColumn column, Map<?, ?> mapValue) {
+		return isBinaryColumnType(column)
+			|| isBinaryColumnType(mapValue.get("dbType"))
+			|| mapValue.containsKey("dataId");
+	}
+
+	static byte[] decodeBinaryData(Object data) {
+		if (data == null) {
+			return null;
+		}
+		if (data instanceof byte[] bytes) {
+			return bytes;
+		}
+		if (data instanceof String encodedStr) {
+			return Base64.getDecoder().decode(encodedStr);
+		}
+		if (data instanceof List<?> list) {
+			byte[] bytes = new byte[list.size()];
+			for (int i = 0; i < list.size(); i++) {
+				bytes[i] = ((Number) list.get(i)).byteValue();
+			}
+			return bytes;
+		}
+		throw Exceptions.server("binary-data-type-not-supported").withExtra("dataType", data.getClass().getName()).get();
 	}
 
 	@Override
