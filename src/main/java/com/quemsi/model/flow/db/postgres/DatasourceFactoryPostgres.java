@@ -169,35 +169,36 @@ where cv.relkind = 'v'
 			""";
 
 	/**
-	 * Routines referenced by views in the configured schemas (excludes pg_catalog / information_schema).
-	 * Aggregates cannot use {@code pg_get_functiondef}; they are reconstructed from {@code pg_aggregate}.
-	 * MATERIALIZED CTEs keep the planner from evaluating {@code pg_get_functiondef} on aggregates.
+	 * All user routines in the configured schemas (functions, procedures, aggregates).
+	 * Excludes extension-owned routines. Aggregates cannot use {@code pg_get_functiondef};
+	 * they are reconstructed from {@code pg_aggregate}. MATERIALIZED CTEs keep the planner
+	 * from evaluating {@code pg_get_functiondef} on aggregates.
 	 */
-	static final String SQL_FOR_VIEW_FUNCTIONS = """
-with view_dep_procs as materialized (
-	select distinct
+	static final String SQL_FOR_FUNCTIONS = """
+with schema_procs as materialized (
+	select
 		p.oid,
 		p.prokind,
 		n.nspname as schema_name,
 		p.proname as function_name
-	from pg_catalog.pg_depend d
-	inner join pg_catalog.pg_rewrite r on d.objid = r.oid
-	inner join pg_catalog.pg_class c on r.ev_class = c.oid
-	inner join pg_catalog.pg_namespace nv on c.relnamespace = nv.oid
-	inner join pg_catalog.pg_proc p on d.refobjid = p.oid
-	inner join pg_catalog.pg_namespace n on p.pronamespace = n.oid
-	where c.relkind = 'v'
-	  and d.refclassid = 'pg_proc'::regclass
-	  and d.deptype = 'n'
-	  and nv.nspname in {inValues}
-	  and n.nspname not in ('pg_catalog', 'information_schema')
+	from pg_catalog.pg_proc p
+	inner join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+	where n.nspname in {inValues}
+	  and p.prokind in ('f', 'p', 'a')
+	  and not exists (
+		select 1
+		from pg_catalog.pg_depend d
+		where d.classid = 'pg_proc'::regclass
+		  and d.objid = p.oid
+		  and d.deptype = 'e'
+	  )
 ),
 expanded as materialized (
 	select oid, prokind, schema_name, function_name
-	from view_dep_procs
+	from schema_procs
 	union
 	select sp.oid, sp.prokind, sn.nspname, sp.proname
-	from view_dep_procs vp
+	from schema_procs vp
 	inner join pg_catalog.pg_aggregate a on a.aggfnoid = vp.oid
 	inner join pg_catalog.pg_proc sp on sp.oid = a.aggtransfn
 	inner join pg_catalog.pg_namespace sn on sn.oid = sp.pronamespace
@@ -205,7 +206,7 @@ expanded as materialized (
 	  and sn.nspname not in ('pg_catalog', 'information_schema')
 	union
 	select fp.oid, fp.prokind, fn.nspname, fp.proname
-	from view_dep_procs vp
+	from schema_procs vp
 	inner join pg_catalog.pg_aggregate a on a.aggfnoid = vp.oid
 	inner join pg_catalog.pg_proc fp on fp.oid = a.aggfinalfn
 	inner join pg_catalog.pg_namespace fn on fn.oid = fp.pronamespace
@@ -421,7 +422,7 @@ order by table_schema, table_name, trigger_name
 			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
 			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
-			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_FUNCTIONS, schemas.size()));
+			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FUNCTIONS, schemas.size()));
 			PreparedStatement eps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ENUM_TYPES, schemas.size()));
 			PreparedStatement dps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_TYPES, schemas.size()));
 			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_COLUMNS, schemas.size()));
@@ -670,7 +671,7 @@ order by table_schema, table_name, trigger_name
 					.definition(definition)
 					.build());
 			}
-			reportProgress(progress, LogMessage.info("Loaded {} routines from views", dbModel.getFunctions().size()));
+			reportProgress(progress, LogMessage.info("Loaded {} routines", dbModel.getFunctions().size()));
 			reportProgress(progress, LogMessage.info("Loading triggers..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> tps.setString(i, schema)));
 			ResultSet trs = tps.executeQuery();

@@ -413,10 +413,17 @@ public class DDLServicePostgres implements DDLService{
         }
         try {
             Statement s = conn.createStatement();
-            for (DbFunction function : dbModel.getFunctions()) {
-                String sql = createFunctionSql(function);
-                log.info("ddl : {}", sql);
-                s.executeUpdate(sql);
+            // Match pg_dump: SQL-language bodies are checked at CREATE time, so forward
+            // references (e.g. film_in_stock -> inventory_in_stock) fail without this.
+            s.execute("SET check_function_bodies = false");
+            try {
+                for (DbFunction function : dbModel.getFunctions()) {
+                    String sql = createFunctionSql(function);
+                    log.info("ddl : {}", sql);
+                    s.executeUpdate(sql);
+                }
+            } finally {
+                s.execute("RESET check_function_bodies");
             }
         } catch (SQLException e) {
             throw Exceptions.server("failed-to-create-functions").withCause(e).get();

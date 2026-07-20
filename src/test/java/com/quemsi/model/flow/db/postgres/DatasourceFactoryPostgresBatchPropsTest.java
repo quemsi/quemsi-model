@@ -33,11 +33,13 @@ public class DatasourceFactoryPostgresBatchPropsTest {
 	}
 
 	@Test
-	public void sqlForViewFunctions_isolatesAggregatesFromPgGetFunctiondef() {
-		String sql = DatasourceFactoryPostgres.SQL_FOR_VIEW_FUNCTIONS;
+	public void sqlForFunctions_loadsAllSchemaRoutinesAndIsolatesAggregates() {
+		String sql = DatasourceFactoryPostgres.SQL_FOR_FUNCTIONS;
 		assertThat(sql.contains("as materialized"), equalTo(true));
+		assertThat(sql.contains("prokind in ('f', 'p', 'a')"), equalTo(true));
 		assertThat(sql.contains("prokind in ('f', 'p')"), equalTo(true));
 		assertThat(sql.contains("CREATE AGGREGATE"), equalTo(true));
 		assertThat(sql.contains("pg_catalog.pg_aggregate"), equalTo(true));
+		assertThat(sql.contains("deptype = 'e'"), equalTo(true));
 	}
 }
