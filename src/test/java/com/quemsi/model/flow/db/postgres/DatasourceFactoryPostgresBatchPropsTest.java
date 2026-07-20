@@ -17,6 +17,14 @@ public class DatasourceFactoryPostgresBatchPropsTest {
 	}
 
 	@Test
+	public void sqlForDomainAndTriggers_present() {
+		assertThat(DatasourceFactoryPostgres.SQL_FOR_DOMAIN_TYPES.contains("typtype = 'd'"), equalTo(true));
+		assertThat(DatasourceFactoryPostgres.SQL_FOR_DOMAIN_COLUMNS.contains("typtype = 'd'"), equalTo(true));
+		assertThat(DatasourceFactoryPostgres.SQL_FOR_TRIGGERS.contains("pg_get_triggerdef"), equalTo(true));
+		assertThat(DatasourceFactoryPostgres.SQL_FOR_TRIGGERS.contains("tgisinternal"), equalTo(true));
+	}
+
+	@Test
 	public void applyPostgresBatchDataSourceProperties_setsRewriteBatchedInserts() {
 		HikariConfig config = new HikariConfig();
 		DatasourceFactoryPostgres.applyPostgresBatchDataSourceProperties(config);

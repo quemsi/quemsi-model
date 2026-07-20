@@ -18,6 +18,17 @@ public interface DDLService extends AutoCloseable {
 	/** Create/replace routines required by views (e.g. Postgres functions). No-op when unsupported. */
 	void createFunctions(DbModel dbModel);
 	void createViews(DbModel dbModel);
+	/** Create triggers after data load. No-op when unsupported. */
+	default void createTriggers(DbModel dbModel) {
+	}
+	/** Drop domain types (e.g. after DROP TABLE when rebuilding). No-op when unsupported. */
+	default boolean dropDomains(String... domainNames) {
+		return true;
+	}
+	/** Drop enum/user types. No-op when unsupported. */
+	default boolean dropEnumTypes(String... typeNames) {
+		return true;
+	}
 	boolean checkSchema(String schema) throws SQLException;
 	
 	/**

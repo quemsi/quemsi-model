@@ -38,6 +38,10 @@ public class DbModel {
     protected List<DbFunction> functions;
     /** PostgreSQL ENUM types (and similar) required before CREATE TABLE. */
     protected List<DbEnumType> enumTypes;
+    /** PostgreSQL DOMAIN types required before CREATE TABLE. */
+    protected List<DbDomainType> domainTypes;
+    /** PostgreSQL triggers (created after data load). */
+    protected List<DbTrigger> triggers;
     
     public DbModel(){
         tables = new HashMap<>();
@@ -50,6 +54,8 @@ public class DbModel {
         views = new LinkedList<>();
         functions = new LinkedList<>();
         enumTypes = new LinkedList<>();
+        domainTypes = new LinkedList<>();
+        triggers = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
         return addTable(tableName, null);

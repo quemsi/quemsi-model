@@ -23,10 +23,12 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbTrigger;
 
 public class DDLServicePostgresRuntimeTest {
 
@@ -39,6 +41,31 @@ public class DDLServicePostgresRuntimeTest {
 			.build();
 		assertThat(DDLServicePostgres.createEnumTypeSql(rating),
 			equalTo("CREATE TYPE \"public\".\"mpaa_rating\" AS ENUM ('G', 'PG', 'PG-13', 'R', 'NC-17')"));
+	}
+
+	@Test
+	public void createDomainTypeSql_includesBaseTypeAndCheck() {
+		DbDomainType year = DbDomainType.builder()
+			.schema("public")
+			.name("year")
+			.baseType("integer")
+			.notNull(false)
+			.checkConstraintName("year_check")
+			.checkConstraintDef("CHECK (VALUE >= 1901 AND VALUE <= 2155)")
+			.build();
+		assertThat(DDLServicePostgres.createDomainTypeSql(year),
+			equalTo("CREATE DOMAIN \"public\".\"year\" AS integer CONSTRAINT \"year_check\" CHECK (VALUE >= 1901 AND VALUE <= 2155)"));
+	}
+
+	@Test
+	public void dropTriggerSql_quotesTableAndTrigger() {
+		DbTrigger trigger = DbTrigger.builder()
+			.schema("public")
+			.tableName("film")
+			.name("last_updated")
+			.build();
+		assertThat(DDLServicePostgres.dropTriggerSql(trigger),
+			equalTo("DROP TRIGGER IF EXISTS \"last_updated\" ON \"public\".\"film\""));
 	}
 
 	@Test

@@ -16,6 +16,7 @@ import org.apache.commons.io.IOUtils;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -52,6 +53,13 @@ public final class PostgresEnumSupport {
 		for (DbEnumType existing : dbModel.getEnumTypes()) {
 			known.add(existing.qualifiedName());
 		}
+		Set<String> domainNames = new LinkedHashSet<>();
+		if (dbModel.getDomainTypes() != null) {
+			for (DbDomainType domain : dbModel.getDomainTypes()) {
+				domainNames.add(domain.getName());
+				domainNames.add(domain.qualifiedName());
+			}
+		}
 
 		Map<String, EnumCandidate> missing = new LinkedHashMap<>();
 		for (DbTable table : dbModel.getTables().values()) {
@@ -59,7 +67,7 @@ public final class PostgresEnumSupport {
 			for (int i = 0; i < columns.length; i++) {
 				DbColumn column = columns[i];
 				String typeName = baseUdtName(column.getColumnType());
-				if (typeName == null || isBuiltin(typeName)) {
+				if (typeName == null || isBuiltin(typeName) || domainNames.contains(typeName)) {
 					continue;
 				}
 				String schema = table.getSchema() != null ? table.getSchema() : "public";

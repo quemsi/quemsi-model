@@ -689,7 +689,7 @@ public class DDLServicePostgresTest {
     }
 
     @Test
-    public void givenAggregateDefinition_whenCreateFunctionSql_thenKeepCreateAggregate() {
+    public void givenAggregateDefinition_whenCreateFunctionSql_thenUseOrReplace() {
         String def = "CREATE AGGREGATE public.group_concat(text) (SFUNC = public._group_concat, STYPE = text)";
         DbFunction aggregate = DbFunction.builder()
             .schema("public")
@@ -697,7 +697,8 @@ public class DDLServicePostgresTest {
             .routineType(DbFunction.TYPE_AGGREGATE)
             .definition(def)
             .build();
-        assertThat(DDLServicePostgres.createFunctionSql(aggregate), equalTo(def));
+        assertThat(DDLServicePostgres.createFunctionSql(aggregate),
+            equalTo("CREATE OR REPLACE AGGREGATE public.group_concat(text) (SFUNC = public._group_concat, STYPE = text)"));
     }
 
     // Helper methods

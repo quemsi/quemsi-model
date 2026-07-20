@@ -24,6 +24,7 @@ import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -33,6 +34,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbTrigger;
 import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
@@ -266,6 +268,85 @@ order by n.nspname, t.typname, e.enumsortorder
 ;
 			""";
 
+	static final String SQL_FOR_DOMAIN_TYPES = """
+select
+	n.nspname as schema_name,
+	t.typname as type_name,
+	pg_catalog.format_type(t.typbasetype, t.typtypmod) as base_type,
+	t.typnotnull as not_null,
+	t.typdefault as type_default,
+	con.conname as check_constraint_name,
+	pg_catalog.pg_get_constraintdef(con.oid, true) as check_constraint_def
+from pg_catalog.pg_type t
+inner join pg_catalog.pg_namespace n on n.oid = t.typnamespace
+left join pg_catalog.pg_constraint con on con.contypid = t.oid and con.contype = 'c'
+where t.typtype = 'd'
+  and n.nspname in {inValues}
+order by n.nspname, t.typname
+;
+			""";
+
+	/** Overwrite information_schema base types with domain typnames where applicable. */
+	static final String SQL_FOR_DOMAIN_COLUMNS = """
+select
+	n.nspname as table_schema,
+	c.relname as table_name,
+	a.attname as column_name,
+	t.typname as domain_name
+from pg_catalog.pg_attribute a
+inner join pg_catalog.pg_class c on c.oid = a.attrelid
+inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+inner join pg_catalog.pg_type t on t.oid = a.atttypid
+where a.attnum > 0
+  and not a.attisdropped
+  and c.relkind = 'r'
+  and t.typtype = 'd'
+  and n.nspname in {inValues}
+;
+			""";
+
+	/**
+	 * User triggers on tables in configured schemas.
+	 * Function definition is only loaded for non-catalog routines (prokind f/p).
+	 */
+	static final String SQL_FOR_TRIGGERS = """
+with trig as materialized (
+	select
+		ns.nspname as table_schema,
+		c.relname as table_name,
+		t.tgname as trigger_name,
+		pg_catalog.pg_get_triggerdef(t.oid, true) as definition,
+		pn.nspname as function_schema,
+		p.proname as function_name,
+		p.oid as function_oid,
+		p.prokind as function_kind
+	from pg_catalog.pg_trigger t
+	inner join pg_catalog.pg_class c on c.oid = t.tgrelid
+	inner join pg_catalog.pg_namespace ns on ns.oid = c.relnamespace
+	inner join pg_catalog.pg_proc p on p.oid = t.tgfoid
+	inner join pg_catalog.pg_namespace pn on pn.oid = p.pronamespace
+	where not t.tgisinternal
+	  and ns.nspname in {inValues}
+)
+select
+	table_schema,
+	table_name,
+	trigger_name,
+	definition,
+	function_schema,
+	function_name,
+	case
+		when function_schema not in ('pg_catalog', 'information_schema')
+			and function_kind in ('f', 'p')
+		then pg_catalog.pg_get_functiondef(function_oid)
+		else null
+	end as function_definition,
+	pg_catalog.pg_get_function_identity_arguments(function_oid) as identity_arguments
+from trig
+order by table_schema, table_name, trigger_name
+;
+			""";
+
 	protected static final String SQL_FOR_SCHEMA = "select nspname from pg_catalog.pg_namespace ns where ns.nspname = ?;";
 	
     private String name;
@@ -342,6 +423,9 @@ order by n.nspname, t.typname, e.enumsortorder
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_FUNCTIONS, schemas.size()));
 			PreparedStatement eps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ENUM_TYPES, schemas.size()));
+			PreparedStatement dps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_TYPES, schemas.size()));
+			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_COLUMNS, schemas.size()));
+			PreparedStatement tps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TRIGGERS, schemas.size()));
 		){
 			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
@@ -489,6 +573,47 @@ order by n.nspname, t.typname, e.enumsortorder
 				enumType.getLabels().add(label);
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} enum types", dbModel.getEnumTypes().size()));
+			reportProgress(progress, LogMessage.info("Loading domain types..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dps.setString(i, schema)));
+			ResultSet drs = dps.executeQuery();
+			while (drs.next()) {
+				String schemaName = drs.getString("SCHEMA_NAME");
+				String typeName = drs.getString("TYPE_NAME");
+				String baseType = drs.getString("BASE_TYPE");
+				boolean notNull = drs.getBoolean("NOT_NULL");
+				String typeDefault = drs.getString("TYPE_DEFAULT");
+				String checkName = drs.getString("CHECK_CONSTRAINT_NAME");
+				String checkDef = drs.getString("CHECK_CONSTRAINT_DEF");
+				dbModel.getDomainTypes().add(DbDomainType.builder()
+					.schema(schemaName)
+					.name(typeName)
+					.baseType(baseType)
+					.notNull(notNull)
+					.defaultExpression(typeDefault)
+					.checkConstraintName(checkName)
+					.checkConstraintDef(checkDef)
+					.build());
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} domain types", dbModel.getDomainTypes().size()));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
+			ResultSet dcrs = dcps.executeQuery();
+			while (dcrs.next()) {
+				String schemaName = dcrs.getString("TABLE_SCHEMA");
+				String tableName = dcrs.getString("TABLE_NAME");
+				String columnName = dcrs.getString("COLUMN_NAME");
+				String domainName = dcrs.getString("DOMAIN_NAME");
+				dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).ifPresent(table -> {
+					DbColumn column = table.column(columnName);
+					if (column != null) {
+						column.setColumnType(domainName);
+						column.setDataType(domainName);
+						/* Domain length/precision live on the base type; clear so DDL uses domain name only. */
+						column.setMaxLength(null);
+						column.setNumPrecision(null);
+						column.setNumScale(null);
+					}
+				});
+			}
 			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
@@ -545,6 +670,42 @@ order by n.nspname, t.typname, e.enumsortorder
 					.definition(definition)
 					.build());
 			}
+			reportProgress(progress, LogMessage.info("Loaded {} routines from views", dbModel.getFunctions().size()));
+			reportProgress(progress, LogMessage.info("Loading triggers..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> tps.setString(i, schema)));
+			ResultSet trs = tps.executeQuery();
+			while (trs.next()) {
+				String tableSchema = trs.getString("TABLE_SCHEMA");
+				String tableName = trs.getString("TABLE_NAME");
+				String triggerName = trs.getString("TRIGGER_NAME");
+				String definition = trs.getString("DEFINITION");
+				String functionSchema = trs.getString("FUNCTION_SCHEMA");
+				String functionName = trs.getString("FUNCTION_NAME");
+				String functionDefinition = trs.getString("FUNCTION_DEFINITION");
+				String identityArguments = trs.getString("IDENTITY_ARGUMENTS");
+				dbModel.getTriggers().add(DbTrigger.builder()
+					.schema(tableSchema)
+					.tableName(tableName)
+					.name(triggerName)
+					.definition(definition)
+					.functionSchema(functionSchema)
+					.functionName(functionName)
+					.build());
+				if (functionDefinition != null && !functionDefinition.isBlank()) {
+					String key = CommonHelpers.qualifiedName(functionSchema, functionName)
+						+ "(" + (identityArguments != null ? identityArguments : "") + ")";
+					if (seenFunctions.add(key)) {
+						dbModel.getFunctions().add(DbFunction.builder()
+							.schema(functionSchema)
+							.name(functionName)
+							.routineType(DbFunction.TYPE_FUNCTION)
+							.identityArguments(identityArguments)
+							.definition(functionDefinition)
+							.build());
+					}
+				}
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} triggers ({} routines total)", dbModel.getTriggers().size(), dbModel.getFunctions().size()));
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
 			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));

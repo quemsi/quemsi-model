@@ -122,6 +122,7 @@ public class RdbmsTarget extends AbstractStorage{
                 if(result){
                     ddlService.createFunctions(dbModel);
                     ddlService.createViews(dbModel);
+                    ddlService.createTriggers(dbModel);
                     context.logStepInfo(context.getCurrentStep(), LogMessage.info("all data is restored successfully"));
                 } else {
                     Exception failure = firstFailure.get();

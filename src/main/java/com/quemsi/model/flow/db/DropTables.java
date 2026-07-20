@@ -12,6 +12,8 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.FlowContext;
+import com.quemsi.model.flow.db.sql.DbDomainType;
+import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbView;
@@ -68,6 +70,18 @@ public class DropTables extends AbstractStep{
             }
 			if(sequences != null && !sequences.isEmpty()){
 				ddlService.dropSequences(sequences.toArray(new String[sequences.size()]));
+			}
+			if (all) {
+				if (dbModel.getDomainTypes() != null && !dbModel.getDomainTypes().isEmpty()) {
+					ddlService.dropDomains(dbModel.getDomainTypes().stream()
+						.map(DbDomainType::qualifiedName)
+						.toArray(String[]::new));
+				}
+				if (dbModel.getEnumTypes() != null && !dbModel.getEnumTypes().isEmpty()) {
+					ddlService.dropEnumTypes(dbModel.getEnumTypes().stream()
+						.map(DbEnumType::qualifiedName)
+						.toArray(String[]::new));
+				}
 			}
         } catch (Exception e) {
 			throw Exceptions.server("script-exception").withExtra("datasource", datasource.getName()).withCause(e).get();

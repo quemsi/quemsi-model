@@ -128,6 +128,24 @@ public class SchemaMapping extends AbstractStep{
                     t.setSchema(targetSchema);
                 });
             }
+
+            if (dbModel.getDomainTypes() != null) {
+                dbModel.getDomainTypes().stream().filter(t -> StringUtils.equalsIgnoreCase(t.getSchema(), sourceSchema)).forEach(t -> {
+                    t.setSchema(targetSchema);
+                });
+            }
+
+            if (dbModel.getTriggers() != null) {
+                dbModel.getTriggers().stream().filter(t -> StringUtils.equalsIgnoreCase(t.getSchema(), sourceSchema)).forEach(t -> {
+                    t.setSchema(targetSchema);
+                    if (StringUtils.equalsIgnoreCase(t.getFunctionSchema(), sourceSchema)) {
+                        t.setFunctionSchema(targetSchema);
+                    }
+                    if (t.getDefinition() != null) {
+                        t.setDefinition(remapSchemaInDefinition(t.getDefinition(), sourceSchema, targetSchema));
+                    }
+                });
+            }
             
             dbModel.getIndexes().values().stream().flatMap(i -> i.values().stream()).filter(i -> StringUtils.equalsIgnoreCase(i.getSchemaName(), sourceSchema)).forEach(i ->{
                 i.setSchemaName(targetSchema);

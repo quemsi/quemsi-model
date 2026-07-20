@@ -18,6 +18,7 @@ import java.util.stream.Collectors;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
+import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -27,6 +28,7 @@ import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.db.sql.DbTrigger;
 import com.quemsi.model.flow.db.sql.DbView;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
@@ -182,6 +184,30 @@ public class DDLServicePostgres implements DDLService{
 		}
 		sb.append(")");
 		return sb.toString();
+	}
+
+	static String createDomainTypeSql(DbDomainType domain) {
+		StringBuilder sb = new StringBuilder("CREATE DOMAIN ")
+			.append(CommonHelpers.doubleQuotedQualified(domain.getSchema(), domain.getName()))
+			.append(" AS ").append(domain.getBaseType());
+		if (domain.getDefaultExpression() != null && !domain.getDefaultExpression().isBlank()) {
+			sb.append(" DEFAULT ").append(domain.getDefaultExpression());
+		}
+		if (domain.isNotNull()) {
+			sb.append(" NOT NULL");
+		}
+		if (domain.getCheckConstraintDef() != null && !domain.getCheckConstraintDef().isBlank()) {
+			if (domain.getCheckConstraintName() != null && !domain.getCheckConstraintName().isBlank()) {
+				sb.append(" CONSTRAINT ").append(CommonHelpers.doubleQuoted(domain.getCheckConstraintName()));
+			}
+			sb.append(" ").append(domain.getCheckConstraintDef());
+		}
+		return sb.toString();
+	}
+
+	static String dropTriggerSql(DbTrigger trigger) {
+		return "DROP TRIGGER IF EXISTS " + CommonHelpers.doubleQuoted(trigger.getName())
+			+ " ON " + CommonHelpers.doubleQuotedQualified(trigger.getSchema(), trigger.getTableName());
 	}
 
 	private boolean typeExists(String schema, String typeName) throws SQLException {
@@ -348,6 +374,18 @@ public class DDLServicePostgres implements DDLService{
 					}
 				}
 			}
+			if (dbModel.getDomainTypes() != null) {
+				for (DbDomainType domain : dbModel.getDomainTypes()) {
+					if (typeExists(domain.getSchema(), domain.getName())) {
+						continue;
+					}
+					String sql = createDomainTypeSql(domain);
+					log.info("ddl : {}", sql);
+					try (Statement s = conn.createStatement()) {
+						s.executeUpdate(sql);
+					}
+				}
+			}
 			if (scripts.isEmpty()) {
 				return;
 			}
@@ -393,13 +431,22 @@ public class DDLServicePostgres implements DDLService{
         }
         String trimmed = def.trim();
         if (DbFunction.TYPE_AGGREGATE.equalsIgnoreCase(function.resolvedRoutineType())
-            || trimmed.regionMatches(true, 0, "CREATE AGGREGATE", 0, "CREATE AGGREGATE".length())) {
+            || trimmed.regionMatches(true, 0, "CREATE AGGREGATE", 0, "CREATE AGGREGATE".length())
+            || trimmed.regionMatches(true, 0, "CREATE OR REPLACE AGGREGATE", 0, "CREATE OR REPLACE AGGREGATE".length())) {
+            if (trimmed.regionMatches(true, 0, "CREATE AGGREGATE", 0, "CREATE AGGREGATE".length())
+                && !trimmed.regionMatches(true, 0, "CREATE OR REPLACE AGGREGATE", 0, "CREATE OR REPLACE AGGREGATE".length())) {
+                return "CREATE OR REPLACE AGGREGATE" + trimmed.substring("CREATE AGGREGATE".length());
+            }
             return trimmed;
         }
         // pg_get_functiondef may return CREATE FUNCTION; prefer OR REPLACE for restore
         if (trimmed.regionMatches(true, 0, "CREATE FUNCTION", 0, "CREATE FUNCTION".length())
             && !trimmed.regionMatches(true, 0, "CREATE OR REPLACE FUNCTION", 0, "CREATE OR REPLACE FUNCTION".length())) {
             return "CREATE OR REPLACE FUNCTION" + trimmed.substring("CREATE FUNCTION".length());
+        }
+        if (trimmed.regionMatches(true, 0, "CREATE PROCEDURE", 0, "CREATE PROCEDURE".length())
+            && !trimmed.regionMatches(true, 0, "CREATE OR REPLACE PROCEDURE", 0, "CREATE OR REPLACE PROCEDURE".length())) {
+            return "CREATE OR REPLACE PROCEDURE" + trimmed.substring("CREATE PROCEDURE".length());
         }
         return trimmed;
     }
@@ -426,6 +473,65 @@ public class DDLServicePostgres implements DDLService{
             throw Exceptions.server("failed-to-create-views").withCause(e).get();
         }
     }
+
+	@Override
+	public void createTriggers(DbModel dbModel) {
+		if (dbModel.getTriggers() == null || dbModel.getTriggers().isEmpty()) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbTrigger trigger : dbModel.getTriggers()) {
+				String dropSql = dropTriggerSql(trigger);
+				log.info("ddl : {}", dropSql);
+				s.executeUpdate(dropSql);
+				String createSql = trigger.getDefinition();
+				if (createSql == null || createSql.isBlank()) {
+					throw Exceptions.server("missing-trigger-definition")
+						.withExtra("trigger", trigger.getName())
+						.withExtra("table", trigger.qualifiedTableName()).get();
+				}
+				log.info("ddl : {}", createSql);
+				s.executeUpdate(createSql);
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-triggers").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropDomains(String... domainNames) {
+		if (domainNames == null || domainNames.length == 0) {
+			return true;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (String domainName : domainNames) {
+				s.addBatch("DROP DOMAIN IF EXISTS " + CommonHelpers.doubleQuotedQualified(domainName) + " CASCADE");
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-domains").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropEnumTypes(String... typeNames) {
+		if (typeNames == null || typeNames.length == 0) {
+			return true;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (String typeName : typeNames) {
+				s.addBatch("DROP TYPE IF EXISTS " + CommonHelpers.doubleQuotedQualified(typeName) + " CASCADE");
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-enum-types").withCause(e).get();
+		}
+	}
 
     static String dropViewSql(String qualifiedName) {
         return "DROP VIEW IF EXISTS " + CommonHelpers.doubleQuotedQualified(qualifiedName) + ";";
