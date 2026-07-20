@@ -10,6 +10,14 @@ import com.zaxxer.hikari.HikariConfig;
 public class DatasourceFactoryPostgresBatchPropsTest {
 
 	@Test
+	public void sqlForColumns_excludesViewsWithSchemaMatch() {
+		String sql = DatasourceFactoryPostgres.SQL_FOR_COLUMNS;
+		assertThat(sql.contains("information_schema.columns"), equalTo(true));
+		assertThat(sql.contains("information_schema.views"), equalTo(true));
+		assertThat(sql.contains("v.table_schema = c.table_schema"), equalTo(true));
+	}
+
+	@Test
 	public void sqlForEnumTypes_selectsPgEnumLabels() {
 		String sql = DatasourceFactoryPostgres.SQL_FOR_ENUM_TYPES;
 		assertThat(sql.contains("pg_catalog.pg_enum"), equalTo(true));

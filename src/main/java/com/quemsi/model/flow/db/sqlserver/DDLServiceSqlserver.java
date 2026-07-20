@@ -5,15 +5,15 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
-import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DDLService;
@@ -23,7 +23,6 @@ import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
-import com.quemsi.model.util.CommonHelpers;
 import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbView;
@@ -39,9 +38,7 @@ import com.quemsi.model.flow.db.sql.diff.DbUniqueConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbViewDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DiffEntityType;
 import com.quemsi.model.flow.db.sql.diff.DiffOpType;
-
-import java.util.ArrayList;
-import java.util.Objects;
+import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -322,7 +319,6 @@ public class DDLServiceSqlserver implements DDLService{
 			Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
 			for (Map.Entry<String, IndexInfo> entry : indexes.entrySet()) {
 					boolean withRowguid = false;
-					String indName = entry.getKey();
 					StringBuilder indBuilder = new StringBuilder("CREATE ");
 					IndexInfo indCols = entry.getValue();
 					if(indCols.isUnique()){

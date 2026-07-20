@@ -46,14 +46,19 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @Data
 public class DatasourceFactoryPostgres implements DataSourceFactory{
-    private static final String SQL_FOR_COLUMNS = """
+    static final String SQL_FOR_COLUMNS = """
 select 
-	c.table_schema as TABLE_SCHEMA, c.table_name, c.column_name, c.ordinal_position,
+	c.table_schema as table_schema, c.table_name, c.column_name, c.ordinal_position,
 	c.character_maximum_length, c.udt_name as column_type, c.udt_name as data_type, c.character_octet_length, c.numeric_precision, c.numeric_scale,
 	c.column_default, c.is_nullable
 from information_schema.columns c
 where c.table_schema in {inValues}
-	and not exists (select v.table_name from INFORMATION_SCHEMA.views v where v.table_catalog = c.table_catalog and v.table_name = c.table_name )
+	and not exists (
+		select 1 from information_schema.views v
+		where v.table_catalog = c.table_catalog
+		  and v.table_schema = c.table_schema
+		  and v.table_name = c.table_name
+	)
 order by c.table_catalog, c.table_schema, c.table_name, c.ordinal_position
 ;
 """;
