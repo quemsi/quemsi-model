@@ -47,6 +47,38 @@ public class CommonHelpers {
         }
         return doubleQuoted(qualifiedName.substring(0, dot)) + "." + doubleQuoted(qualifiedName.substring(dot + 1));
     }
+
+    /** T-SQL bracket identifier; escape {@code ]} as {@code ]]}. */
+    public static String bracketQuoted(String identifier) {
+        if (identifier == null) {
+            return null;
+        }
+        return "[" + identifier.replace("]", "]]") + "]";
+    }
+
+    /** Quotes schema and name separately for SQL Server: {@code [schema].[name]}. */
+    public static String bracketQuotedQualified(String schema, String name) {
+        if (StringUtils.isEmptyOrNull(schema)) {
+            return bracketQuoted(name);
+        }
+        return bracketQuoted(schema) + "." + bracketQuoted(name);
+    }
+
+    /**
+     * Quotes a {@code schema.name} (or bare name) for SQL Server.
+     * Splits on the first {@code .} so names with spaces like {@code dbo.Order Details} work.
+     */
+    public static String bracketQuotedQualified(String qualifiedName) {
+        if (qualifiedName == null) {
+            return null;
+        }
+        int dot = qualifiedName.indexOf('.');
+        if (dot < 0) {
+            return bracketQuoted(qualifiedName);
+        }
+        return bracketQuoted(qualifiedName.substring(0, dot)) + "." + bracketQuoted(qualifiedName.substring(dot + 1));
+    }
+
     public static String dataFileName(String qualifiedName){
         return "data-" + qualifiedName + ".json";
     }

@@ -55,7 +55,7 @@ public class DDLServiceSqlserver implements DDLService{
         try{
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
-				s.addBatch("DROP TABLE IF EXISTS " + tableName);
+				s.addBatch("DROP TABLE IF EXISTS " + CommonHelpers.bracketQuotedQualified(tableName));
 			}
 			s.executeBatch();
 			return true;
@@ -139,7 +139,7 @@ public class DDLServiceSqlserver implements DDLService{
 			Statement s = conn.createStatement();
 			for (ReferenceInfo refInfo : constraints) {
 				StringBuilder sb = new StringBuilder("ALTER TABLE ");
-				sb.append(refInfo.srcQualifiedName()).append(" DROP CONSTRAINT ");
+				sb.append(CommonHelpers.bracketQuotedQualified(refInfo.srcQualifiedName())).append(" DROP CONSTRAINT ");
 				appendBracketQuoted(sb, refInfo.getConstraintName());
 				String dropConstraintSql = sb.toString();
 				log.info("drop constraint sql :{}", dropConstraintSql);
@@ -274,7 +274,8 @@ public class DDLServiceSqlserver implements DDLService{
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			boolean hasClustedIndex = dbModel.indexesForTable(tableName)
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
-			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
+			String quotedTableName = CommonHelpers.bracketQuotedQualified(tableName);
+			StringBuilder sb = new StringBuilder("CREATE TABLE ").append(quotedTableName).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			for(DbColumn c : columns){
 				sb.append("  [");
@@ -306,7 +307,7 @@ public class DDLServiceSqlserver implements DDLService{
 				Iterator<String> cIt = table.getPkColumnNames().iterator();
 				while(cIt.hasNext()){
 					String cName = cIt.next();
-					sb.append(cName);
+					appendBracketQuoted(sb, cName);
 					if(cIt.hasNext()){
 						sb.append(", ");
 					}
@@ -329,7 +330,7 @@ public class DDLServiceSqlserver implements DDLService{
 					}
 					indBuilder.append(" ").append(indCols.getIndexType());
 					indBuilder.append(" INDEX ").append(indCols.getIndexName()).append(" ON ");
-					indBuilder.append(tableName);
+					indBuilder.append(quotedTableName);
 					indBuilder.append(" (");
 					Iterator<String> icIt = indCols.getColumns().iterator();
 					while(icIt.hasNext()){
@@ -368,7 +369,7 @@ public class DDLServiceSqlserver implements DDLService{
 				log.info("unique constraint {} already exists on {} skipping", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
 				continue;
 			}
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.bracketQuotedQualified(contraintInfo.qualifiedTableName())).append(" ADD CONSTRAINT ");
 			appendBracketQuoted(sb, contraintInfo.getConstraintName());
 			sb.append(" UNIQUE").append(" (");
 			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
@@ -388,7 +389,7 @@ public class DDLServiceSqlserver implements DDLService{
 				log.info("check constraint {} already exists on {} skipping", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName());
 				continue;
 			}
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" WITH CHECK ADD CONSTRAINT ");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.bracketQuotedQualified(checkConstraint.qualifiedTableName())).append(" WITH CHECK ADD CONSTRAINT ");
 			appendBracketQuoted(sb, checkConstraint.getConstraintName());
 			sb.append(" CHECK ").append(checkConstraint.getCondef()).append(";");
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb.toString());
@@ -585,13 +586,13 @@ public class DDLServiceSqlserver implements DDLService{
                 break;
             case DROP:
                 if (operation.getOldTable() != null) {
-                    statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
+                    statements.add("DROP TABLE IF EXISTS " + CommonHelpers.bracketQuotedQualified(operation.getQualifiedName()) + ";");
                 }
                 break;
             case MODIFY:
                 // For MODIFY, we drop and recreate the table
                 if (operation.getOldTable() != null) {
-                    statements.add("DROP TABLE IF EXISTS " + operation.getQualifiedName() + ";");
+                    statements.add("DROP TABLE IF EXISTS " + CommonHelpers.bracketQuotedQualified(operation.getQualifiedName()) + ";");
                 }
                 if (operation.getNewTable() != null) {
                     statements.add(generateCreateTableSql(operation.getNewTable(), dbModel));
@@ -604,10 +605,11 @@ public class DDLServiceSqlserver implements DDLService{
     
     private String generateCreateTableSql(DbTable table, DbModel dbModel) {
         String tableName = table.qualifiedName();
+		String quotedTableName = CommonHelpers.bracketQuotedQualified(tableName);
 		boolean hasClustedIndex = dbModel.indexesForTable(tableName)
 				.values().stream().map(ii -> "CLUSTERED".equals(ii.getIndexType())).reduce(Boolean.FALSE, (a, v) -> a || v);
 		
-		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
+		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(quotedTableName).append(" (").append(System.lineSeparator());
 		DbColumn[] columns = table.orderedColumns();
 		for(DbColumn c : columns){
 			sb.append("  [");
@@ -639,7 +641,7 @@ public class DDLServiceSqlserver implements DDLService{
 			Iterator<String> cIt = table.getPkColumnNames().iterator();
 			while(cIt.hasNext()){
 				String cName = cIt.next();
-				sb.append(cName);
+				appendBracketQuoted(sb, cName);
 				if(cIt.hasNext()){
 					sb.append(", ");
 				}
@@ -654,7 +656,7 @@ public class DDLServiceSqlserver implements DDLService{
     
     private List<String> generateColumnSql(DbColumnDiffOp operation, DiffOpType opType) {
         List<String> statements = new ArrayList<>();
-        String tableName = operation.getTableQualifiedName();
+        String tableName = CommonHelpers.bracketQuotedQualified(operation.getTableQualifiedName());
         String columnName = operation.getColumnName();
         
         switch (opType) {
@@ -758,14 +760,14 @@ public class DDLServiceSqlserver implements DDLService{
             case DROP:
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + bracketQuoted(ref.getConstraintName()) + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(ref.srcQualifiedName()) + " DROP CONSTRAINT " + bracketQuoted(ref.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldReference() != null) {
                     ReferenceInfo ref = operation.getOldReference();
-                    statements.add("ALTER TABLE " + ref.srcQualifiedName() + " DROP CONSTRAINT " + bracketQuoted(ref.getConstraintName()) + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(ref.srcQualifiedName()) + " DROP CONSTRAINT " + bracketQuoted(ref.getConstraintName()) + ";");
                 }
                 if (operation.getNewReference() != null) {
                     statements.add(generateAddForeignKeySql(operation.getNewReference()));
@@ -777,7 +779,7 @@ public class DDLServiceSqlserver implements DDLService{
     }
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.bracketQuotedQualified(ref.srcQualifiedName()))
             .append(" ADD CONSTRAINT ");
         appendBracketQuoted(sb, ref.getConstraintName());
         sb.append(" FOREIGN KEY (");
@@ -791,7 +793,7 @@ public class DDLServiceSqlserver implements DDLService{
             }
         }
         
-        sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
+        sb.append(") REFERENCES ").append(CommonHelpers.bracketQuotedQualified(ref.refQualifiedName())).append(" (");
         cIt = ref.getRefColumnNames().iterator();
         while (cIt.hasNext()) {
             String cName = cIt.next();
@@ -817,14 +819,14 @@ public class DDLServiceSqlserver implements DDLService{
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     ContraintInfo constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     statements.add(generateAddUniqueConstraintSql(operation.getNewConstraint()));
@@ -836,7 +838,7 @@ public class DDLServiceSqlserver implements DDLService{
     }
     
     private String generateAddUniqueConstraintSql(ContraintInfo constraint) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(constraint.qualifiedTableName())
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()))
             .append(" ADD CONSTRAINT ");
         appendBracketQuoted(sb, constraint.getConstraintName());
         sb.append(" UNIQUE (");
@@ -861,24 +863,24 @@ public class DDLServiceSqlserver implements DDLService{
             case CREATE:
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
                 }
                 break;
             case DROP:
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 break;
             case MODIFY:
                 // Drop old and create new
                 if (operation.getOldConstraint() != null) {
                     CheckConstraint constraint = operation.getOldConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " DROP CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + ";");
                 }
                 if (operation.getNewConstraint() != null) {
                     CheckConstraint constraint = operation.getNewConstraint();
-                    statements.add("ALTER TABLE " + constraint.qualifiedTableName() + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
+                    statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(constraint.qualifiedTableName()) + " WITH CHECK ADD CONSTRAINT " + bracketQuoted(constraint.getConstraintName()) + " CHECK " + constraint.getCondef() + ";");
                 }
                 break;
         }
@@ -888,17 +890,18 @@ public class DDLServiceSqlserver implements DDLService{
     
     private List<String> generateIndexSql(DbIndexDiffOp operation, DiffOpType opType) {
         List<String> statements = new ArrayList<>();
+        String quotedTable = CommonHelpers.bracketQuotedQualified(operation.getTableQualifiedName());
         
         switch (opType) {
             case CREATE:
                 if (operation.getNewIndex() != null) {
-                    statements.add(generateCreateIndexSql(operation.getNewIndex(), operation.getTableQualifiedName()));
+                    statements.add(generateCreateIndexSql(operation.getNewIndex(), quotedTable));
                 }
                 break;
             case DROP:
                 if (operation.getOldIndex() != null) {
                     IndexInfo index = operation.getOldIndex();
-                    statements.add("DROP INDEX " + index.getIndexName() + " ON " + operation.getTableQualifiedName() + ";");
+                    statements.add("DROP INDEX " + index.getIndexName() + " ON " + quotedTable + ";");
                 }
                 break;
             case MODIFY:
@@ -906,10 +909,10 @@ public class DDLServiceSqlserver implements DDLService{
                 if (operation.getOldIndex() != null) {
                     IndexInfo index = operation.getOldIndex();
                     String qualifiedIndexName = CommonHelpers.qualifiedName(index.getSchemaName(), index.getIndexName());
-                    statements.add("DROP INDEX " + qualifiedIndexName + " ON " + operation.getTableQualifiedName() + ";");
+                    statements.add("DROP INDEX " + qualifiedIndexName + " ON " + quotedTable + ";");
                 }
                 if (operation.getNewIndex() != null) {
-                    statements.add(generateCreateIndexSql(operation.getNewIndex(), operation.getTableQualifiedName()));
+                    statements.add(generateCreateIndexSql(operation.getNewIndex(), quotedTable));
                 }
                 break;
         }

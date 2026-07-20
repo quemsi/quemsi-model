@@ -54,6 +54,12 @@ public class DMLServiceSqlserverWritePageDataTest {
 		assertThat(recording.autoCommitAfterClose.get(), equalTo(true));
 	}
 
+	@Test
+	public void quotedTable_bracketsSchemaAndSpacedName() {
+		DbTable table = new DbTable("dbo", "Order Details");
+		assertThat(DMLServiceSqlserver.quotedTable(table), equalTo("[dbo].[Order Details]"));
+	}
+
 	private static DbTable tableWithIdName() {
 		DbTable table = new DbTable("dbo", "offices");
 		table.addColumn(DbColumn.builder().name("id").dataType("int").columnType("int").ordinalPosition(1).nullable(false).build());

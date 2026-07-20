@@ -33,7 +33,7 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class DMLServiceSqlserver implements DMLService{
-    private static final String GET_TABLE_DATA_PAGE_FORMAT = """
+	private static final String GET_TABLE_DATA_PAGE_FORMAT = """
 select * from (
 	select *, ROW_NUMBER() OVER (ORDER BY %s ) AS RowNum from %s
 ) q WHERE q.RowNum > ? AND q.RowNum <= (? + ?)
@@ -41,7 +41,7 @@ select * from (
             """;;
 	private static final String SET_INSERT_IDENTITY_ON = "SET IDENTITY_INSERT %s ON;";
 	private static final String SET_INSERT_IDENTITY_OFF = "SET IDENTITY_INSERT %s OFF;";
-	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX([%s]) as max_val FROM %s";
+	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(%s) as max_val FROM %s";
 	private static final String UPDATE_SEQUENCE_SQL = "ALTER SEQUENCE %s RESTART WITH %d";
 
 	private static final int maxPages = 10;
@@ -49,17 +49,26 @@ select * from (
 	private DataSource dataSource;
 	private ReentrantLock globalLock;
 
+	static String quotedTable(DbTable table) {
+		return CommonHelpers.bracketQuotedQualified(table.getSchema(), table.getName());
+	}
+
+	static String quotedColumn(String columnName) {
+		return CommonHelpers.bracketQuoted(columnName);
+	}
+
 	@Override
 	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
 		int totalRows = 0;
+		String from = quotedTable(table);
 		try (Connection conn = dataSource.getConnection();
 			 Statement stmt = conn.createStatement();
-			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", table.qualifiedName()))) {
+			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", from))) {
 			if (rs.next()) {
 				totalRows = rs.getInt(1);
 			}
 		} catch (SQLException e) {
-			log.warn("Could not determine row count for {}. Using expectedPageSize {}", table.qualifiedName(), expectedPageSize, e);
+			log.warn("Could not determine row count for {}. Using expectedPageSize {}", from, expectedPageSize, e);
 			return expectedPageSize;
 		}
 		int calculatedPageSize = (int) Math.ceil((double) totalRows / maxPages);
@@ -71,15 +80,16 @@ select * from (
 		try(Connection conn = dataSource.getConnection()){
 			String sortColumnNames;
 			if (!CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())) {
-				sortColumnNames = request.getTable().getPkColumnNames().stream().map(c -> "[" + c + "]").collect(Collectors.joining(", "));
+				sortColumnNames = request.getTable().getPkColumnNames().stream().map(DMLServiceSqlserver::quotedColumn).collect(Collectors.joining(", "));
 			} else {
 				List<String> orderable = request.getTable().orderableColumnNames();
 				sortColumnNames = orderable.isEmpty()
 					? "(SELECT NULL)"
-					: orderable.stream().map(c -> "[" + c + "]").collect(Collectors.joining(", "));
+					: orderable.stream().map(DMLServiceSqlserver::quotedColumn).collect(Collectors.joining(", "));
 			}
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, sortColumnNames, request.getTable().qualifiedName());
-			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
+			String from = quotedTable(request.getTable());
+			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, sortColumnNames, from);
+			log.info("sql for {} :{} offset :{} count: {}", from, sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageNum() * request.getPageSize());
 			ps.setInt(2, request.getPageNum() * request.getPageSize());
@@ -142,26 +152,18 @@ select * from (
 			throw Exceptions.server("unable-to-read-data").withExtra("request", request).withCause(e).get();
 		}
 	}
-	private String escape(String columnName){
-		StringBuilder sb = new StringBuilder();
-		if(DatasourceFactorySqlserver.RESERVED_KEYS.contains(columnName.toUpperCase())){
-			sb.append("[").append(columnName).append("]");	
-		}else{
-			sb.append(columnName);
-		}
-		return sb.toString();
-	}
     @Override
     public int writePageData(DbTable table, DataPage dataPage){
 		try(Connection conn = dataSource.getConnection()){
 			boolean previousAutoCommit = conn.getAutoCommit();
 			try {
 				conn.setAutoCommit(false);
-				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.qualifiedName()).append("(");
+				String from = quotedTable(table);
+				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(from).append("(");
 				StringBuilder paramsBuilder = new StringBuilder("(");
 				int counter = 0;
 				for(String columnName : table.columnNames()){
-					sqlBuilder.append("[").append(escape(columnName)).append("]");
+					sqlBuilder.append(quotedColumn(columnName));
 					paramsBuilder.append("?");
 					counter++;
 					if(counter < table.columnNames().size()){
@@ -175,8 +177,8 @@ select * from (
 				DbColumn[] orderedColumns = table.orderedColumns();
 				boolean hasIdentity = Arrays.stream(orderedColumns).map(c -> c.isIdentity()).reduce(Boolean.FALSE, (c, v) -> c || v);
 				if(hasIdentity){
-					String setIdentityOnSql = String.format(SET_INSERT_IDENTITY_ON, table.qualifiedName());
-					String setIdentityOffSql = String.format(SET_INSERT_IDENTITY_OFF, table.qualifiedName());
+					String setIdentityOnSql = String.format(SET_INSERT_IDENTITY_ON, from);
+					String setIdentityOffSql = String.format(SET_INSERT_IDENTITY_OFF, from);
 					insertSql = setIdentityOnSql + insertSql + setIdentityOffSql;
 				}
 				log.info("for {} insert sql :{}", table.getName(), insertSql);
@@ -226,12 +228,12 @@ select * from (
 		return 0;		
 	}
 
-    @Override
+	@Override
 	public boolean clearTables(String... tableNames) {
 		try(Connection conn = dataSource.getConnection()){
 			Statement s = conn.createStatement();
 			for(String tableName : tableNames){
-				s.addBatch("delete from " + tableName);
+				s.addBatch("delete from " + CommonHelpers.bracketQuotedQualified(tableName));
 			}
 			s.executeBatch();
 			return true;
@@ -243,7 +245,9 @@ select * from (
 
 	@Override
 	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
-        String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);
+        String sql = String.format(GET_MAX_COLUMN_VALUE_SQL,
+			quotedColumn(columnName),
+			CommonHelpers.bracketQuotedQualified(qualifiedTableName));
         try (Connection conn = dataSource.getConnection();
 			Statement stmt = conn.createStatement();) {
             ResultSet rs = stmt.executeQuery(sql);
@@ -265,7 +269,8 @@ select * from (
 	@Override
     public void updateSequence(String qualifiedSequenceName, Long newValue) {
 		try (Connection conn = dataSource.getConnection();
-			PreparedStatement ps = conn.prepareStatement(String.format(UPDATE_SEQUENCE_SQL, qualifiedSequenceName, newValue))) {
+			PreparedStatement ps = conn.prepareStatement(String.format(UPDATE_SEQUENCE_SQL,
+				CommonHelpers.bracketQuotedQualified(qualifiedSequenceName), newValue))) {
 			ps.executeUpdate();
 		} catch (SQLException e) {
 			log.warn("Error updating sequence {} to value {}", qualifiedSequenceName, newValue, e);

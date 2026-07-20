@@ -19,4 +19,17 @@ public class CommonHelpersQuoteTest {
 		assertThat(CommonHelpers.doubleQuotedQualified("public.Genre"), equalTo("\"public\".\"Genre\""));
 		assertThat(CommonHelpers.doubleQuotedQualified("Genre"), equalTo("\"Genre\""));
 	}
+
+	@Test
+	public void bracketQuoted_escapesEmbeddedBrackets() {
+		assertThat(CommonHelpers.bracketQuoted("Order Details"), equalTo("[Order Details]"));
+		assertThat(CommonHelpers.bracketQuoted("a]b"), equalTo("[a]]b]"));
+	}
+
+	@Test
+	public void bracketQuotedQualified_quotesSchemaAndNameSeparately() {
+		assertThat(CommonHelpers.bracketQuotedQualified("dbo", "Order Details"), equalTo("[dbo].[Order Details]"));
+		assertThat(CommonHelpers.bracketQuotedQualified("dbo.Order Details"), equalTo("[dbo].[Order Details]"));
+		assertThat(CommonHelpers.bracketQuotedQualified("Orders"), equalTo("[Orders]"));
+	}
 }
