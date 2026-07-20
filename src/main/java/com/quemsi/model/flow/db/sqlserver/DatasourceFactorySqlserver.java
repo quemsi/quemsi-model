@@ -58,16 +58,22 @@ where SCHEMA_NAME(t.schema_id) in {inValues}
 select 
 	SCHEMA_NAME(t.schema_id) as schema_name, t.name as table_name,
 	c.name as column_name, c.column_id as ordinal_position,
-	c.max_length as character_maximum_length, ut.name as column_type, st.name as data_type,
+	c.max_length as character_maximum_length,
+	/* Alias UDTs (AdventureWorks Flag/Name) may be invisible without VIEW DEFINITION on the type;
+	   fall back to the base system type so columns are still discovered for db_datareader users. */
+	coalesce(ut.name, st.name) as column_type, st.name as data_type,
 	c.max_length as character_octet_length, c.precision as numeric_precision, c.scale as numeric_scale,
-	object_definition(c.default_object_id) as column_default, c.is_nullable, c.is_identity,
-	c.*
+	object_definition(c.default_object_id) as column_default, c.is_nullable, c.is_identity
 from sys.columns c
-	inner JOIN sys.tables t ON c.object_id = t.object_id
-	inner join sys.types st on c.system_type_id = st.system_type_id
-	inner join sys.types ut on c.user_type_id = ut.user_type_id 
+	inner join sys.tables t on c.object_id = t.object_id
+	/* Base system type: join system_type_id to types.user_type_id (not system_type_id) to avoid
+	   duplicating rows for alias UDTs. system_type_id 240 covers hierarchyid/geometry/geography. */
+	inner join sys.types st on (
+			c.system_type_id = st.user_type_id
+			or (c.system_type_id = 240 and c.user_type_id = st.user_type_id)
+		)
+	left join sys.types ut on c.user_type_id = ut.user_type_id
 where schema_name(t.schema_id) in {inValues} and t.[type] = 'U'
-	and st.user_type_id = (select min(itq.user_type_id) from sys.types itq where itq.system_type_id  = st.system_type_id)
 order by t.schema_id, t.name, c.column_id
 ;
     """;
@@ -255,38 +261,40 @@ where schema_name(v.schema_id) in {inValues}
 		){
 			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
-			ResultSet rs = ps.executeQuery();
-			RsHelper rsHelper = new RsHelper(rs);
-			while(rs.next()){
-				String schemaName = rs.getString("SCHEMA_NAME");
-				String tableName = rs.getString("TABLE_NAME");
-				String columnName = rs.getString("COLUMN_NAME");
-				Integer ordinalPosition = rsHelper.getInt("ORDINAL_POSITION");
-				Integer maxLength = rsHelper.getInt("CHARACTER_MAXIMUM_LENGTH");
-				String columnType = rs.getString("COLUMN_TYPE");
-				String dataType = rs.getString("DATA_TYPE");
-				Integer numPrecision = rsHelper.getInt("NUMERIC_PRECISION");
-				Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
-				String columnDefault = rs.getString("COLUMN_DEFAULT");
-				String nullable = rs.getString("IS_NULLABLE");
-				String isIdentity = rs.getString("IS_IDENTITY");
-				
-				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
+			try (ResultSet rs = ps.executeQuery()) {
+				RsHelper rsHelper = new RsHelper(rs);
+				while(rs.next()){
+					String schemaName = rs.getString("SCHEMA_NAME");
+					String tableName = rs.getString("TABLE_NAME");
+					String columnName = rs.getString("COLUMN_NAME");
+					Integer ordinalPosition = rsHelper.getInt("ORDINAL_POSITION");
+					Integer maxLength = rsHelper.getInt("CHARACTER_MAXIMUM_LENGTH");
+					String columnType = rs.getString("COLUMN_TYPE");
+					String dataType = rs.getString("DATA_TYPE");
+					Integer numPrecision = rsHelper.getInt("NUMERIC_PRECISION");
+					Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
+					String columnDefault = rs.getString("COLUMN_DEFAULT");
+					String nullable = rs.getString("IS_NULLABLE");
+					String isIdentity = rs.getString("IS_IDENTITY");
+					
+					DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
 
-				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+					table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+				}
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
-			ResultSet dcrs = dcps.executeQuery();
-			while(dcrs.next()){
-				String schemaName = dcrs.getString("SCHEMA_NAME");
-				String tableName = dcrs.getString("TABLE_NAME");
-				String columnName = dcrs.getString("COLUMN_NAME");
-				String constraintName = dcrs.getString("CONSTRAINT_NAME");
-				DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
-				DbColumn column = table.findColumn(columnName).orElseThrow(Exceptions.server("unknow-column").withExtra("schemaName", schemaName).withExtra("tableName", tableName).withExtra("columnName", columnName).supplier());
-				column.setDefaultConstraintName(constraintName);
+			try (ResultSet dcrs = dcps.executeQuery()) {
+				while(dcrs.next()){
+					String schemaName = dcrs.getString("SCHEMA_NAME");
+					String tableName = dcrs.getString("TABLE_NAME");
+					String columnName = dcrs.getString("COLUMN_NAME");
+					String constraintName = dcrs.getString("CONSTRAINT_NAME");
+					DbTable table = dbModel.findTable(CommonHelpers.qualifiedName(schemaName, tableName)).orElseThrow(Exceptions.server("unknow-table").withExtra("schemaName", schemaName).withExtra("tableName", tableName).supplier());
+					DbColumn column = table.findColumn(columnName).orElseThrow(Exceptions.server("unknow-column").withExtra("schemaName", schemaName).withExtra("tableName", tableName).withExtra("columnName", columnName).supplier());
+					column.setDefaultConstraintName(constraintName);
+				}
 			}
 
 			reportProgress(progress, LogMessage.info("Loading constraints..."));
@@ -362,7 +370,7 @@ where schema_name(v.schema_id) in {inValues}
 			reportProgress(progress, LogMessage.info("Loading sequences..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
 			ResultSet srs = sst.executeQuery();
-			rsHelper = new RsHelper(srs);
+			RsHelper rsHelper = new RsHelper(srs);
 			while (srs.next()) {
 				String schemaName = srs.getString("SCHEMA_NAME");
 				String sequenceName = srs.getString("SEQUENCE_NAME");

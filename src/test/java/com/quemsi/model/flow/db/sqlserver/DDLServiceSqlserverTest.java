@@ -73,7 +73,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE TABLE test_table"));
+        assertThat(statements.get(0), containsString("CREATE TABLE [test_table]"));
         assertThat(statements.get(0), containsString("[id]"));
         assertThat(statements.get(0), containsString("[name]"));
         assertThat(statements.get(0), containsString("varchar(100)"));
@@ -94,7 +94,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS old_table;"));
+        assertThat(statements.get(0), equalTo("DROP TABLE IF EXISTS [old_table];"));
     }
 
     @Test
@@ -114,7 +114,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE test_table ADD"));
+        assertThat(statements.get(0), containsString("ALTER TABLE [test_table] ADD"));
         assertThat(statements.get(0), containsString("[new_col]"));
         assertThat(statements.get(0), containsString("varchar(50)"));
         assertThat(statements.get(0), containsString("NOT NULL"));
@@ -136,7 +136,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), equalTo("ALTER TABLE test_table DROP COLUMN [old_col];"));
+        assertThat(statements.get(0), equalTo("ALTER TABLE [test_table] DROP COLUMN [old_col];"));
     }
 
     @Test
@@ -158,7 +158,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE test_table ALTER COLUMN [col]"));
+        assertThat(statements.get(0), containsString("ALTER TABLE [test_table] ALTER COLUMN [col]"));
         assertThat(statements.get(0), containsString("nvarchar(50)"));
     }
 
@@ -185,9 +185,9 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE child ADD CONSTRAINT [fk_test]"));
+        assertThat(statements.get(0), containsString("ALTER TABLE [child] ADD CONSTRAINT [fk_test]"));
         assertThat(statements.get(0), containsString("FOREIGN KEY"));
-        assertThat(statements.get(0), containsString("REFERENCES parent"));
+        assertThat(statements.get(0), containsString("REFERENCES [parent]"));
         assertThat(statements.get(0), containsString("[parent_id]"));
     }
 
@@ -211,7 +211,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE users ADD CONSTRAINT [uk_email] UNIQUE"));
+        assertThat(statements.get(0), containsString("ALTER TABLE [users] ADD CONSTRAINT [uk_email] UNIQUE"));
         assertThat(statements.get(0), containsString("[email]"));
     }
 
@@ -235,7 +235,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("ALTER TABLE products WITH CHECK ADD CONSTRAINT [ck_price]"));
+        assertThat(statements.get(0), containsString("ALTER TABLE [products] WITH CHECK ADD CONSTRAINT [ck_price]"));
         assertThat(statements.get(0), containsString("CHECK (price > 0)"));
     }
 
@@ -257,7 +257,7 @@ public class DDLServiceSqlserverTest {
         
         assertThat(statements, hasSize(1));
         assertThat(statements.get(0), containsString("CREATE NONCLUSTERED INDEX idx_email"));
-        assertThat(statements.get(0), containsString("ON users"));
+        assertThat(statements.get(0), containsString("ON [users]"));
         assertThat(statements.get(0), containsString("[email]"));
     }
 
