@@ -48,6 +48,9 @@ public class DropTables extends AbstractStep{
 			if(all){
 				tables = CommonOps.reverse(dbModel.orderedTableNames());
 				sequences = dbModel.getSequences().stream().map(DbSequence::qualifiedName).collect(Collectors.toCollection(LinkedList::new));
+				if (dbModel.getTriggers() != null && !dbModel.getTriggers().isEmpty()) {
+					ddlService.dropTriggers(dbModel);
+				}
 				LinkedList<String> views = dbModel.orderedViews().stream()
 					.map(DbView::qualifiedName)
 					.collect(Collectors.toCollection(LinkedList::new));
@@ -72,6 +75,9 @@ public class DropTables extends AbstractStep{
 				ddlService.dropSequences(sequences.toArray(new String[sequences.size()]));
 			}
 			if (all) {
+				if (dbModel.getFunctions() != null && !dbModel.getFunctions().isEmpty()) {
+					ddlService.dropFunctions(dbModel);
+				}
 				if (dbModel.getDomainTypes() != null && !dbModel.getDomainTypes().isEmpty()) {
 					ddlService.dropDomains(dbModel.getDomainTypes().stream()
 						.map(DbDomainType::qualifiedName)

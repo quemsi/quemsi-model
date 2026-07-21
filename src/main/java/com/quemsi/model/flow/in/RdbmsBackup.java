@@ -167,7 +167,7 @@ public class RdbmsBackup implements Source{
                     dataPage = dmlService.getTableDataPage(request);
                     counter.incrementAndGet();
                     tableDataPersister.persist(dataPage);
-                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("page {} are persisted for {}", counter.get(), table.getName()));
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info("page {} are persisted for {} with {} rows", counter.get(), table.getName(), dataPage.getTableData().size()));
                     request = request.toBuilder().pageNum(request.getPageNum() + 1).build();
                 }
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} pages are completed for {}", counter.get(), table.getName()));

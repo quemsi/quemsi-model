@@ -1,6 +1,10 @@
 package com.quemsi.model.flow.db.sqlserver;
 
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.sql.Clob;
 import java.sql.Connection;
+import java.sql.NClob;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -36,6 +40,10 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 public class DMLServiceSqlserver implements DMLService{
 	private static final Set<String> BINARY_COLUMN_TYPES = Set.of("VARBINARY", "BINARY", "IMAGE");
+	private static final Set<String> NATIONAL_CHAR_TYPES = Set.of("NCHAR", "NVARCHAR", "NTEXT");
+	private static final Set<String> CHARACTER_COLUMN_TYPES = Set.of(
+		"CHAR", "VARCHAR", "TEXT", "NCHAR", "NVARCHAR", "NTEXT", "XML", "SYSNAME"
+	);
 
 	private static final String GET_TABLE_DATA_PAGE_FORMAT = """
 select * from (
@@ -103,7 +111,11 @@ select * from (
 			page.setRequest(request);
 			String pkNames = request.getTable().joinedPkColumnNames();
 			List<String> pkColumnNames = request.getTable().getPkColumnNames();
-			List<String> allColumnNames = new ArrayList<>(request.getTable().columnNames());
+			DbColumn[] orderedColumns = request.getTable().orderedColumns();
+			List<String> allColumnNames = new ArrayList<>();
+			for (DbColumn column : orderedColumns) {
+				allColumnNames.add(column.getName());
+			}
 			int numberOfColumns = allColumnNames.size();
 			if(CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())){
 				pkNames = "[RowNum]";
@@ -121,9 +133,11 @@ select * from (
 				StringBuilder pkBuilder = new StringBuilder();
 				Map<String, Object> pkVals = new HashMap<>();
 				log.trace("{} pk {} for row {}", request.getTable().getName(), pkNames, pk);
-				for(String columnName : allColumnNames){
+				for(int colIdx = 0; colIdx < allColumnNames.size(); colIdx++){
+					String columnName = allColumnNames.get(colIdx);
+					DbColumn columnMeta = colIdx < orderedColumns.length ? orderedColumns[colIdx] : null;
 					if(!pkColumnNames.contains(columnName)){
-						Object val = rs.getObject(columnName);
+						Object val = readColumnValue(rs, columnName, columnMeta);
 						log.trace("{} column {} value {}", request.getTable().getName(), columnName, val);
 						cellValues[columnIndex++] = val;
 					}else{
@@ -163,14 +177,13 @@ select * from (
 			try {
 				conn.setAutoCommit(false);
 				String from = quotedTable(table);
+				DbColumn[] orderedColumns = table.orderedColumns();
 				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(from).append("(");
 				StringBuilder paramsBuilder = new StringBuilder("(");
-				int counter = 0;
-				for(String columnName : table.columnNames()){
-					sqlBuilder.append(quotedColumn(columnName));
+				for(int i = 0; i < orderedColumns.length; i++){
+					sqlBuilder.append(quotedColumn(orderedColumns[i].getName()));
 					paramsBuilder.append("?");
-					counter++;
-					if(counter < table.columnNames().size()){
+					if(i < orderedColumns.length - 1){
 						sqlBuilder.append(", ");
 						paramsBuilder.append(", ");
 					}
@@ -178,7 +191,6 @@ select * from (
 				paramsBuilder.append(")");
 				sqlBuilder.append(") values ").append(paramsBuilder.toString());
 				String insertSql = sqlBuilder.toString();
-				DbColumn[] orderedColumns = table.orderedColumns();
 				boolean hasIdentity = Arrays.stream(orderedColumns).map(c -> c.isIdentity()).reduce(Boolean.FALSE, (c, v) -> c || v);
 				if(hasIdentity){
 					String setIdentityOnSql = String.format(SET_INSERT_IDENTITY_ON, from);
@@ -223,11 +235,15 @@ select * from (
 
 	static void setColumnValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
 		if (value == null) {
-			ps.setNull(parameterIndex, isBinaryColumnType(column) ? Types.VARBINARY : Types.NULL);
+			ps.setNull(parameterIndex, nullSqlType(column));
 			return;
 		}
 		if (value instanceof CustomSerializedColumn serializedColumn) {
-			ps.setBytes(parameterIndex, serializedColumn.getData());
+			if (isBinaryColumnType(column)) {
+				ps.setBytes(parameterIndex, serializedColumn.getData());
+			} else {
+				setCharacterValue(ps, parameterIndex, column, serializedColumn.getData());
+			}
 			return;
 		}
 		if (value instanceof Map<?, ?> mapValue && isDeserializedBinaryColumn(column, mapValue)) {
@@ -243,21 +259,129 @@ select * from (
 			ps.setBytes(parameterIndex, decodeBinaryData(value));
 			return;
 		}
+		if (isCharacterColumnType(column)) {
+			setCharacterValue(ps, parameterIndex, column, value);
+			return;
+		}
+		if (value instanceof byte[] bytes) {
+			/* Avoid setObject(byte[]) which the MSSQL driver binds as varbinary. */
+			ps.setBytes(parameterIndex, bytes);
+			return;
+		}
 		ps.setObject(parameterIndex, value);
 	}
 
+	static void setCharacterValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
+		String text = toCharacterData(column, value);
+		if (text == null) {
+			ps.setNull(parameterIndex, nullSqlType(column));
+			return;
+		}
+		if (isNationalCharacterType(column)) {
+			ps.setNString(parameterIndex, text);
+		} else {
+			ps.setString(parameterIndex, text);
+		}
+	}
+
+	static String toCharacterData(DbColumn column, Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof String str) {
+			return str;
+		}
+		if (value instanceof byte[] bytes) {
+			return new String(bytes, isNationalCharacterType(column) ? StandardCharsets.UTF_16LE : StandardCharsets.UTF_8);
+		}
+		if (value instanceof Map<?, ?> mapValue) {
+			Object nested = mapValue.containsKey("data") ? mapValue.get("data") : mapValue.get("value");
+			if (nested != null && nested != value) {
+				return toCharacterData(column, nested);
+			}
+		}
+		return value.toString();
+	}
+
+	static Object readColumnValue(ResultSet rs, String columnName, DbColumn column) throws SQLException {
+		Object val = rs.getObject(columnName);
+		if (val == null || rs.wasNull()) {
+			return null;
+		}
+		if (val instanceof NClob nclob) {
+			return nclob.getSubString(1, (int) Math.min(nclob.length(), Integer.MAX_VALUE));
+		}
+		if (val instanceof Clob clob) {
+			return clob.getSubString(1, (int) Math.min(clob.length(), Integer.MAX_VALUE));
+		}
+		if (val instanceof Reader reader) {
+			try {
+				StringBuilder sb = new StringBuilder();
+				char[] buf = new char[4096];
+				int n;
+				while ((n = reader.read(buf)) >= 0) {
+					sb.append(buf, 0, n);
+				}
+				return sb.toString();
+			} catch (Exception e) {
+				throw Exceptions.server("unable-to-read-character-stream")
+					.withExtra("column", columnName)
+					.withCause(e)
+					.get();
+			}
+		}
+		if (val instanceof byte[] bytes) {
+			if (column != null && isCharacterColumnType(column)) {
+				return new String(bytes, isNationalCharacterType(column) ? StandardCharsets.UTF_16LE : StandardCharsets.UTF_8);
+			}
+			return bytes;
+		}
+		return val;
+	}
+
+	static int nullSqlType(DbColumn column) {
+		if (isBinaryColumnType(column)) {
+			return Types.VARBINARY;
+		}
+		if (isNationalCharacterType(column)) {
+			return Types.NVARCHAR;
+		}
+		if (isCharacterColumnType(column)) {
+			return Types.VARCHAR;
+		}
+		return Types.NULL;
+	}
+
 	static boolean isBinaryColumnType(DbColumn column) {
-		return isBinaryColumnType(column.getColumnType()) || isBinaryColumnType(column.getDataType());
+		return isBinaryColumnType(column.getDataType()) || isBinaryColumnType(column.getColumnType());
 	}
 
 	static boolean isBinaryColumnType(Object columnType) {
 		return columnType != null && BINARY_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
 	}
 
+	static boolean isCharacterColumnType(DbColumn column) {
+		return isCharacterColumnType(column.getDataType()) || isCharacterColumnType(column.getColumnType());
+	}
+
+	static boolean isCharacterColumnType(Object columnType) {
+		return columnType != null && CHARACTER_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	static boolean isNationalCharacterType(DbColumn column) {
+		return isNationalCharacterType(column.getDataType()) || isNationalCharacterType(column.getColumnType());
+	}
+
+	static boolean isNationalCharacterType(Object columnType) {
+		return columnType != null && NATIONAL_CHAR_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	/**
+	 * Only treat JSON maps as binary when the column (or embedded dbType) is actually binary.
+	 * A bare {@code dataId} key is not enough — that false-positive bound varbinary into ntext.
+	 */
 	static boolean isDeserializedBinaryColumn(DbColumn column, Map<?, ?> mapValue) {
-		return isBinaryColumnType(column)
-			|| isBinaryColumnType(mapValue.get("dbType"))
-			|| mapValue.containsKey("dataId");
+		return isBinaryColumnType(column) || isBinaryColumnType(mapValue.get("dbType"));
 	}
 
 	static byte[] decodeBinaryData(Object data) {

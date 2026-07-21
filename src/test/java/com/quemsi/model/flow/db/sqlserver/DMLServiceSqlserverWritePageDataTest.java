@@ -73,6 +73,28 @@ public class DMLServiceSqlserverWritePageDataTest {
 		}
 
 		assertThat(recording.setBytesCalls.get(), equalTo(1));
+		assertThat(recording.setStringCalls.get(), equalTo(1));
+		assertThat(recording.commitCalls.get(), equalTo(1));
+	}
+
+	@Test
+	public void writePageData_ntextColumn_bindsAsNString_notBytes() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("dbo", "Suppliers");
+		table.addColumn(DbColumn.builder().name("SupplierID").dataType("int").columnType("int").ordinalPosition(1).nullable(false).identity(true).build());
+		table.addColumn(DbColumn.builder().name("CompanyName").dataType("nvarchar").columnType("nvarchar").ordinalPosition(2).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("HomePage").dataType("ntext").columnType("ntext").ordinalPosition(3).nullable(true).build());
+
+		try (DMLServiceSqlserver dml = new DMLServiceSqlserver(dataSource(recording.connection), null)) {
+			dml.writePageData(table, new DataPage(0, Map.of(1, new Object[] {
+				1,
+				"Exotic Liquids",
+				Map.of("dataId", "HomePage", "data", "http://example.com")
+			})));
+		}
+
+		assertThat(recording.setBytesCalls.get(), equalTo(0));
+		assertThat(recording.setNStringCalls.get(), equalTo(2));
 		assertThat(recording.setObjectCalls.get(), equalTo(1));
 		assertThat(recording.commitCalls.get(), equalTo(1));
 	}
@@ -83,6 +105,16 @@ public class DMLServiceSqlserverWritePageDataTest {
 		assertThat(DMLServiceSqlserver.isBinaryColumnType("varbinary"), equalTo(true));
 		assertThat(DMLServiceSqlserver.isBinaryColumnType("binary"), equalTo(true));
 		assertThat(DMLServiceSqlserver.isBinaryColumnType("varchar"), equalTo(false));
+		assertThat(DMLServiceSqlserver.isBinaryColumnType("ntext"), equalTo(false));
+	}
+
+	@Test
+	public void isDeserializedBinaryColumn_ignoresDataIdOnCharacterColumns() {
+		DbColumn homePage = DbColumn.builder().name("HomePage").dataType("ntext").columnType("ntext").ordinalPosition(1).build();
+		assertThat(DMLServiceSqlserver.isDeserializedBinaryColumn(homePage, Map.of("dataId", "x", "data", "abc")), equalTo(false));
+
+		DbColumn logo = DbColumn.builder().name("logo").dataType("image").columnType("image").ordinalPosition(1).build();
+		assertThat(DMLServiceSqlserver.isDeserializedBinaryColumn(logo, Map.of("dbType", "image", "data", "AQID")), equalTo(true));
 	}
 
 	private static DbTable tableWithIdName() {
@@ -125,6 +157,8 @@ public class DMLServiceSqlserverWritePageDataTest {
 		final AtomicInteger addBatchCalls = new AtomicInteger();
 		final AtomicInteger setBytesCalls = new AtomicInteger();
 		final AtomicInteger setObjectCalls = new AtomicInteger();
+		final AtomicInteger setStringCalls = new AtomicInteger();
+		final AtomicInteger setNStringCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
 		final boolean failOnExecuteBatch;
@@ -174,6 +208,14 @@ public class DMLServiceSqlserverWritePageDataTest {
 					String name = method.getName();
 					if ("setBytes".equals(name)) {
 						setBytesCalls.incrementAndGet();
+						return null;
+					}
+					if ("setNString".equals(name)) {
+						setNStringCalls.incrementAndGet();
+						return null;
+					}
+					if ("setString".equals(name)) {
+						setStringCalls.incrementAndGet();
 						return null;
 					}
 					if ("setObject".equals(name)) {

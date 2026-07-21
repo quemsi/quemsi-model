@@ -6,6 +6,7 @@ import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
+import static org.hamcrest.Matchers.not;
 
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -325,9 +326,45 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE NONCLUSTERED INDEX idx_email"));
+        assertThat(statements.get(0), containsString("CREATE NONCLUSTERED INDEX [idx_email]"));
         assertThat(statements.get(0), containsString("ON [users]"));
         assertThat(statements.get(0), containsString("[email]"));
+    }
+
+    @Test
+    public void givenClusteredColumnstoreIndex_whenCreateIndexSql_thenNoColumnList() {
+        IndexInfo index = new IndexInfo("dbo", "nyctaxi_sample", "nyc_cci", false, "CLUSTERED COLUMNSTORE");
+        index.getExtraColumns().add("medallion");
+        index.getExtraColumns().add("hack_license");
+
+        String sql = DDLServiceSqlserver.createIndexSql(index, "[dbo].[nyctaxi_sample]");
+
+        assertThat(sql, is("CREATE CLUSTERED COLUMNSTORE INDEX [nyc_cci] ON [dbo].[nyctaxi_sample];"));
+    }
+
+    @Test
+    public void givenNonclusteredColumnstoreIndex_whenCreateIndexSql_thenColumnsInKeyNotInclude() {
+        IndexInfo index = new IndexInfo("dbo", "t", "ncci", false, "NONCLUSTERED COLUMNSTORE");
+        index.getColumns().add("a");
+        index.getExtraColumns().add("b");
+        index.getExtraColumns().add("c");
+
+        String sql = DDLServiceSqlserver.createIndexSql(index, "[dbo].[t]");
+
+        assertThat(sql, is("CREATE NONCLUSTERED COLUMNSTORE INDEX [ncci] ON [dbo].[t] ([a], [b], [c]);"));
+        assertThat(sql, not(containsString("INCLUDE")));
+    }
+
+    @Test
+    public void givenIndexWithIncludeColumns_whenCreateIndexSql_thenIncludeCommaSeparated() {
+        IndexInfo index = new IndexInfo("dbo", "t", "ix", false, "NONCLUSTERED");
+        index.getColumns().add("id");
+        index.getExtraColumns().add("name");
+        index.getExtraColumns().add("city");
+
+        String sql = DDLServiceSqlserver.createIndexSql(index, "[dbo].[t]");
+
+        assertThat(sql, is("CREATE NONCLUSTERED INDEX [ix] ON [dbo].[t] ([id]) INCLUDE ([name], [city]);"));
     }
 
     @Test
@@ -429,8 +466,14 @@ public class DDLServiceSqlserverTest {
         return column;
     }
 
-    @Test
-    public void givenViewModify_whenDdlFrom_thenDropThenCreate() {
+	@Test
+	public void dropViewSql_bracketsSpacedViewName() {
+		assertThat(DDLServiceSqlserver.dropViewSql("dbo.Sales Totals by Amount"),
+			equalTo("DROP VIEW IF EXISTS [dbo].[Sales Totals by Amount]"));
+	}
+
+	@Test
+	public void givenViewModify_whenDdlFrom_thenDropThenCreate() {
         DbModelDiff diff = new DbModelDiff();
         DbView view = DbView.builder()
             .schema("dbo")

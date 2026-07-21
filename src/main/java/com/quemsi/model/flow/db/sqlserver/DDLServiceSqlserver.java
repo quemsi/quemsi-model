@@ -88,7 +88,7 @@ public class DDLServiceSqlserver implements DDLService{
 		try {
 			Statement s = conn.createStatement();
 			for (String viewName : viewNames) {
-				s.addBatch("DROP VIEW IF EXISTS " + viewName);
+				s.addBatch(dropViewSql(viewName));
 			}
 			s.executeBatch();
 			return true;
@@ -333,49 +333,13 @@ public class DDLServiceSqlserver implements DDLService{
 			scripts.add(sb);
 			Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
 			for (Map.Entry<String, IndexInfo> entry : indexes.entrySet()) {
-					boolean withRowguid = false;
-					StringBuilder indBuilder = new StringBuilder("CREATE ");
 					IndexInfo indCols = entry.getValue();
-					if(indCols.isUnique()){
-						indBuilder.append("UNIQUE");
+					if (indCols.getColumns() != null && indCols.getColumns().contains("rowguid")) {
+						continue;
 					}
-					if("XML".equals(indCols.getIndexType())){
-						indBuilder.append(" PRIMARY");
-					}
-					indBuilder.append(" ").append(indCols.getIndexType());
-					indBuilder.append(" INDEX ").append(indCols.getIndexName()).append(" ON ");
-					indBuilder.append(quotedTableName);
-					indBuilder.append(" (");
-					Iterator<String> icIt = indCols.getColumns().iterator();
-					while(icIt.hasNext()){
-						String ic = icIt.next();
-						if("rowguid".equals(ic)){
-							withRowguid = true;
-						}
-						indBuilder.append("[").append(ic).append("]");
-						if(icIt.hasNext()){
-							indBuilder.append(", ");
-						}
-					}
-					indBuilder.append(")");
-					if(!indCols.getExtraColumns().isEmpty()){
-						StringBuilder includeBuilder = new StringBuilder(" INCLUDE (");
-						Iterator<String> xcIt = indCols.getExtraColumns().iterator();
-						while(xcIt.hasNext()){
-							String xc = xcIt.next();
-							includeBuilder.append(xc);
-							if(icIt.hasNext()){
-								includeBuilder.append(", ");
-							}
-						}
-						includeBuilder.append(")");
-						indBuilder.append(includeBuilder.toString());
-					}
-					indBuilder.append(";");
-					if(!withRowguid){
-						log.info("index sql : {}", indBuilder);
-						scripts.add(indBuilder);
-					}
+					StringBuilder indBuilder = new StringBuilder(createIndexSql(indCols, quotedTableName));
+					log.info("index sql : {}", indBuilder);
+					scripts.add(indBuilder);
 			}
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
@@ -510,6 +474,44 @@ public class DDLServiceSqlserver implements DDLService{
 			}
 		} catch (SQLException e) {
 			throw Exceptions.server("failed-to-create-views").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropFunctions(DbModel dbModel) {
+		if (dbModel == null || dbModel.getFunctions() == null || dbModel.getFunctions().isEmpty()) {
+			return true;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbFunction function : dbModel.getFunctions()) {
+				String dropSql = dropRoutineSql(function);
+				log.info("ddl : {}", dropSql);
+				s.addBatch(dropSql);
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-functions").withCause(e).get();
+		}
+	}
+
+	@Override
+	public boolean dropTriggers(DbModel dbModel) {
+		if (dbModel == null || dbModel.getTriggers() == null || dbModel.getTriggers().isEmpty()) {
+			return true;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbTrigger trigger : dbModel.getTriggers()) {
+				String dropSql = dropTriggerSql(trigger);
+				log.info("ddl : {}", dropSql);
+				s.addBatch(dropSql);
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-triggers").withCause(e).get();
 		}
 	}
 
@@ -1087,44 +1089,68 @@ public class DDLServiceSqlserver implements DDLService{
     }
     
     private String generateCreateIndexSql(IndexInfo index, String tableQualifiedName) {
-        StringBuilder sb = new StringBuilder("CREATE ");
-        if (index.isUnique()) {
-            sb.append("UNIQUE ");
-        }
-        
-        if ("XML".equals(index.getIndexType())) {
-            sb.append("PRIMARY ");
-        }
-        
-        sb.append(index.getIndexType()).append(" INDEX ").append(index.getIndexName())
-            .append(" ON ").append(tableQualifiedName).append(" (");
-        
-        Iterator<String> icIt = index.getColumns().iterator();
-        while (icIt.hasNext()) {
-            String ic = icIt.next();
-            sb.append("[").append(ic).append("]");
-            if (icIt.hasNext()) {
-                sb.append(", ");
-            }
-        }
-        sb.append(")");
-        
-        if (index.getExtraColumns() != null && !index.getExtraColumns().isEmpty()) {
-            sb.append(" INCLUDE (");
-            Iterator<String> xcIt = index.getExtraColumns().iterator();
-            while (xcIt.hasNext()) {
-                String xc = xcIt.next();
-                sb.append("[").append(xc).append("]");
-                if (xcIt.hasNext()) {
-                    sb.append(", ");
-                }
-            }
-            sb.append(")");
-        }
-        
-        sb.append(";");
-        return sb.toString();
+        return createIndexSql(index, tableQualifiedName);
     }
+
+	/**
+	 * Builds CREATE INDEX DDL. Handles rowstore, XML, and columnstore indexes.
+	 * CLUSTERED COLUMNSTORE has no column list; NONCLUSTERED COLUMNSTORE lists columns
+	 * in the index key (not INCLUDE).
+	 */
+	static String createIndexSql(IndexInfo index, String quotedTableName) {
+		String type = index.getIndexType() != null ? index.getIndexType().trim() : "NONCLUSTERED";
+		String typeUpper = type.toUpperCase();
+		boolean columnstore = typeUpper.contains("COLUMNSTORE");
+		boolean clusteredColumnstore = "CLUSTERED COLUMNSTORE".equals(typeUpper);
+
+		StringBuilder sb = new StringBuilder("CREATE ");
+		if (index.isUnique() && !columnstore) {
+			sb.append("UNIQUE ");
+		}
+		if ("XML".equalsIgnoreCase(type)) {
+			sb.append("PRIMARY ");
+		}
+		sb.append(type).append(" INDEX ");
+		appendBracketQuoted(sb, index.getIndexName());
+		sb.append(" ON ").append(quotedTableName);
+
+		if (clusteredColumnstore) {
+			sb.append(";");
+			return sb.toString();
+		}
+
+		LinkedList<String> keyColumns = new LinkedList<>();
+		if (index.getColumns() != null) {
+			keyColumns.addAll(index.getColumns());
+		}
+		if (columnstore && index.getExtraColumns() != null) {
+			keyColumns.addAll(index.getExtraColumns());
+		}
+
+		sb.append(" (");
+		Iterator<String> icIt = keyColumns.iterator();
+		while (icIt.hasNext()) {
+			appendBracketQuoted(sb, icIt.next());
+			if (icIt.hasNext()) {
+				sb.append(", ");
+			}
+		}
+		sb.append(")");
+
+		if (!columnstore && index.getExtraColumns() != null && !index.getExtraColumns().isEmpty()) {
+			sb.append(" INCLUDE (");
+			Iterator<String> xcIt = index.getExtraColumns().iterator();
+			while (xcIt.hasNext()) {
+				appendBracketQuoted(sb, xcIt.next());
+				if (xcIt.hasNext()) {
+					sb.append(", ");
+				}
+			}
+			sb.append(")");
+		}
+		sb.append(";");
+		return sb.toString();
+	}
     
     private List<String> generateSequenceSql(DbSequenceDiffOp operation, DiffOpType opType) {
         List<String> statements = new ArrayList<>();

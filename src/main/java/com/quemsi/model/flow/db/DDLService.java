@@ -21,6 +21,14 @@ public interface DDLService extends AutoCloseable {
 	/** Create triggers after data load. No-op when unsupported. */
 	default void createTriggers(DbModel dbModel) {
 	}
+	/** Drop routines (procedures/functions). No-op when unsupported. */
+	default boolean dropFunctions(DbModel dbModel) {
+		return true;
+	}
+	/** Drop triggers. No-op when unsupported. */
+	default boolean dropTriggers(DbModel dbModel) {
+		return true;
+	}
 	/** Drop domain types (e.g. after DROP TABLE when rebuilding). No-op when unsupported. */
 	default boolean dropDomains(String... domainNames) {
 		return true;

@@ -220,7 +220,7 @@ public class RdbmsTarget extends AbstractStorage{
                 TableData tableData = objectMapper.readValue(tableDataStr, TableData.class);
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("there are {} pages for {}", tableData.getDataPages().size(), tableData.getTableName()));
                 
-                List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage, context))
+                List<ForkJoinTask<Boolean>> pageTaskList = tableData.getDataPages().stream().map(dataPage -> new PageRestoreTask(table, dataPage, tableData.getTotalPages(), context))
                     .map(t -> forkJoinPool.submit(t)).toList();
                 boolean allSucceded = pageTaskList.stream().map(Exceptions.wrapFunction(t -> t.get())).reduce(Boolean.valueOf(true), (b, n) -> b && n);
                 future.complete(allSucceded);
@@ -238,11 +238,14 @@ public class RdbmsTarget extends AbstractStorage{
         private DbTable table;
         @Getter
         private TableData.DataPage dataPage;
+        @Getter
+        private int totalPages;
         private FlowContext context;
         
-        public PageRestoreTask(DbTable table, TableData.DataPage dataPage, FlowContext context){
+        public PageRestoreTask(DbTable table, TableData.DataPage dataPage, int totalPages, FlowContext context){
             this.table = table;
             this.dataPage = dataPage;
+            this.totalPages = totalPages;
             this.context = context;
         }
 
@@ -255,7 +258,7 @@ public class RdbmsTarget extends AbstractStorage{
             }
             
             try(DMLService dmlService = datasourceFactory.dmlService()){
-                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restoring page {} of {} records for {}", dataPage.getPageNum(), dataPage.getSize(), table.getName()));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("restoring page {} of {} with {} records for {}", dataPage.getPageNum(), totalPages, dataPage.getSize(), table.getName()));
                 dmlService.writePageData(table, dataPage);
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("restored page {} of {} records for {}", dataPage.getPageNum(), dataPage.getSize(), table.getName()));
                 /* Check for global cancellation after processing */
