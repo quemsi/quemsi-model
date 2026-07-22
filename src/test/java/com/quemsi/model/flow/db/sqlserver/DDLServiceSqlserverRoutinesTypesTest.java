@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
+import com.quemsi.model.flow.db.sql.DbFullTextCatalog;
+import com.quemsi.model.flow.db.sql.DbFullTextIndex;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -49,15 +51,45 @@ public class DDLServiceSqlserverRoutinesTypesTest {
 	}
 
 	@Test
-	public void dropTriggerSql_bracketsSchemaAndName() {
-		DbTrigger trigger = DbTrigger.builder()
-			.schema("dbo")
-			.tableName("employee")
-			.name("employee_insupd")
-			.definition("CREATE TRIGGER employee_insupd ON employee FOR INSERT AS SELECT 1")
+	public void createFullTextCatalogAndIndexSql() {
+		DbFullTextCatalog catalog = DbFullTextCatalog.builder().name("AW2022FullTextCatalog").isDefault(true).build();
+		assertThat(DDLServiceSqlserver.createFullTextCatalogSql(catalog, true),
+			equalTo("IF NOT EXISTS (SELECT 1 FROM sys.fulltext_catalogs WHERE name = N'AW2022FullTextCatalog') CREATE FULLTEXT CATALOG [AW2022FullTextCatalog] AS DEFAULT"));
+
+		DbFullTextIndex index = DbFullTextIndex.builder()
+			.schemaName("HumanResources")
+			.tableName("JobCandidate")
+			.uniqueIndexName("PK_JobCandidate_JobCandidateID")
+			.catalogName("AW2022FullTextCatalog")
+			.changeTracking("AUTO")
+			.stoplistName("SYSTEM")
 			.build();
-		assertThat(DDLServiceSqlserver.dropTriggerSql(trigger), equalTo("DROP TRIGGER IF EXISTS [dbo].[employee_insupd]"));
+		index.getColumns().add(DbFullTextIndex.Column.builder().columnName("Resume").languageId(1033).build());
+		assertThat(DDLServiceSqlserver.dropFullTextIndexSql(index),
+			equalTo("IF EXISTS (SELECT 1 FROM sys.fulltext_indexes WHERE object_id = OBJECT_ID(N'HumanResources.JobCandidate')) DROP FULLTEXT INDEX ON [HumanResources].[JobCandidate]"));
+		assertThat(DDLServiceSqlserver.createFullTextIndexSql(index),
+			equalTo("CREATE FULLTEXT INDEX ON [HumanResources].[JobCandidate] ([Resume] LANGUAGE 1033) KEY INDEX [PK_JobCandidate_JobCandidateID] ON [AW2022FullTextCatalog] WITH CHANGE_TRACKING AUTO, STOPLIST = SYSTEM"));
 	}
+
+	@Test
+	public void createFullTextIndexSql_withTypeColumn() {
+		DbFullTextIndex index = DbFullTextIndex.builder()
+			.schemaName("Production")
+			.tableName("Document")
+			.uniqueIndexName("PK_Document_DocumentNode")
+			.catalogName("AW2022FullTextCatalog")
+			.changeTracking("AUTO")
+			.stoplistName("SYSTEM")
+			.build();
+		index.getColumns().add(DbFullTextIndex.Column.builder()
+			.columnName("Document")
+			.typeColumnName("FileExtension")
+			.languageId(1033)
+			.build());
+		assertThat(DDLServiceSqlserver.createFullTextIndexSql(index),
+			containsString("[Document] TYPE COLUMN [FileExtension] LANGUAGE 1033"));
+	}
+
 
 	@Test
 	public void formatAliasBaseType_handlesCharAndNvarcharLengths() {

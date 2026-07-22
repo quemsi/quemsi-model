@@ -1,6 +1,7 @@
 package com.quemsi.model.flow.db.sqlserver;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -8,15 +9,19 @@ import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import javax.sql.DataSource;
 
 import org.junit.jupiter.api.Test;
 
+import com.microsoft.sqlserver.jdbc.Geography;
+import com.microsoft.sqlserver.jdbc.ISQLServerPreparedStatement;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -109,12 +114,121 @@ public class DMLServiceSqlserverWritePageDataTest {
 	}
 
 	@Test
-	public void isDeserializedBinaryColumn_ignoresDataIdOnCharacterColumns() {
-		DbColumn homePage = DbColumn.builder().name("HomePage").dataType("ntext").columnType("ntext").ordinalPosition(1).build();
-		assertThat(DMLServiceSqlserver.isDeserializedBinaryColumn(homePage, Map.of("dataId", "x", "data", "abc")), equalTo(false));
+	public void writePageData_geographyBase64_deserializesClrBytes() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("Person", "Address");
+		table.addColumn(DbColumn.builder().name("AddressID").dataType("int").columnType("int").ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("SpatialLocation").dataType("geography").columnType("geography").ordinalPosition(2).nullable(true).build());
 
-		DbColumn logo = DbColumn.builder().name("logo").dataType("image").columnType("image").ordinalPosition(1).build();
-		assertThat(DMLServiceSqlserver.isDeserializedBinaryColumn(logo, Map.of("dbType", "image", "data", "AQID")), equalTo(true));
+		/* CLR geography for POINT with SRID 4326 (AdventureWorks-style) */
+		Geography sample = Geography.STGeomFromText("POINT(-122.34900 47.65100)", 4326);
+		String base64 = java.util.Base64.getEncoder().encodeToString(sample.serialize());
+
+		try (DMLServiceSqlserver dml = new DMLServiceSqlserver(dataSource(recording.connection), null)) {
+			dml.writePageData(table, new DataPage(0, Map.of(1, new Object[] { 1, base64 })));
+		}
+
+		assertThat(recording.setGeographyCalls.get(), equalTo(1));
+		assertThat(recording.setObjectCalls.get(), equalTo(1));
+		assertThat(recording.commitCalls.get(), equalTo(1));
+	}
+
+	@Test
+	public void extractSpatialBytes_decodesBase64Clr() throws Exception {
+		Geography sample = Geography.STGeomFromText("POINT(-122.34900 47.65100)", 4326);
+		byte[] clr = sample.serialize();
+		String base64 = java.util.Base64.getEncoder().encodeToString(clr);
+		assertThat(DMLServiceSqlserver.extractSpatialBytes(base64), equalTo(clr));
+	}
+
+	@Test
+	public void isSpatialColumnType_coversGeographyAndGeometry() {
+		assertThat(DMLServiceSqlserver.isSpatialColumnType("geography"), equalTo(true));
+		assertThat(DMLServiceSqlserver.isSpatialColumnType("geometry"), equalTo(true));
+		assertThat(DMLServiceSqlserver.isGeographyColumnType("geography"), equalTo(true));
+		assertThat(DMLServiceSqlserver.isGeographyColumnType("geometry"), equalTo(false));
+	}
+
+	@Test
+	public void parameterPlaceholder_hierarchyId_usesParse() {
+		DbColumn orgNode = DbColumn.builder().name("OrganizationNode").dataType("hierarchyid").columnType("hierarchyid").ordinalPosition(1).build();
+		assertThat(DMLServiceSqlserver.parameterPlaceholder(orgNode), equalTo("hierarchyid::Parse(?)"));
+		assertThat(DMLServiceSqlserver.parameterPlaceholder(DbColumn.builder().name("id").dataType("int").columnType("int").ordinalPosition(1).build()), equalTo("?"));
+	}
+
+	@Test
+	public void selectListForTable_hierarchyId_usesToString() {
+		DbTable table = new DbTable("HumanResources", "Employee");
+		table.addColumn(DbColumn.builder().name("BusinessEntityID").dataType("int").columnType("int").ordinalPosition(1).build());
+		table.addColumn(DbColumn.builder().name("OrganizationNode").dataType("hierarchyid").columnType("hierarchyid").ordinalPosition(2).build());
+		assertThat(DMLServiceSqlserver.selectListForTable(table),
+			equalTo("t.[BusinessEntityID], t.[OrganizationNode].ToString() AS [OrganizationNode]"));
+	}
+
+	@Test
+	public void looksLikeHierarchyPath_distinguishesPathFromBase64() {
+		assertThat(DMLServiceSqlserver.looksLikeHierarchyPath("/"), equalTo(true));
+		assertThat(DMLServiceSqlserver.looksLikeHierarchyPath("/1/2/"), equalTo(true));
+		assertThat(DMLServiceSqlserver.looksLikeHierarchyPath("WA=="), equalTo(false));
+	}
+
+	@Test
+	public void readHierarchyIdValue_prefersPathStringOverBytes() throws Exception {
+		AtomicReference<String> stringVal = new AtomicReference<>("/1/2/");
+		ResultSet rs = (ResultSet) Proxy.newProxyInstance(
+			ResultSet.class.getClassLoader(),
+			new Class<?>[] { ResultSet.class },
+			(proxy, method, args) -> {
+				String name = method.getName();
+				if ("getString".equals(name)) {
+					return stringVal.get();
+				}
+				if ("wasNull".equals(name)) {
+					return stringVal.get() == null;
+				}
+				return defaultObjectMethod(proxy, method, args);
+			});
+
+		assertThat(DMLServiceSqlserver.readHierarchyIdValue(rs, "DocumentNode"), equalTo("/1/2/"));
+
+		stringVal.set(null);
+		assertThat(DMLServiceSqlserver.readHierarchyIdValue(rs, "DocumentNode"), equalTo(null));
+	}
+
+	@Test
+	public void writePageData_hierarchyIdBase64_rejectsNonPath() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("HumanResources", "Employee");
+		table.addColumn(DbColumn.builder().name("BusinessEntityID").dataType("int").columnType("int").ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("OrganizationNode").dataType("hierarchyid").columnType("hierarchyid").ordinalPosition(2).nullable(true).build());
+
+		try (DMLServiceSqlserver dml = new DMLServiceSqlserver(dataSource(recording.connection), null)) {
+			BaseRuntimeException ex = assertThrows(BaseRuntimeException.class, () ->
+				dml.writePageData(table, new DataPage(0, Map.of(1, new Object[] { 1, "WA==" }))));
+			assertThat(ex.getMessageId(), equalTo("unable-to-write-data"));
+		}
+	}
+
+	@Test
+	public void writePageData_dateColumn_bindsSqlDateNotBytes() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("HumanResources", "EmployeeDepartmentHistory");
+		table.addColumn(DbColumn.builder().name("BusinessEntityID").dataType("int").columnType("int").ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("StartDate").dataType("date").columnType("date").ordinalPosition(2).nullable(false).build());
+
+		try (DMLServiceSqlserver dml = new DMLServiceSqlserver(dataSource(recording.connection), null)) {
+			dml.writePageData(table, new DataPage(0, Map.of(1, new Object[] { 1, "2003-01-14" })));
+			dml.writePageData(table, new DataPage(0, Map.of(2, new Object[] { 2, "2009-01-14T00:00:00.000" })));
+		}
+
+		assertThat(recording.setDateCalls.get(), equalTo(2));
+		assertThat(recording.setBytesCalls.get(), equalTo(0));
+	}
+
+	@Test
+	public void toSqlDate_parsesIsoAndBackupFormats() {
+		assertThat(DMLServiceSqlserver.toSqlDate("2003-01-14"), equalTo(java.sql.Date.valueOf("2003-01-14")));
+		assertThat(DMLServiceSqlserver.toSqlDate("2009-01-14T00:00:00.000"), equalTo(java.sql.Date.valueOf("2009-01-14")));
 	}
 
 	private static DbTable tableWithIdName() {
@@ -159,9 +273,12 @@ public class DMLServiceSqlserverWritePageDataTest {
 		final AtomicInteger setObjectCalls = new AtomicInteger();
 		final AtomicInteger setStringCalls = new AtomicInteger();
 		final AtomicInteger setNStringCalls = new AtomicInteger();
+		final AtomicInteger setGeographyCalls = new AtomicInteger();
+		final AtomicInteger setDateCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
 		final boolean failOnExecuteBatch;
+		volatile String lastPrepareSql;
 		final Connection connection;
 
 		RecordingConnection(boolean failOnExecuteBatch) {
@@ -189,6 +306,7 @@ public class DMLServiceSqlserverWritePageDataTest {
 					}
 					return null;
 				case "prepareStatement":
+					lastPrepareSql = (String) args[0];
 					return preparedStatementProxy();
 				case "close":
 					autoCommitAfterClose.set(autoCommit.get());
@@ -202,12 +320,37 @@ public class DMLServiceSqlserverWritePageDataTest {
 
 		private PreparedStatement preparedStatementProxy() {
 			return (PreparedStatement) Proxy.newProxyInstance(
-				PreparedStatement.class.getClassLoader(),
-				new Class<?>[] { PreparedStatement.class },
+				ISQLServerPreparedStatement.class.getClassLoader(),
+				new Class<?>[] { ISQLServerPreparedStatement.class },
 				(proxy, method, args) -> {
 					String name = method.getName();
+					if ("unwrap".equals(name)) {
+						Class<?> iface = (Class<?>) args[0];
+						if (iface.isInstance(proxy)) {
+							return proxy;
+						}
+						throw new SQLException("cannot unwrap to " + iface.getName());
+					}
+					if ("isWrapperFor".equals(name)) {
+						Class<?> iface = (Class<?>) args[0];
+						return iface.isInstance(proxy);
+					}
 					if ("setBytes".equals(name)) {
 						setBytesCalls.incrementAndGet();
+						return null;
+					}
+					if ("setGeography".equals(name)) {
+						setGeographyCalls.incrementAndGet();
+						return null;
+					}
+					if ("setDate".equals(name)) {
+						setDateCalls.incrementAndGet();
+						return null;
+					}
+					if ("setTimestamp".equals(name) || "setTime".equals(name)) {
+						return null;
+					}
+					if ("setGeometry".equals(name)) {
 						return null;
 					}
 					if ("setNString".equals(name)) {

@@ -21,6 +21,12 @@ public interface DDLService extends AutoCloseable {
 	/** Create triggers after data load. No-op when unsupported. */
 	default void createTriggers(DbModel dbModel) {
 	}
+	/**
+	 * Create full-text catalogs/indexes after data load and before CONTAINS/FREETEXT routines/views.
+	 * No-op when unsupported.
+	 */
+	default void createFullTextIndexes(DbModel dbModel) {
+	}
 	/** Drop routines (procedures/functions). No-op when unsupported. */
 	default boolean dropFunctions(DbModel dbModel) {
 		return true;

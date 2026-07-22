@@ -43,6 +43,10 @@ public class DbModel {
     protected List<DbDomainType> domainTypes;
     /** PostgreSQL triggers (created after data load). */
     protected List<DbTrigger> triggers;
+    /** SQL Server full-text catalogs (created before FT indexes / CONTAINS routines). */
+    protected List<DbFullTextCatalog> fullTextCatalogs;
+    /** SQL Server full-text indexes (required before CONTAINS/FREETEXT views/routines). */
+    protected List<DbFullTextIndex> fullTextIndexes;
     
     public DbModel(){
         tables = new HashMap<>();
@@ -57,6 +61,8 @@ public class DbModel {
         enumTypes = new LinkedList<>();
         domainTypes = new LinkedList<>();
         triggers = new LinkedList<>();
+        fullTextCatalogs = new LinkedList<>();
+        fullTextIndexes = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
         return addTable(tableName, null);
@@ -410,6 +416,13 @@ public class DbModel {
         /** Per-column index prefix lengths (MySQL SUB_PART); null entry means full column. */
         private LinkedList<Integer> columnPrefixLengths;
         private LinkedList<String> extraColumns;
+        /**
+         * SQL Server secondary XML index kind: PATH, VALUE, or PROPERTY.
+         * Null for primary XML indexes and non-XML indexes.
+         */
+        private String xmlSecondaryType;
+        /** SQL Server primary XML index name referenced by a secondary XML index. */
+        private String usingXmlIndexName;
         public IndexInfo(String schemaName, String tableName, String indexName, boolean unique, String indexType){
             this.schemaName = schemaName;
             this.tableName = tableName;
@@ -422,6 +435,12 @@ public class DbModel {
         }
         public String qualifiedTableName(){
             return CommonHelpers.qualifiedName(schemaName, tableName);
+        }
+        public boolean isXmlIndex() {
+            return indexType != null && "XML".equalsIgnoreCase(indexType.trim());
+        }
+        public boolean isSecondaryXmlIndex() {
+            return isXmlIndex() && xmlSecondaryType != null && !xmlSecondaryType.isBlank();
         }
     }
 }

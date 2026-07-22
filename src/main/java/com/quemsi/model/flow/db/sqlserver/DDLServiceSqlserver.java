@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -19,6 +20,8 @@ import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
+import com.quemsi.model.flow.db.sql.DbFullTextCatalog;
+import com.quemsi.model.flow.db.sql.DbFullTextIndex;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
@@ -209,14 +212,6 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 		return type;
     }
-    private StringBuilder escape(StringBuilder sb, String columnName){
-		if(DatasourceFactorySqlserver.RESERVED_KEYS.contains(columnName.toUpperCase())){
-			sb.append("[").append(columnName).append("]");
-		}else{
-			sb.append(columnName);
-		}
-		return sb;
-	}
 
 	/** T-SQL bracket identifier; escape ] as ]]. */
 	private static void appendBracketQuoted(StringBuilder sb, String name) {
@@ -288,8 +283,9 @@ public class DDLServiceSqlserver implements DDLService{
 			DbColumn[] columns = table.orderedColumns();
 			int index = 0;
 			for(DbColumn c : columns){
-				sb.append("  [");
-				escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+				sb.append("  ");
+				appendBracketQuoted(sb, c.getName());
+				sb.append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
                 if(c.isIdentity()){
                     sb.append(" IDENTITY(1,1)");
                 }
@@ -332,8 +328,11 @@ public class DDLServiceSqlserver implements DDLService{
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
 			Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
-			for (Map.Entry<String, IndexInfo> entry : indexes.entrySet()) {
-					IndexInfo indCols = entry.getValue();
+			List<IndexInfo> orderedIndexes = new ArrayList<>(indexes.values());
+			orderedIndexes.sort(Comparator
+					.comparingInt(DDLServiceSqlserver::xmlIndexCreateOrder)
+					.thenComparing(IndexInfo::getIndexName, Comparator.nullsLast(String::compareToIgnoreCase)));
+			for (IndexInfo indCols : orderedIndexes) {
 					if (indCols.getColumns() != null && indCols.getColumns().contains("rowguid")) {
 						continue;
 					}
@@ -533,6 +532,106 @@ public class DDLServiceSqlserver implements DDLService{
 		} catch (SQLException e) {
 			throw Exceptions.server("failed-to-create-functions").withCause(e).get();
 		}
+	}
+
+	@Override
+	public void createFullTextIndexes(DbModel dbModel) {
+		boolean hasCatalogs = dbModel.getFullTextCatalogs() != null && !dbModel.getFullTextCatalogs().isEmpty();
+		boolean hasIndexes = dbModel.getFullTextIndexes() != null && !dbModel.getFullTextIndexes().isEmpty();
+		if (!hasCatalogs && !hasIndexes) {
+			return;
+		}
+		try {
+			Statement s = conn.createStatement();
+			if (hasCatalogs) {
+				boolean defaultEmitted = false;
+				for (DbFullTextCatalog catalog : dbModel.getFullTextCatalogs()) {
+					boolean asDefault = catalog.isDefault() && !defaultEmitted;
+					if (asDefault) {
+						defaultEmitted = true;
+					}
+					String sql = createFullTextCatalogSql(catalog, asDefault);
+					log.info("ddl : {}", sql);
+					s.execute(sql);
+				}
+			}
+			if (hasIndexes) {
+				for (DbFullTextIndex index : dbModel.getFullTextIndexes()) {
+					String dropSql = dropFullTextIndexSql(index);
+					log.info("ddl : {}", dropSql);
+					s.execute(dropSql);
+					String createSql = createFullTextIndexSql(index);
+					log.info("ddl : {}", createSql);
+					s.execute(createSql);
+				}
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-fulltext-indexes").withCause(e).get();
+		}
+	}
+
+	static String createFullTextCatalogSql(DbFullTextCatalog catalog, boolean asDefault) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("IF NOT EXISTS (SELECT 1 FROM sys.fulltext_catalogs WHERE name = N'");
+		sb.append(catalog.getName().replace("'", "''"));
+		sb.append("') CREATE FULLTEXT CATALOG ");
+		appendBracketQuoted(sb, catalog.getName());
+		if (asDefault) {
+			sb.append(" AS DEFAULT");
+		}
+		return sb.toString();
+	}
+
+	static String dropFullTextIndexSql(DbFullTextIndex index) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("IF EXISTS (SELECT 1 FROM sys.fulltext_indexes WHERE object_id = OBJECT_ID(N'");
+		sb.append(index.qualifiedTableName().replace("'", "''"));
+		sb.append("')) DROP FULLTEXT INDEX ON ");
+		sb.append(CommonHelpers.bracketQuotedQualified(index.getSchemaName(), index.getTableName()));
+		return sb.toString();
+	}
+
+	static String createFullTextIndexSql(DbFullTextIndex index) {
+		StringBuilder sb = new StringBuilder("CREATE FULLTEXT INDEX ON ");
+		sb.append(CommonHelpers.bracketQuotedQualified(index.getSchemaName(), index.getTableName()));
+		sb.append(" (");
+		Iterator<DbFullTextIndex.Column> it = index.getColumns().iterator();
+		while (it.hasNext()) {
+			DbFullTextIndex.Column col = it.next();
+			appendBracketQuoted(sb, col.getColumnName());
+			if (StringUtils.hasText(col.getTypeColumnName())) {
+				sb.append(" TYPE COLUMN ");
+				appendBracketQuoted(sb, col.getTypeColumnName());
+			}
+			if (col.getLanguageId() != null) {
+				sb.append(" LANGUAGE ").append(col.getLanguageId());
+			}
+			if (it.hasNext()) {
+				sb.append(", ");
+			}
+		}
+		sb.append(") KEY INDEX ");
+		appendBracketQuoted(sb, index.getUniqueIndexName());
+		if (StringUtils.hasText(index.getCatalogName())) {
+			sb.append(" ON ");
+			appendBracketQuoted(sb, index.getCatalogName());
+		}
+		sb.append(" WITH CHANGE_TRACKING ");
+		String changeTracking = index.getChangeTracking();
+		if (!StringUtils.hasText(changeTracking)) {
+			changeTracking = "AUTO";
+		}
+		sb.append(changeTracking);
+		String stoplist = index.getStoplistName();
+		if (!StringUtils.hasText(stoplist) || "OFF".equalsIgnoreCase(stoplist)) {
+			sb.append(", STOPLIST = OFF");
+		} else if ("SYSTEM".equalsIgnoreCase(stoplist)) {
+			sb.append(", STOPLIST = SYSTEM");
+		} else {
+			sb.append(", STOPLIST = ");
+			appendBracketQuoted(sb, stoplist);
+		}
+		return sb.toString();
 	}
 
 	@Override
@@ -764,8 +863,9 @@ public class DDLServiceSqlserver implements DDLService{
 		DbColumn[] columns = table.orderedColumns();
 		int index = 0;
 		for(DbColumn c : columns){
-			sb.append("  [");
-			escape(sb, c.getName()).append("] ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+			sb.append("  ");
+			appendBracketQuoted(sb, c.getName());
+			sb.append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
 			if(c.isIdentity()){
 				sb.append(" IDENTITY(1,1)");
 			}
@@ -835,8 +935,9 @@ public class DDLServiceSqlserver implements DDLService{
     }
     
     private String generateAddColumnSql(String tableName, DbColumn column) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD [");
-        escape(sb, column.getName()).append("] ").append(columnType(column.getDataType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale()));
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD ");
+        appendBracketQuoted(sb, column.getName());
+        sb.append(" ").append(columnType(column.getDataType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale()));
         
         if (column.isIdentity()) {
             sb.append(" IDENTITY(1,1)");
@@ -863,7 +964,9 @@ public class DDLServiceSqlserver implements DDLService{
         if (!Objects.equals(oldColumn.getColumnType(), newColumn.getColumnType()) || 
             !Objects.equals(oldColumn.getMaxLength(), newColumn.getMaxLength())) {
             StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName)
-                .append(" ALTER COLUMN [").append(newColumn.getName()).append("] ")
+                .append(" ALTER COLUMN ");
+            appendBracketQuoted(sb, newColumn.getName());
+            sb.append(" ")
                 .append(columnType(newColumn.getDataType(), newColumn.getMaxLength(), newColumn.getNumPrecision(), newColumn.getNumScale()));
             
             if (!newColumn.isNullable()) {
@@ -1095,20 +1198,22 @@ public class DDLServiceSqlserver implements DDLService{
 	/**
 	 * Builds CREATE INDEX DDL. Handles rowstore, XML, and columnstore indexes.
 	 * CLUSTERED COLUMNSTORE has no column list; NONCLUSTERED COLUMNSTORE lists columns
-	 * in the index key (not INCLUDE).
+	 * in the index key (not INCLUDE). Secondary XML indexes use USING / FOR.
 	 */
 	static String createIndexSql(IndexInfo index, String quotedTableName) {
 		String type = index.getIndexType() != null ? index.getIndexType().trim() : "NONCLUSTERED";
 		String typeUpper = type.toUpperCase();
 		boolean columnstore = typeUpper.contains("COLUMNSTORE");
 		boolean clusteredColumnstore = "CLUSTERED COLUMNSTORE".equals(typeUpper);
+		boolean xml = "XML".equals(typeUpper);
+
+		if (xml) {
+			return createXmlIndexSql(index, quotedTableName);
+		}
 
 		StringBuilder sb = new StringBuilder("CREATE ");
 		if (index.isUnique() && !columnstore) {
 			sb.append("UNIQUE ");
-		}
-		if ("XML".equalsIgnoreCase(type)) {
-			sb.append("PRIMARY ");
 		}
 		sb.append(type).append(" INDEX ");
 		appendBracketQuoted(sb, index.getIndexName());
@@ -1150,6 +1255,52 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 		sb.append(";");
 		return sb.toString();
+	}
+
+	static String createXmlIndexSql(IndexInfo index, String quotedTableName) {
+		if (index.isSecondaryXmlIndex()) {
+			if (StringUtils.isEmptyOrNull(index.getUsingXmlIndexName())) {
+				throw Exceptions.server("failed-to-create-tables")
+						.withExtra("reason", "secondary-xml-index-missing-primary")
+						.withExtra("indexName", index.getIndexName())
+						.withExtra("tableName", quotedTableName)
+						.get();
+			}
+			StringBuilder sb = new StringBuilder("CREATE XML INDEX ");
+			appendBracketQuoted(sb, index.getIndexName());
+			sb.append(" ON ").append(quotedTableName).append(" (");
+			appendXmlIndexColumns(sb, index);
+			sb.append(") USING XML INDEX ");
+			appendBracketQuoted(sb, index.getUsingXmlIndexName());
+			sb.append(" FOR ").append(index.getXmlSecondaryType().trim().toUpperCase()).append(";");
+			return sb.toString();
+		}
+
+		StringBuilder sb = new StringBuilder("CREATE PRIMARY XML INDEX ");
+		appendBracketQuoted(sb, index.getIndexName());
+		sb.append(" ON ").append(quotedTableName).append(" (");
+		appendXmlIndexColumns(sb, index);
+		sb.append(");");
+		return sb.toString();
+	}
+
+	private static void appendXmlIndexColumns(StringBuilder sb, IndexInfo index) {
+		LinkedList<String> keyColumns = index.getColumns() != null ? index.getColumns() : new LinkedList<>();
+		Iterator<String> icIt = keyColumns.iterator();
+		while (icIt.hasNext()) {
+			appendBracketQuoted(sb, icIt.next());
+			if (icIt.hasNext()) {
+				sb.append(", ");
+			}
+		}
+	}
+
+	/** Primary XML before secondary XML; other indexes first. */
+	static int xmlIndexCreateOrder(IndexInfo index) {
+		if (!index.isXmlIndex()) {
+			return 0;
+		}
+		return index.isSecondaryXmlIndex() ? 2 : 1;
 	}
     
     private List<String> generateSequenceSql(DbSequenceDiffOp operation, DiffOpType opType) {

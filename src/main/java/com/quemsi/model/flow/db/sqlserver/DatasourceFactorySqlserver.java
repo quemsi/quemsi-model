@@ -29,6 +29,8 @@ import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
+import com.quemsi.model.flow.db.sql.DbFullTextCatalog;
+import com.quemsi.model.flow.db.sql.DbFullTextIndex;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
@@ -124,11 +126,15 @@ SELECT
      ic.index_column_id AS SEQ_IN_INDEX,
      ind.is_unique as IS_UNIQUE,
 	 ind.type_desc as INDEX_TYPE,
-	 ic.is_included_column
+	 ic.is_included_column,
+	 xi.secondary_type_desc as XML_SECONDARY_TYPE,
+	 using_ind.name as USING_XML_INDEX_NAME
 FROM sys.indexes ind 
 INNER JOIN sys.index_columns ic ON  ind.object_id = ic.object_id and ind.index_id = ic.index_id 
 INNER JOIN sys.columns col ON ic.object_id = col.object_id and ic.column_id = col.column_id 
 INNER JOIN sys.tables t ON ind.object_id = t.object_id 
+LEFT JOIN sys.xml_indexes xi ON ind.object_id = xi.object_id AND ind.index_id = xi.index_id
+LEFT JOIN sys.indexes using_ind ON xi.object_id = using_ind.object_id AND xi.using_xml_index_id = using_ind.index_id
 WHERE ind.is_primary_key = 0 AND t.is_ms_shipped = 0 and schema_name(t.schema_id ) in {inValues}
 ORDER BY t.schema_id, t.name, ind.name, ic.is_included_column, ic.key_ordinal
 ;
@@ -239,6 +245,51 @@ order by schema_name(t.schema_id), t.name, tr.name
 ;
 			""";
 
+	static final String SQL_FOR_FULLTEXT_CATALOGS = """
+select c.name as catalog_name, c.is_default
+from sys.fulltext_catalogs c
+order by c.name
+;
+			""";
+
+	static final String SQL_FOR_FULLTEXT_INDEXES = """
+select
+	schema_name(t.schema_id) as schema_name,
+	t.name as table_name,
+	ui.name as unique_index_name,
+	fc.name as catalog_name,
+	fi.change_tracking_state_desc as change_tracking,
+	case
+		when fi.stoplist_id is null then 'OFF'
+		when fi.stoplist_id = 0 then 'SYSTEM'
+		else sl.name
+	end as stoplist_name
+from sys.fulltext_indexes fi
+inner join sys.tables t on fi.object_id = t.object_id
+inner join sys.indexes ui on fi.object_id = ui.object_id and fi.unique_index_id = ui.index_id
+inner join sys.fulltext_catalogs fc on fi.fulltext_catalog_id = fc.fulltext_catalog_id
+left join sys.fulltext_stoplists sl on fi.stoplist_id = sl.stoplist_id
+where schema_name(t.schema_id) in {inValues}
+order by schema_name(t.schema_id), t.name
+;
+			""";
+
+	static final String SQL_FOR_FULLTEXT_INDEX_COLUMNS = """
+select
+	schema_name(t.schema_id) as schema_name,
+	t.name as table_name,
+	col.name as column_name,
+	typecol.name as type_column_name,
+	fic.language_id
+from sys.fulltext_index_columns fic
+inner join sys.tables t on fic.object_id = t.object_id
+inner join sys.columns col on fic.object_id = col.object_id and fic.column_id = col.column_id
+left join sys.columns typecol on fic.object_id = typecol.object_id and fic.type_column_id = typecol.column_id
+where schema_name(t.schema_id) in {inValues}
+order by schema_name(t.schema_id), t.name, fic.column_id
+;
+			""";
+
 	private static final Pattern CREATE_VIEW_AS = Pattern.compile(
 		"(?is)^\\s*create\\s+(?:or\\s+alter\\s+)?view\\s+.+?\\s+as\\s+(.*)$"
 	);
@@ -313,6 +364,9 @@ order by schema_name(t.schema_id), t.name, tr.name
 			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DEFAULT_CONSTRAINTS, schemas.size()));
 			PreparedStatement rps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ROUTINES, schemas.size()));
 			PreparedStatement trps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TRIGGERS, schemas.size()));
+			PreparedStatement ftCatPs = con.prepareStatement(SQL_FOR_FULLTEXT_CATALOGS);
+			PreparedStatement ftIdxPs = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FULLTEXT_INDEXES, schemas.size()));
+			PreparedStatement ftColPs = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FULLTEXT_INDEX_COLUMNS, schemas.size()));
 			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
 			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
 		){
@@ -436,12 +490,16 @@ order by schema_name(t.schema_id), t.name, tr.name
 				boolean isUnique = irs.getBoolean("IS_UNIQUE");
 				String indexType = irs.getString("INDEX_TYPE");
 				boolean isIncluded = irs.getBoolean("IS_INCLUDED_COLUMN");
+				String xmlSecondaryType = irs.getString("XML_SECONDARY_TYPE");
+				String usingXmlIndexName = irs.getString("USING_XML_INDEX_NAME");
 				String qualifiedTableName = new StringBuilder(schemaName).append(".").append(tableName).toString();
 				if(cur == null || !qualifiedTableName.equals(cur.qualifiedTableName()) || !indexName.equals(cur.getIndexName())){
 					if(cur != null){
 						CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), () -> new HashMap<>()).put(cur.getIndexName(), cur);
 					}
 					cur = new IndexInfo(schemaName, tableName, indexName, isUnique, indexType);
+					cur.setXmlSecondaryType(xmlSecondaryType);
+					cur.setUsingXmlIndexName(usingXmlIndexName);
 				}
 				if(isIncluded){
 					cur.getExtraColumns().add(columnName);
@@ -528,6 +586,53 @@ order by schema_name(t.schema_id), t.name, tr.name
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} triggers", dbModel.getTriggers().size()));
 
+			reportProgress(progress, LogMessage.info("Loading full-text catalogs and indexes..."));
+			try (ResultSet ftrs = ftCatPs.executeQuery()) {
+				while (ftrs.next()) {
+					dbModel.getFullTextCatalogs().add(DbFullTextCatalog.builder()
+						.name(ftrs.getString("catalog_name"))
+						.isDefault(ftrs.getBoolean("is_default"))
+						.build());
+				}
+			}
+			Map<String, DbFullTextIndex> ftByTable = new HashMap<>();
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ftIdxPs.setString(i, schema)));
+			try (ResultSet ftrs = ftIdxPs.executeQuery()) {
+				while (ftrs.next()) {
+					String schemaName = ftrs.getString("schema_name");
+					String tableName = ftrs.getString("table_name");
+					DbFullTextIndex ftIndex = DbFullTextIndex.builder()
+						.schemaName(schemaName)
+						.tableName(tableName)
+						.uniqueIndexName(ftrs.getString("unique_index_name"))
+						.catalogName(ftrs.getString("catalog_name"))
+						.changeTracking(ftrs.getString("change_tracking"))
+						.stoplistName(ftrs.getString("stoplist_name"))
+						.build();
+					ftByTable.put(ftIndex.qualifiedTableName(), ftIndex);
+					dbModel.getFullTextIndexes().add(ftIndex);
+				}
+			}
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ftColPs.setString(i, schema)));
+			try (ResultSet ftrs = ftColPs.executeQuery()) {
+				RsHelper ftHelper = new RsHelper(ftrs);
+				while (ftrs.next()) {
+					String schemaName = ftrs.getString("schema_name");
+					String tableName = ftrs.getString("table_name");
+					DbFullTextIndex ftIndex = ftByTable.get(CommonHelpers.qualifiedName(schemaName, tableName));
+					if (ftIndex == null) {
+						continue;
+					}
+					ftIndex.getColumns().add(DbFullTextIndex.Column.builder()
+						.columnName(ftrs.getString("column_name"))
+						.typeColumnName(ftrs.getString("type_column_name"))
+						.languageId(ftHelper.getInt("language_id"))
+						.build());
+				}
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} full-text catalogs, {} full-text indexes",
+				dbModel.getFullTextCatalogs().size(), dbModel.getFullTextIndexes().size()));
+
 			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
@@ -561,9 +666,9 @@ order by schema_name(t.schema_id), t.name, tr.name
 			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
-			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views, {} routines, {} triggers, {} types) in {} secs",
+			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views, {} routines, {} triggers, {} types, {} ft indexes) in {} secs",
 				dbModel.getTables().size(), dbModel.getViews().size(), dbModel.getFunctions().size(),
-				dbModel.getTriggers().size(), dbModel.getDomainTypes().size(),
+				dbModel.getTriggers().size(), dbModel.getDomainTypes().size(), dbModel.getFullTextIndexes().size(),
 				Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
 		}catch(BaseRuntimeException e){
 			throw e;

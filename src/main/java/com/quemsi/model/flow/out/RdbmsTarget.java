@@ -122,6 +122,7 @@ public class RdbmsTarget extends AbstractStorage{
                 ddlService.enableContraints(allFks);
 
                 if(result){
+                    ddlService.createFullTextIndexes(dbModel);
                     ddlService.createFunctions(dbModel);
                     ddlService.createViews(dbModel);
                     ddlService.createTriggers(dbModel);

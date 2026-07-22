@@ -266,6 +266,25 @@ public class DDLServiceSqlserverTest {
     }
 
     @Test
+    public void givenReservedPrimaryColumn_whenDdlFrom_thenSingleBracketQuote() {
+        DbModelDiff diff = new DbModelDiff();
+        DbTable table = createTable("Production", "ProductProductPhoto");
+        table.addColumn(createColumn("ProductID", "int", false));
+        table.addColumn(createColumn("Primary", "bit", false));
+
+        diff.getOperations().add(DbTableDiffOp.builder()
+            .opType(DiffOpType.CREATE)
+            .qualifiedName("Production.ProductProductPhoto")
+            .newTable(table)
+            .build());
+
+        List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+        assertThat(statements, hasSize(1));
+        assertThat(statements.get(0), containsString("[Primary] bit"));
+        assertThat(statements.get(0), not(containsString("[[Primary]]")));
+    }
+
+    @Test
     public void givenCharAndBinaryColumns_whenDdlFrom_thenIncludeLengths() {
         DbModelDiff diff = new DbModelDiff();
         DbTable table = createTable("dbo", "authors");
@@ -365,6 +384,42 @@ public class DDLServiceSqlserverTest {
         String sql = DDLServiceSqlserver.createIndexSql(index, "[dbo].[t]");
 
         assertThat(sql, is("CREATE NONCLUSTERED INDEX [ix] ON [dbo].[t] ([id]) INCLUDE ([name], [city]);"));
+    }
+
+    @Test
+    public void givenPrimaryXmlIndex_whenCreateIndexSql_thenPrimaryXmlDdl() {
+        IndexInfo index = new IndexInfo("Person", "Person", "PXML_Person_Demographics", false, "XML");
+        index.getColumns().add("Demographics");
+
+        String sql = DDLServiceSqlserver.createIndexSql(index, "[Person].[Person]");
+
+        assertThat(sql, is("CREATE PRIMARY XML INDEX [PXML_Person_Demographics] ON [Person].[Person] ([Demographics]);"));
+    }
+
+    @Test
+    public void givenSecondaryXmlIndex_whenCreateIndexSql_thenUsingAndFor() {
+        IndexInfo index = new IndexInfo("Person", "Person", "XMLPATH_Person_Demographics", false, "XML");
+        index.getColumns().add("Demographics");
+        index.setXmlSecondaryType("PATH");
+        index.setUsingXmlIndexName("PXML_Person_Demographics");
+
+        String sql = DDLServiceSqlserver.createIndexSql(index, "[Person].[Person]");
+
+        assertThat(sql, is("CREATE XML INDEX [XMLPATH_Person_Demographics] ON [Person].[Person] ([Demographics])"
+                + " USING XML INDEX [PXML_Person_Demographics] FOR PATH;"));
+    }
+
+    @Test
+    public void givenMixedXmlIndexes_whenXmlIndexCreateOrder_thenPrimaryBeforeSecondary() {
+        IndexInfo primary = new IndexInfo("Person", "Person", "PXML", false, "XML");
+        IndexInfo secondary = new IndexInfo("Person", "Person", "XMLPATH", false, "XML");
+        secondary.setXmlSecondaryType("PATH");
+        secondary.setUsingXmlIndexName("PXML");
+        IndexInfo rowstore = new IndexInfo("Person", "Person", "IX", false, "NONCLUSTERED");
+
+        assertThat(DDLServiceSqlserver.xmlIndexCreateOrder(rowstore), is(0));
+        assertThat(DDLServiceSqlserver.xmlIndexCreateOrder(primary), is(1));
+        assertThat(DDLServiceSqlserver.xmlIndexCreateOrder(secondary), is(2));
     }
 
     @Test

@@ -534,7 +534,9 @@ public class DbModelDiffExtractor {
             && left.isUnique() == right.isUnique()
             && Objects.equals(left.getIndexType(), right.getIndexType())
             && Objects.equals(left.getColumns(), right.getColumns())
-            && Objects.equals(left.getExtraColumns(), right.getExtraColumns());
+            && Objects.equals(left.getExtraColumns(), right.getExtraColumns())
+            && Objects.equals(left.getXmlSecondaryType(), right.getXmlSecondaryType())
+            && Objects.equals(left.getUsingXmlIndexName(), right.getUsingXmlIndexName());
     }
 
     private boolean sameSequence(DbSequence left, DbSequence right) {

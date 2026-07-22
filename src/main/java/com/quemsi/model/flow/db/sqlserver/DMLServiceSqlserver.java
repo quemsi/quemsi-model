@@ -9,7 +9,15 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Time;
+import java.sql.Timestamp;
 import java.sql.Types;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
@@ -22,6 +30,10 @@ import java.util.stream.Collectors;
 
 import javax.sql.DataSource;
 
+import com.microsoft.sqlserver.jdbc.Geography;
+import com.microsoft.sqlserver.jdbc.Geometry;
+import com.microsoft.sqlserver.jdbc.ISQLServerPreparedStatement;
+import com.microsoft.sqlserver.jdbc.SQLServerResultSet;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
@@ -39,15 +51,25 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 @AllArgsConstructor
 public class DMLServiceSqlserver implements DMLService{
-	private static final Set<String> BINARY_COLUMN_TYPES = Set.of("VARBINARY", "BINARY", "IMAGE");
+	private static final Set<String> BINARY_COLUMN_TYPES = Set.of("VARBINARY", "BINARY", "IMAGE", "TIMESTAMP", "ROWVERSION");
 	private static final Set<String> NATIONAL_CHAR_TYPES = Set.of("NCHAR", "NVARCHAR", "NTEXT");
 	private static final Set<String> CHARACTER_COLUMN_TYPES = Set.of(
-		"CHAR", "VARCHAR", "TEXT", "NCHAR", "NVARCHAR", "NTEXT", "XML", "SYSNAME"
+		"CHAR", "VARCHAR", "TEXT", "NCHAR", "NVARCHAR", "NTEXT", "XML", "SYSNAME", "UNIQUEIDENTIFIER"
 	);
+	private static final Set<String> SPATIAL_COLUMN_TYPES = Set.of("GEOGRAPHY", "GEOMETRY");
+	private static final Set<String> GEOGRAPHY_COLUMN_TYPES = Set.of("GEOGRAPHY");
+	private static final Set<String> HIERARCHYID_COLUMN_TYPES = Set.of("HIERARCHYID");
+	private static final Set<String> DATE_COLUMN_TYPES = Set.of("DATE");
+	private static final Set<String> TIME_COLUMN_TYPES = Set.of("TIME");
+	private static final Set<String> DATETIME_COLUMN_TYPES = Set.of("DATETIME", "DATETIME2", "SMALLDATETIME");
+	private static final Set<String> DATETIMEOFFSET_COLUMN_TYPES = Set.of("DATETIMEOFFSET");
+	private static final DateTimeFormatter BACKUP_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSS");
+	private static final DateTimeFormatter BACKUP_DATE_TIME_NO_MILLIS = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss");
+
 
 	private static final String GET_TABLE_DATA_PAGE_FORMAT = """
 select * from (
-	select *, ROW_NUMBER() OVER (ORDER BY %s ) AS RowNum from %s
+	select %s, ROW_NUMBER() OVER (ORDER BY %s ) AS RowNum from %s AS t
 ) q WHERE q.RowNum > ? AND q.RowNum <= (? + ?)
 ;
             """;;
@@ -67,6 +89,31 @@ select * from (
 
 	static String quotedColumn(String columnName) {
 		return CommonHelpers.bracketQuoted(columnName);
+	}
+
+	/**
+	 * hierarchyid is selected as path text via {@code .ToString()} so JSON backups stay
+	 * round-trippable with {@code hierarchyid::Parse(?)}. Raw JDBC bytes do not CAST cleanly.
+	 */
+	static String selectListForTable(DbTable table) {
+		DbColumn[] columns = table.orderedColumns();
+		StringBuilder sb = new StringBuilder();
+		for (int i = 0; i < columns.length; i++) {
+			if (i > 0) {
+				sb.append(", ");
+			}
+			String quoted = quotedColumn(columns[i].getName());
+			if (isHierarchyIdColumnType(columns[i])) {
+				sb.append("t.").append(quoted).append(".ToString() AS ").append(quoted);
+			} else {
+				sb.append("t.").append(quoted);
+			}
+		}
+		return sb.toString();
+	}
+
+	static String orderByForTable(DbTable table, List<String> sortColumnNames) {
+		return sortColumnNames.stream().map(name -> "t." + quotedColumn(name)).collect(Collectors.joining(", "));
 	}
 
 	@Override
@@ -90,17 +137,19 @@ select * from (
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
-			String sortColumnNames;
+			List<String> sortColumns;
 			if (!CommonHelpers.isEmptyOrNull(request.getTable().getPkColumnNames())) {
-				sortColumnNames = request.getTable().getPkColumnNames().stream().map(DMLServiceSqlserver::quotedColumn).collect(Collectors.joining(", "));
+				sortColumns = request.getTable().getPkColumnNames();
 			} else {
 				List<String> orderable = request.getTable().orderableColumnNames();
-				sortColumnNames = orderable.isEmpty()
-					? "(SELECT NULL)"
-					: orderable.stream().map(DMLServiceSqlserver::quotedColumn).collect(Collectors.joining(", "));
+				sortColumns = orderable.isEmpty() ? List.of() : orderable;
 			}
+			String sortColumnNames = sortColumns.isEmpty()
+				? "(SELECT NULL)"
+				: orderByForTable(request.getTable(), sortColumns);
 			String from = quotedTable(request.getTable());
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, sortColumnNames, from);
+			String selectList = selectListForTable(request.getTable());
+			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, selectList, sortColumnNames, from);
 			log.info("sql for {} :{} offset :{} count: {}", from, sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
 			PreparedStatement ps = conn.prepareStatement(sql);
 			ps.setInt(1, request.getPageNum() * request.getPageSize());
@@ -141,18 +190,17 @@ select * from (
 						log.trace("{} column {} value {}", request.getTable().getName(), columnName, val);
 						cellValues[columnIndex++] = val;
 					}else{
+						/* Same reader as non-PK — getObject() returns null for hierarchyid/geography UDTs. */
+						Object pkVal = readColumnValue(rs, columnName, columnMeta);
+						cellValues[columnIndex++] = pkVal;
 						if(pkColumnNames.size() == 1){
-							String pkName = pkColumnNames.iterator().next();
-							pk = rs.getObject(pkName);
-							cellValues[columnIndex++] = pk;
+							pk = pkVal;
 						}else{
-							Object pkVal = Exceptions.wrapSupplier(() -> rs.getObject(columnName)).get();
-							cellValues[columnIndex++] = pkVal;
 							pkVals.put(columnName, pkVal);
 							if(pkBuilder.length() > 0){
 								pkBuilder.append(DataSourceFactory.PK_VALUES_SEPERATOR);
 							}
-							pkBuilder.append(pkVal.toString());
+							pkBuilder.append(pkVal != null ? pkVal.toString() : "null");
 						}
 					}
 				}
@@ -182,7 +230,7 @@ select * from (
 				StringBuilder paramsBuilder = new StringBuilder("(");
 				for(int i = 0; i < orderedColumns.length; i++){
 					sqlBuilder.append(quotedColumn(orderedColumns[i].getName()));
-					paramsBuilder.append("?");
+					paramsBuilder.append(parameterPlaceholder(orderedColumns[i]));
 					if(i < orderedColumns.length - 1){
 						sqlBuilder.append(", ");
 						paramsBuilder.append(", ");
@@ -233,9 +281,28 @@ select * from (
 		return 0;		
 	}
 
+	static String parameterPlaceholder(DbColumn column) {
+		if (isHierarchyIdColumnType(column)) {
+			return "hierarchyid::Parse(?)";
+		}
+		return "?";
+	}
+
 	static void setColumnValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
 		if (value == null) {
 			ps.setNull(parameterIndex, nullSqlType(column));
+			return;
+		}
+		if (isHierarchyIdColumnType(column)) {
+			setHierarchyIdValue(ps, parameterIndex, value);
+			return;
+		}
+		if (isSpatialColumnType(column)) {
+			setSpatialValue(ps, parameterIndex, column, value);
+			return;
+		}
+		if (isTemporalColumnType(column)) {
+			setTemporalValue(ps, parameterIndex, column, value);
 			return;
 		}
 		if (value instanceof CustomSerializedColumn serializedColumn) {
@@ -263,12 +330,298 @@ select * from (
 			setCharacterValue(ps, parameterIndex, column, value);
 			return;
 		}
-		if (value instanceof byte[] bytes) {
-			/* Avoid setObject(byte[]) which the MSSQL driver binds as varbinary. */
-			ps.setBytes(parameterIndex, bytes);
-			return;
+		if (value instanceof byte[]) {
+			/* Never bind raw bytes into non-binary columns (MSSQL rejects varbinary→date etc.). */
+			throw Exceptions.server("unexpected-binary-value")
+					.withExtra("column", column.getName())
+					.withExtra("columnType", column.getColumnType())
+					.get();
 		}
 		ps.setObject(parameterIndex, value);
+	}
+
+	static void setTemporalValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
+		if (isDateColumnType(column)) {
+			java.sql.Date date = toSqlDate(value);
+			if (date == null) {
+				ps.setNull(parameterIndex, Types.DATE);
+			} else {
+				ps.setDate(parameterIndex, date);
+			}
+			return;
+		}
+		if (isTimeColumnType(column)) {
+			Time time = toSqlTime(value);
+			if (time == null) {
+				ps.setNull(parameterIndex, Types.TIME);
+			} else {
+				ps.setTime(parameterIndex, time);
+			}
+			return;
+		}
+		/* datetime / datetime2 / smalldatetime / datetimeoffset */
+		Timestamp timestamp = toSqlTimestamp(value);
+		if (timestamp == null) {
+			ps.setNull(parameterIndex, Types.TIMESTAMP);
+		} else {
+			ps.setTimestamp(parameterIndex, timestamp);
+		}
+	}
+
+	static java.sql.Date toSqlDate(Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof java.sql.Date date) {
+			return date;
+		}
+		if (value instanceof LocalDate localDate) {
+			return java.sql.Date.valueOf(localDate);
+		}
+		if (value instanceof Timestamp timestamp) {
+			return java.sql.Date.valueOf(timestamp.toLocalDateTime().toLocalDate());
+		}
+		if (value instanceof java.util.Date date) {
+			return new java.sql.Date(date.getTime());
+		}
+		if (value instanceof Number number) {
+			return new java.sql.Date(number.longValue());
+		}
+		if (value instanceof String str) {
+			String trimmed = str.trim();
+			if (trimmed.isEmpty()) {
+				return null;
+			}
+			return java.sql.Date.valueOf(parseLocalDate(trimmed));
+		}
+		throw Exceptions.server("invalid-date-value")
+				.withExtra("valueType", value.getClass().getName())
+				.withExtra("value", String.valueOf(value))
+				.get();
+	}
+
+	static Time toSqlTime(Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof Time time) {
+			return time;
+		}
+		if (value instanceof LocalTime localTime) {
+			return Time.valueOf(localTime);
+		}
+		if (value instanceof Timestamp timestamp) {
+			return Time.valueOf(timestamp.toLocalDateTime().toLocalTime());
+		}
+		if (value instanceof String str) {
+			String trimmed = str.trim();
+			if (trimmed.isEmpty()) {
+				return null;
+			}
+			return Time.valueOf(LocalTime.parse(trimmed));
+		}
+		throw Exceptions.server("invalid-time-value")
+				.withExtra("valueType", value.getClass().getName())
+				.get();
+	}
+
+	static Timestamp toSqlTimestamp(Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof Timestamp timestamp) {
+			return timestamp;
+		}
+		if (value instanceof java.sql.Date date) {
+			return new Timestamp(date.getTime());
+		}
+		if (value instanceof java.util.Date date) {
+			return new Timestamp(date.getTime());
+		}
+		if (value instanceof LocalDateTime localDateTime) {
+			return Timestamp.valueOf(localDateTime);
+		}
+		if (value instanceof LocalDate localDate) {
+			return Timestamp.valueOf(localDate.atStartOfDay());
+		}
+		if (value instanceof Instant instant) {
+			return Timestamp.from(instant);
+		}
+		if (value instanceof Number number) {
+			return new Timestamp(number.longValue());
+		}
+		if (value instanceof String str) {
+			String trimmed = str.trim();
+			if (trimmed.isEmpty()) {
+				return null;
+			}
+			return Timestamp.valueOf(parseLocalDateTime(trimmed));
+		}
+		throw Exceptions.server("invalid-timestamp-value")
+				.withExtra("valueType", value.getClass().getName())
+				.withExtra("value", String.valueOf(value))
+				.get();
+	}
+
+	static LocalDate parseLocalDate(String value) {
+		try {
+			return LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE);
+		} catch (DateTimeParseException ignored) {
+			return parseLocalDateTime(value).toLocalDate();
+		}
+	}
+
+	static LocalDateTime parseLocalDateTime(String value) {
+		try {
+			return LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+		} catch (DateTimeParseException ignored) {
+		}
+		try {
+			return LocalDateTime.parse(value, BACKUP_DATE_TIME);
+		} catch (DateTimeParseException ignored) {
+		}
+		try {
+			return LocalDateTime.parse(value, BACKUP_DATE_TIME_NO_MILLIS);
+		} catch (DateTimeParseException ignored) {
+		}
+		return LocalDate.parse(value, DateTimeFormatter.ISO_LOCAL_DATE).atStartOfDay();
+	}
+
+	/**
+	 * hierarchyid must be path text ({@code /}, {@code /1/2/}). JDBC binary from getBytes does not
+	 * round-trip through CAST/Parse; backups should use {@link #selectListForTable}.
+	 */
+	static void setHierarchyIdValue(PreparedStatement ps, int parameterIndex, Object value) throws SQLException {
+		String path = toHierarchyIdPath(value);
+		if (path == null) {
+			ps.setNull(parameterIndex, Types.NVARCHAR);
+			return;
+		}
+		ps.setString(parameterIndex, path);
+	}
+
+	static String toHierarchyIdPath(Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof String str) {
+			String trimmed = str.trim();
+			if (trimmed.isEmpty()) {
+				return null;
+			}
+			if (looksLikeHierarchyPath(trimmed)) {
+				return trimmed;
+			}
+			throw Exceptions.server("hierarchyid-requires-path")
+					.withExtra("hint", "expected path like /1/2/; re-backup after hierarchyid.ToString() fix")
+					.withExtra("valuePreview", trimmed.length() > 64 ? trimmed.substring(0, 64) : trimmed)
+					.get();
+		}
+		if (value instanceof CustomSerializedColumn serialized) {
+			return toHierarchyIdPath(serialized.getData());
+		}
+		if (value instanceof Map<?, ?> map) {
+			Object data = map.containsKey("data") ? map.get("data") : map.get("value");
+			return toHierarchyIdPath(data);
+		}
+		if (value instanceof byte[] bytes) {
+			String asUtf8 = new String(bytes, StandardCharsets.UTF_8).trim();
+			if (looksLikeHierarchyPath(asUtf8)) {
+				return asUtf8;
+			}
+			throw Exceptions.server("hierarchyid-requires-path")
+					.withExtra("hint", "hierarchyid binary is not supported; re-backup after agent update")
+					.get();
+		}
+		if (value instanceof List<?>) {
+			return toHierarchyIdPath(decodeBinaryData(value));
+		}
+		throw Exceptions.server("unsupported-hierarchyid-value")
+				.withExtra("valueType", value.getClass().getName())
+				.get();
+	}
+
+	static boolean looksLikeHierarchyPath(String value) {
+		return value != null && value.startsWith("/");
+	}
+
+	static void setSpatialValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
+		ISQLServerPreparedStatement sps = ps.unwrap(ISQLServerPreparedStatement.class);
+		if (value instanceof Geography geography) {
+			sps.setGeography(parameterIndex, geography);
+			return;
+		}
+		if (value instanceof Geometry geometry) {
+			sps.setGeometry(parameterIndex, geometry);
+			return;
+		}
+		if (value instanceof String str && looksLikeWkt(str.trim())) {
+			String wkt = str.trim();
+			if (isGeographyColumnType(column)) {
+				sps.setGeography(parameterIndex, Geography.STGeomFromText(wkt, 4326));
+			} else {
+				sps.setGeometry(parameterIndex, Geometry.STGeomFromText(wkt, 0));
+			}
+			return;
+		}
+		byte[] clr = extractSpatialBytes(value);
+		if (clr == null) {
+			ps.setNull(parameterIndex, Types.NULL);
+			return;
+		}
+		if (isGeographyColumnType(column)) {
+			sps.setGeography(parameterIndex, Geography.deserialize(clr));
+		} else {
+			sps.setGeometry(parameterIndex, Geometry.deserialize(clr));
+		}
+	}
+
+	/**
+	 * Spatial values in backups are SQL Server CLR bytes (often base64).
+	 */
+	static byte[] extractSpatialBytes(Object value) {
+		if (value == null) {
+			return null;
+		}
+		if (value instanceof byte[] bytes) {
+			return bytes;
+		}
+		if (value instanceof CustomSerializedColumn serialized) {
+			return serialized.getData();
+		}
+		if (value instanceof Map<?, ?> map) {
+			Object data = map.containsKey("data") ? map.get("data") : map.get("value");
+			if (data == null) {
+				return null;
+			}
+			return extractSpatialBytes(data);
+		}
+		if (value instanceof String str) {
+			String trimmed = str.trim();
+			if (trimmed.isEmpty()) {
+				return null;
+			}
+			return decodeBinaryData(trimmed);
+		}
+		if (value instanceof List<?>) {
+			return decodeBinaryData(value);
+		}
+		throw Exceptions.server("unsupported-spatial-value")
+				.withExtra("valueType", value.getClass().getName())
+				.get();
+	}
+
+	static boolean looksLikeWkt(String value) {
+		String upper = value.toUpperCase();
+		return upper.startsWith("POINT")
+				|| upper.startsWith("LINESTRING")
+				|| upper.startsWith("POLYGON")
+				|| upper.startsWith("MULTI")
+				|| upper.startsWith("GEOMETRYCOLLECTION")
+				|| upper.startsWith("CIRCULARSTRING")
+				|| upper.startsWith("COMPOUNDCURVE")
+				|| upper.startsWith("CURVEPOLYGON")
+				|| upper.startsWith("FULLGLOBE");
 	}
 
 	static void setCharacterValue(PreparedStatement ps, int parameterIndex, DbColumn column, Object value) throws SQLException {
@@ -304,6 +657,15 @@ select * from (
 	}
 
 	static Object readColumnValue(ResultSet rs, String columnName, DbColumn column) throws SQLException {
+		if (column != null && isSpatialColumnType(column)) {
+			return readSpatialValue(rs, columnName, column);
+		}
+		if (column != null && isHierarchyIdColumnType(column)) {
+			return readHierarchyIdValue(rs, columnName);
+		}
+		if (column != null && isTemporalColumnType(column)) {
+			return readTemporalValue(rs, columnName, column);
+		}
 		Object val = rs.getObject(columnName);
 		if (val == null || rs.wasNull()) {
 			return null;
@@ -339,8 +701,59 @@ select * from (
 		return val;
 	}
 
+	/**
+	 * Column is already path text when selected via {@code .ToString()} in {@link #selectListForTable}.
+	 */
+	static Object readHierarchyIdValue(ResultSet rs, String columnName) throws SQLException {
+		String path = rs.getString(columnName);
+		if (path == null || rs.wasNull()) {
+			return null;
+		}
+		return path;
+	}
+
+	/** ISO date/time strings for JSON-stable round-trip (avoids java.sql.Date → byte[] pitfalls). */
+	static Object readTemporalValue(ResultSet rs, String columnName, DbColumn column) throws SQLException {
+		if (isDateColumnType(column)) {
+			java.sql.Date date = rs.getDate(columnName);
+			return date == null || rs.wasNull() ? null : date.toLocalDate().toString();
+		}
+		if (isTimeColumnType(column)) {
+			Time time = rs.getTime(columnName);
+			return time == null || rs.wasNull() ? null : time.toLocalTime().toString();
+		}
+		Timestamp timestamp = rs.getTimestamp(columnName);
+		if (timestamp == null || rs.wasNull()) {
+			return null;
+		}
+		return timestamp.toLocalDateTime().format(BACKUP_DATE_TIME);
+	}
+
+	/** Returns SQL Server CLR spatial bytes for stable JSON/base64 round-trip. */
+	static byte[] readSpatialValue(ResultSet rs, String columnName, DbColumn column) throws SQLException {
+		SQLServerResultSet srs = rs.unwrap(SQLServerResultSet.class);
+		if (isGeographyColumnType(column)) {
+			Geography geography = srs.getGeography(columnName);
+			return geography == null || geography.isNull() ? null : geography.serialize();
+		}
+		Geometry geometry = srs.getGeometry(columnName);
+		return geometry == null || geometry.isNull() ? null : geometry.serialize();
+	}
+
 	static int nullSqlType(DbColumn column) {
-		if (isBinaryColumnType(column)) {
+		if (isHierarchyIdColumnType(column)) {
+			return Types.NVARCHAR;
+		}
+		if (isDateColumnType(column)) {
+			return Types.DATE;
+		}
+		if (isTimeColumnType(column)) {
+			return Types.TIME;
+		}
+		if (isTemporalColumnType(column)) {
+			return Types.TIMESTAMP;
+		}
+		if (isBinaryColumnType(column) || isSpatialColumnType(column)) {
 			return Types.VARBINARY;
 		}
 		if (isNationalCharacterType(column)) {
@@ -358,6 +771,65 @@ select * from (
 
 	static boolean isBinaryColumnType(Object columnType) {
 		return columnType != null && BINARY_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	static boolean isSpatialColumnType(DbColumn column) {
+		return isSpatialColumnType(column.getDataType()) || isSpatialColumnType(column.getColumnType());
+	}
+
+	static boolean isSpatialColumnType(Object columnType) {
+		return columnType != null && SPATIAL_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	static boolean isGeographyColumnType(DbColumn column) {
+		return isGeographyColumnType(column.getDataType()) || isGeographyColumnType(column.getColumnType());
+	}
+
+	static boolean isGeographyColumnType(Object columnType) {
+		return columnType != null && GEOGRAPHY_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	static boolean isHierarchyIdColumnType(DbColumn column) {
+		return isHierarchyIdColumnType(column.getDataType()) || isHierarchyIdColumnType(column.getColumnType());
+	}
+
+	static boolean isHierarchyIdColumnType(Object columnType) {
+		return columnType != null && HIERARCHYID_COLUMN_TYPES.contains(columnType.toString().toUpperCase());
+	}
+
+	static boolean isTemporalColumnType(DbColumn column) {
+		return isDateColumnType(column) || isTimeColumnType(column)
+				|| isDateTimeColumnType(column) || isDateTimeOffsetColumnType(column);
+	}
+
+	static boolean isDateColumnType(DbColumn column) {
+		return matchesType(column, DATE_COLUMN_TYPES);
+	}
+
+	static boolean isTimeColumnType(DbColumn column) {
+		return matchesType(column, TIME_COLUMN_TYPES);
+	}
+
+	static boolean isDateTimeColumnType(DbColumn column) {
+		return matchesType(column, DATETIME_COLUMN_TYPES);
+	}
+
+	static boolean isDateTimeOffsetColumnType(DbColumn column) {
+		return matchesType(column, DATETIMEOFFSET_COLUMN_TYPES);
+	}
+
+	private static boolean matchesType(DbColumn column, Set<String> types) {
+		return types.contains(normalizeTypeName(column.getDataType()))
+				|| types.contains(normalizeTypeName(column.getColumnType()));
+	}
+
+	private static String normalizeTypeName(Object columnType) {
+		if (columnType == null) {
+			return "";
+		}
+		String type = columnType.toString().trim().toUpperCase();
+		int paren = type.indexOf('(');
+		return paren >= 0 ? type.substring(0, paren).trim() : type;
 	}
 
 	static boolean isCharacterColumnType(DbColumn column) {
