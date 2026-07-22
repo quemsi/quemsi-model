@@ -1,7 +1,6 @@
 package com.quemsi.model.flow.db;
 
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -9,7 +8,6 @@ import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
-import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.sql.DbDomainType;
@@ -59,16 +57,8 @@ public class DropTables extends AbstractStep{
 				}
 			}
 			if(tables != null && !tables.isEmpty()){
-				/* MySQL/Postgres/Oracle drop with FK checks off or CASCADE — per-FK ALTERs are redundant.
-				 * SQL Server still needs DROP CONSTRAINT before DROP TABLE. */
-				DatasourceType type = datasource.type();
-				if (DatasourceType.SQLSERVER.equals(type)) {
-					if(dbModel.getReferenceInfos() != null && !dbModel.getReferenceInfos().isEmpty()){
-						ddlService.disableConstraints(new HashSet<>(dbModel.getReferenceInfos()));
-					} else if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
-						ddlService.disableConstraints(dbModel.getCircularIgnore());
-					}
-				}
+				/* MySQL/Postgres/Oracle drop with FK checks off or CASCADE.
+				 * SQL Server multi-table DROP TABLE also removes FKs among the listed tables. */
 				ddlService.dropTables(tables.toArray(new String[tables.size()]));
             }
 			if(sequences != null && !sequences.isEmpty()){

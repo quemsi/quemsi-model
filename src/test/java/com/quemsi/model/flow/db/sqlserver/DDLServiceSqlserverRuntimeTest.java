@@ -63,7 +63,7 @@ public class DDLServiceSqlserverRuntimeTest {
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(1));
-		assertThat(recording.batchedSql.get(0), containsString("ALTER TABLE [dbo].[Orders] ADD CONSTRAINT [FK_Orders_Customers]"));
+		assertThat(recording.batchedSql.get(0), containsString("ALTER TABLE [dbo].[Orders] WITH NOCHECK ADD CONSTRAINT [FK_Orders_Customers]"));
 		assertThat(recording.batchedSql.get(0), containsString("REFERENCES [dbo].[Customers]"));
 		assertThat(recording.batchedSql.get(0), containsString("FOREIGN KEY"));
 		assertThat(recording.batchedSql.get(0).endsWith(";"), equalTo(false));

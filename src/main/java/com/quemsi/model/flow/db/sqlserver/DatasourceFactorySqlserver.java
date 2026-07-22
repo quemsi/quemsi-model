@@ -360,6 +360,7 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 			config.setJdbcUrl(this.url);
 			config.setPassword(password);
 			config.setUsername(username);
+			applySqlServerBatchDataSourceProperties(config);
 			/* Connection pool settings for intermittent flow workloads */
 			config.setMaximumPoolSize(20);  /* Reasonable max connections per datasource */
 			config.setMinimumIdle(0);      /* Allow pool to shrink to empty when unused */
@@ -374,6 +375,14 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 			instance = ds;
 		}
 		return instance;
+	}
+
+	/**
+	 * Enables mssql-jdbc bulk-copy path for PreparedStatement {@code executeBatch} inserts.
+	 * Requires a fully parameterized INSERT (no concatenated session SET statements).
+	 */
+	static void applySqlServerBatchDataSourceProperties(HikariConfig config) {
+		config.addDataSourceProperty("useBulkCopyForBatchInsert", "true");
 	}
 
 	@Override

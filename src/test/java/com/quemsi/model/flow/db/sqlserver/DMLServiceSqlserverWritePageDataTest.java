@@ -11,6 +11,9 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -28,6 +31,24 @@ import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 
 public class DMLServiceSqlserverWritePageDataTest {
+
+	@Test
+	public void writePageData_identityTable_runsIdentityInsertOutsidePreparedStatement() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("dbo", "Employees");
+		table.addColumn(DbColumn.builder().name("EmployeeID").dataType("int").columnType("int").ordinalPosition(1).nullable(false).identity(true).build());
+		table.addColumn(DbColumn.builder().name("LastName").dataType("nvarchar").columnType("nvarchar").ordinalPosition(2).nullable(false).build());
+
+		try (DMLServiceSqlserver dml = new DMLServiceSqlserver(dataSource(recording.connection), null)) {
+			dml.writePageData(table, new DataPage(0, Map.of(1, new Object[] { 1, "Davolio" })));
+		}
+
+		assertThat(recording.statementSql.get(0), equalTo("SET IDENTITY_INSERT [dbo].[Employees] ON"));
+		assertThat(recording.lastPrepareSql, equalTo("insert into [dbo].[Employees]([EmployeeID], [LastName]) values (?, ?)"));
+		assertThat(recording.statementSql.get(1), equalTo("SET IDENTITY_INSERT [dbo].[Employees] OFF"));
+		assertThat(recording.executeBatchCalls.get(), equalTo(1));
+		assertThat(recording.commitCalls.get(), equalTo(1));
+	}
 
 	@Test
 	public void writePageData_commitsBatch_andRestoresAutocommit() throws Exception {
@@ -277,6 +298,7 @@ public class DMLServiceSqlserverWritePageDataTest {
 		final AtomicInteger setDateCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
+		final List<String> statementSql = new ArrayList<>();
 		final boolean failOnExecuteBatch;
 		volatile String lastPrepareSql;
 		final Connection connection;
@@ -308,6 +330,8 @@ public class DMLServiceSqlserverWritePageDataTest {
 				case "prepareStatement":
 					lastPrepareSql = (String) args[0];
 					return preparedStatementProxy();
+				case "createStatement":
+					return statementProxy();
 				case "close":
 					autoCommitAfterClose.set(autoCommit.get());
 					return null;
@@ -316,6 +340,23 @@ public class DMLServiceSqlserverWritePageDataTest {
 				default:
 					return defaultObjectMethod(proxy, method, args);
 			}
+		}
+
+		private Statement statementProxy() {
+			return (Statement) Proxy.newProxyInstance(
+				Statement.class.getClassLoader(),
+				new Class<?>[] { Statement.class },
+				(proxy, method, args) -> {
+					String name = method.getName();
+					if ("execute".equals(name) || "executeUpdate".equals(name)) {
+						statementSql.add((String) args[0]);
+						return "execute".equals(name) ? false : 0;
+					}
+					if ("close".equals(name) || "isClosed".equals(name)) {
+						return "isClosed".equals(name) ? false : null;
+					}
+					return defaultObjectMethod(proxy, method, args);
+				});
 		}
 
 		private PreparedStatement preparedStatementProxy() {

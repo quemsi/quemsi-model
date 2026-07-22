@@ -73,8 +73,8 @@ select * from (
 ) q WHERE q.RowNum > ? AND q.RowNum <= (? + ?)
 ;
             """;;
-	private static final String SET_INSERT_IDENTITY_ON = "SET IDENTITY_INSERT %s ON;";
-	private static final String SET_INSERT_IDENTITY_OFF = "SET IDENTITY_INSERT %s OFF;";
+	private static final String SET_INSERT_IDENTITY_ON = "SET IDENTITY_INSERT %s ON";
+	private static final String SET_INSERT_IDENTITY_OFF = "SET IDENTITY_INSERT %s OFF";
 	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(%s) as max_val FROM %s";
 	private static final String UPDATE_SEQUENCE_SQL = "ALTER SEQUENCE %s RESTART WITH %d";
 
@@ -222,9 +222,10 @@ select * from (
     public int writePageData(DbTable table, DataPage dataPage){
 		try(Connection conn = dataSource.getConnection()){
 			boolean previousAutoCommit = conn.getAutoCommit();
+			boolean identityInsertOn = false;
+			String from = quotedTable(table);
 			try {
 				conn.setAutoCommit(false);
-				String from = quotedTable(table);
 				DbColumn[] orderedColumns = table.orderedColumns();
 				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(from).append("(");
 				StringBuilder paramsBuilder = new StringBuilder("(");
@@ -238,24 +239,28 @@ select * from (
 				}
 				paramsBuilder.append(")");
 				sqlBuilder.append(") values ").append(paramsBuilder.toString());
-				String insertSql = sqlBuilder.toString();
-				boolean hasIdentity = Arrays.stream(orderedColumns).map(c -> c.isIdentity()).reduce(Boolean.FALSE, (c, v) -> c || v);
+				/* Keep INSERT fully parameterized so useBulkCopyForBatchInsert can engage.
+				 * IDENTITY_INSERT must be separate session statements, not concatenated into the PS. */
+				boolean hasIdentity = Arrays.stream(orderedColumns).anyMatch(DbColumn::isIdentity);
 				if(hasIdentity){
-					String setIdentityOnSql = String.format(SET_INSERT_IDENTITY_ON, from);
-					String setIdentityOffSql = String.format(SET_INSERT_IDENTITY_OFF, from);
-					insertSql = setIdentityOnSql + insertSql + setIdentityOffSql;
-				}
-				log.info("for {} insert sql :{}", table.getName(), insertSql);
-				PreparedStatement ps = conn.prepareStatement(insertSql);
-				dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
-					for(int i=0; i < orderedColumns.length; i++){
-						setColumnValue(ps, i + 1, orderedColumns[i], e.getValue()[i]);
+					try (Statement identityStmt = conn.createStatement()) {
+						identityStmt.execute(String.format(SET_INSERT_IDENTITY_ON, from));
 					}
-					ps.addBatch();
-				}));
-				int[] results = ps.executeBatch();
-				conn.commit();
-				log.info("for {} page {} batch inserted {} rows", table.getName(), dataPage.getPageNum(), results.length);
+					identityInsertOn = true;
+				}
+				String insertSql = sqlBuilder.toString();
+				log.info("for {} insert sql :{}", table.getName(), insertSql);
+				try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+					dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
+						for(int i=0; i < orderedColumns.length; i++){
+							setColumnValue(ps, i + 1, orderedColumns[i], e.getValue()[i]);
+						}
+						ps.addBatch();
+					}));
+					int[] results = ps.executeBatch();
+					conn.commit();
+					log.info("for {} page {} batch inserted {} rows", table.getName(), dataPage.getPageNum(), results.length);
+				}
 			} catch (Exception e) {
 				try {
 					conn.rollback();
@@ -264,6 +269,13 @@ select * from (
 				}
 				throw e;
 			} finally {
+				if (identityInsertOn) {
+					try (Statement identityStmt = conn.createStatement()) {
+						identityStmt.execute(String.format(SET_INSERT_IDENTITY_OFF, from));
+					} catch (SQLException identityOffEx) {
+						log.warn("failed to turn off IDENTITY_INSERT for {}", from, identityOffEx);
+					}
+				}
 				try {
 					conn.setAutoCommit(previousAutoCommit);
 				} catch (SQLException autoCommitEx) {

@@ -59,18 +59,35 @@ public class DDLServiceSqlserver implements DDLService{
 
     @Override
     public boolean dropTables(String... tableNames) {
+		String dropSql = buildMultiTableDropSql(tableNames);
+		if (dropSql == null) {
+			return true;
+		}
         try{
 			Statement s = conn.createStatement();
-			for(String tableName : tableNames){
-				s.addBatch("DROP TABLE IF EXISTS " + CommonHelpers.bracketQuotedQualified(tableName));
-			}
-			s.executeBatch();
+			log.info("drop tables sql :{}", dropSql);
+			s.executeUpdate(dropSql);
 			return true;
 		}catch(Exception e){
 			e.printStackTrace();
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
     }
+
+	/** Single multi-table DROP; SQL Server drops FKs among listed tables without prior ALTER. */
+	static String buildMultiTableDropSql(String... tableNames) {
+		if (tableNames == null || tableNames.length == 0) {
+			return null;
+		}
+		StringBuilder sb = new StringBuilder("DROP TABLE IF EXISTS ");
+		for (int i = 0; i < tableNames.length; i++) {
+			if (i > 0) {
+				sb.append(", ");
+			}
+			sb.append(CommonHelpers.bracketQuotedQualified(tableNames[i]));
+		}
+		return sb.toString();
+	}
 
 	@Override
 	public boolean dropSequences(String... sequenceNames) {
@@ -1124,7 +1141,7 @@ public class DDLServiceSqlserver implements DDLService{
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.bracketQuotedQualified(ref.srcQualifiedName()))
-            .append(" ADD CONSTRAINT ");
+            .append(" WITH NOCHECK ADD CONSTRAINT ");
         appendBracketQuoted(sb, ref.getConstraintName());
         sb.append(" FOREIGN KEY (");
         
@@ -1146,7 +1163,7 @@ public class DDLServiceSqlserver implements DDLService{
                 sb.append(", ");
             }
         }
-        sb.append(");");
+        sb.append(")");
         
         return sb.toString();
     }
