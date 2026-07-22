@@ -262,6 +262,19 @@ order by schema_name(t.schema_id), t.name, tr.name
 ;
 			""";
 
+	/** Database-scoped DDL triggers (SSMS: Programmability → Database Triggers). */
+	static final String SQL_FOR_DATABASE_TRIGGERS = """
+select
+	tr.name as trigger_name,
+	coalesce(m.definition, object_definition(tr.object_id)) as definition
+from sys.triggers tr
+left join sys.sql_modules m on tr.object_id = m.object_id
+where tr.parent_class = 0
+  and tr.is_ms_shipped = 0
+order by tr.name
+;
+			""";
+
 	static final String SQL_FOR_FULLTEXT_CATALOGS = """
 select c.name as catalog_name, c.is_default
 from sys.fulltext_catalogs c
@@ -382,6 +395,7 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DEFAULT_CONSTRAINTS, schemas.size()));
 			PreparedStatement rps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ROUTINES, schemas.size()));
 			PreparedStatement trps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TRIGGERS, schemas.size()));
+			PreparedStatement dbtrps = con.prepareStatement(SQL_FOR_DATABASE_TRIGGERS);
 			PreparedStatement ftCatPs = con.prepareStatement(SQL_FOR_FULLTEXT_CATALOGS);
 			PreparedStatement ftIdxPs = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FULLTEXT_INDEXES, schemas.size()));
 			PreparedStatement ftColPs = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FULLTEXT_INDEX_COLUMNS, schemas.size()));
@@ -629,6 +643,19 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 						.tableName(tableName)
 						.name(triggerName)
 						.definition(definition)
+						.scope(DbTrigger.SCOPE_TABLE)
+						.build());
+				}
+			}
+			try (ResultSet dbtrrs = dbtrps.executeQuery()) {
+				while (dbtrrs.next()) {
+					String triggerName = dbtrrs.getString("TRIGGER_NAME");
+					String definition = dbtrrs.getString("DEFINITION");
+					requireDefinition("database-trigger", null, null, triggerName, definition);
+					dbModel.getTriggers().add(DbTrigger.builder()
+						.name(triggerName)
+						.definition(definition)
+						.scope(DbTrigger.SCOPE_DATABASE)
 						.build());
 				}
 			}

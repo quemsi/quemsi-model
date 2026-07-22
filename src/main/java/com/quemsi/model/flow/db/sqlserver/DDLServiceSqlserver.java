@@ -779,6 +779,9 @@ public class DDLServiceSqlserver implements DDLService{
 	}
 
 	static String dropTriggerSql(DbTrigger trigger) {
+		if (trigger.isDatabaseLevel()) {
+			return "DROP TRIGGER IF EXISTS " + bracketQuoted(trigger.getName()) + " ON DATABASE";
+		}
 		return "DROP TRIGGER IF EXISTS " + CommonHelpers.bracketQuotedQualified(trigger.getSchema(), trigger.getName());
 	}
 

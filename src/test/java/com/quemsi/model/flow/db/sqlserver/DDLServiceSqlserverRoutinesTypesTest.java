@@ -52,6 +52,28 @@ public class DDLServiceSqlserverRoutinesTypesTest {
 	}
 
 	@Test
+	public void dropTriggerSql_bracketsSchemaAndName() {
+		DbTrigger trigger = DbTrigger.builder()
+			.schema("dbo")
+			.tableName("employee")
+			.name("employee_insupd")
+			.definition("CREATE TRIGGER employee_insupd ON employee FOR INSERT AS SELECT 1")
+			.build();
+		assertThat(DDLServiceSqlserver.dropTriggerSql(trigger), equalTo("DROP TRIGGER IF EXISTS [dbo].[employee_insupd]"));
+	}
+
+	@Test
+	public void dropTriggerSql_databaseLevelUsesOnDatabase() {
+		DbTrigger trigger = DbTrigger.builder()
+			.name("ddlDatabaseTriggerLog")
+			.scope(DbTrigger.SCOPE_DATABASE)
+			.definition("CREATE TRIGGER [ddlDatabaseTriggerLog] ON DATABASE FOR DDL_DATABASE_LEVEL_EVENTS AS SELECT 1")
+			.build();
+		assertThat(DDLServiceSqlserver.dropTriggerSql(trigger),
+			equalTo("DROP TRIGGER IF EXISTS [ddlDatabaseTriggerLog] ON DATABASE"));
+	}
+
+	@Test
 	public void createFullTextCatalogAndIndexSql() {
 		DbFullTextCatalog catalog = DbFullTextCatalog.builder().name("AW2022FullTextCatalog").isDefault(true).build();
 		assertThat(DDLServiceSqlserver.createFullTextCatalogSql(catalog, true),
