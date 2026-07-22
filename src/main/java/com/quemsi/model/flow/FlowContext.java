@@ -2,6 +2,7 @@ package com.quemsi.model.flow;
 
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -12,7 +13,9 @@ import com.quemsi.model.dto.DataVersion;
 import com.quemsi.model.dto.FlowExecution;
 import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
+import com.quemsi.model.flow.file.BackupArchive;
 import com.quemsi.model.flow.process.DbModelProcessor;
+import com.quemsi.model.util.QuemsiTemp;
 
 import lombok.Data;
 
@@ -22,6 +25,10 @@ public class FlowContext {
 	private FlowExecution execution;
 	private DataVersion dataVersion;
 	private List<DataPackage> dataPackages;
+	/** Staging directory for page-entry backup before Zip. */
+	private Path stagingDir;
+	/** Open backup zip for lazy restore reads. */
+	private BackupArchive backupArchive;
 	private Flow flow;
 	private Map<String, String> tags;
 	private List<DbModelProcessor> dbModelProcessors;
@@ -120,12 +127,31 @@ public class FlowContext {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
 			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(message));
 		}
-	}public void logStepError(FlowExecutionStep step, String tag, Throwable e) {
+	}
+	public void logStepError(FlowExecutionStep step, String tag, Throwable e) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
 			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error("{}: {}", tag, e.getMessage()));
 			StringWriter sw = new StringWriter();
 			e.printStackTrace(new PrintWriter(sw));
 			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(sw.toString()));
+		}
+	}
+
+	public void closeBackupArchiveQuietly() {
+		if (backupArchive != null) {
+			try {
+				backupArchive.close();
+			} catch (Exception ignored) {
+				/* best effort */
+			}
+			backupArchive = null;
+		}
+	}
+
+	public void clearStagingDirQuietly() {
+		if (stagingDir != null) {
+			QuemsiTemp.deleteRecursively(stagingDir);
+			stagingDir = null;
 		}
 	}
 }

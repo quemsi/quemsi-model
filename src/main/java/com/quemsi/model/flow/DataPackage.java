@@ -9,6 +9,10 @@ public interface DataPackage {
 	String getContentType();
 	void setContentType(String contentType);
 	File getFile(String destName);
+	/** File backing if available; otherwise {@code null}. Does not rename. */
+	default File asFile() {
+		return null;
+	}
 	InputStream getInputStream();
 	void clear();
 	long getLength();

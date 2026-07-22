@@ -126,15 +126,7 @@ public class StepFactory extends AbstractFactory<Step>{
 				JsonNode configNode = node.get("config");
 				if(configNode != null) {
 					MaskColumn config = objectMapper.convertValue(configNode, MaskColumn.class);
-					// Set default parallelism if not provided or invalid
-					if(config.getParallelism() <= 0) {
-						config.setParallelism(10);
-					}
 					maskColumns.setConfig(config);
-					maskColumns.setParallelism(config.getParallelism());
-				} else {
-					// If no config, set default parallelism
-					maskColumns.setParallelism(10);
 				}
 				return maskColumns;
 			}),

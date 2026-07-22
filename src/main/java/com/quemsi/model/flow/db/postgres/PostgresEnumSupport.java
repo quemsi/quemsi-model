@@ -1,7 +1,5 @@
 package com.quemsi.model.flow.db.postgres;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -11,24 +9,21 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import org.apache.commons.io.IOUtils;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.quemsi.model.flow.DataPackage;
+import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
-import com.quemsi.model.flow.in.TableData;
 import com.quemsi.model.util.CommonHelpers;
 
 import lombok.extern.slf4j.Slf4j;
 
 /**
  * Ensures PostgreSQL ENUM types exist on the DbModel before CREATE TABLE.
- * Newer backups include {@code enumTypes}; older backups are reconstructed from
- * column defaults and distinct values in table data packages.
+ * Enum definitions come from {@link DbModel#getEnumTypes()} (written at backup from catalogs).
+ * Missing enums may still pick up a label from column defaults; otherwise restore fails fast
+ * (page data is not scanned).
  */
 @Slf4j
 public final class PostgresEnumSupport {
@@ -45,7 +40,7 @@ public final class PostgresEnumSupport {
 	private PostgresEnumSupport() {
 	}
 
-	public static void ensureEnumTypes(DbModel dbModel, Map<String, DataPackage> namedPackages, ObjectMapper objectMapper) {
+	public static void ensureEnumTypes(DbModel dbModel) {
 		if (dbModel.getEnumTypes() == null) {
 			dbModel.setEnumTypes(new ArrayList<>());
 		}
@@ -64,8 +59,7 @@ public final class PostgresEnumSupport {
 		Map<String, EnumCandidate> missing = new LinkedHashMap<>();
 		for (DbTable table : dbModel.getTables().values()) {
 			DbColumn[] columns = table.orderedColumns();
-			for (int i = 0; i < columns.length; i++) {
-				DbColumn column = columns[i];
+			for (DbColumn column : columns) {
 				String typeName = baseUdtName(column.getColumnType());
 				if (typeName == null || isBuiltin(typeName) || domainNames.contains(typeName)) {
 					continue;
@@ -78,7 +72,6 @@ public final class PostgresEnumSupport {
 				EnumCandidate candidate = missing.computeIfAbsent(qualified,
 					k -> new EnumCandidate(schema, typeName));
 				candidate.addLabelFromDefault(column.getColumnDefault());
-				candidate.columnRefs.add(new ColumnRef(table.qualifiedName(), i));
 			}
 		}
 
@@ -86,13 +79,10 @@ public final class PostgresEnumSupport {
 			return;
 		}
 
+		List<String> unresolved = new ArrayList<>();
 		for (EnumCandidate candidate : missing.values()) {
-			for (ColumnRef ref : candidate.columnRefs) {
-				collectLabelsFromData(candidate, ref, namedPackages, objectMapper);
-			}
 			if (candidate.labels.isEmpty()) {
-				log.warn("Unable to reconstruct enum {} — no labels found in defaults or data",
-					candidate.qualifiedName());
+				unresolved.add(candidate.qualifiedName());
 				continue;
 			}
 			DbEnumType enumType = DbEnumType.builder()
@@ -102,46 +92,14 @@ public final class PostgresEnumSupport {
 				.build();
 			dbModel.getEnumTypes().add(enumType);
 			known.add(enumType.qualifiedName());
-			log.info("Reconstructed enum {} with labels {}", enumType.qualifiedName(), enumType.getLabels());
+			log.info("Reconstructed enum {} with labels {} from column defaults",
+				enumType.qualifiedName(), enumType.getLabels());
 		}
-	}
-
-	private static void collectLabelsFromData(
-		EnumCandidate candidate,
-		ColumnRef ref,
-		Map<String, DataPackage> namedPackages,
-		ObjectMapper objectMapper
-	) {
-		if (namedPackages == null || objectMapper == null) {
-			return;
-		}
-		String fileName = CommonHelpers.dataFileName(ref.tableQualifiedName);
-		DataPackage dataPackage = namedPackages.get(fileName);
-		if (dataPackage == null) {
-			return;
-		}
-		try (InputStream in = dataPackage.getInputStream()) {
-			String json = IOUtils.toString(in, StandardCharsets.UTF_8);
-			TableData tableData = objectMapper.readValue(json, TableData.class);
-			if (tableData.getDataPages() == null) {
-				return;
-			}
-			for (TableData.DataPage page : tableData.getDataPages()) {
-				if (page.getData() == null) {
-					continue;
-				}
-				for (Object[] row : page.getData().values()) {
-					if (row == null || ref.columnIndex >= row.length) {
-						continue;
-					}
-					Object val = row[ref.columnIndex];
-					if (val instanceof String s && !s.isEmpty()) {
-						candidate.labels.add(s);
-					}
-				}
-			}
-		} catch (Exception e) {
-			log.warn("Unable to read data package {} while reconstructing enum {}", fileName, candidate.qualifiedName(), e);
+		if (!unresolved.isEmpty()) {
+			throw Exceptions.badRequest("postgres-enum-types-missing")
+				.withExtra("enums", unresolved)
+				.withExtra("hint", "Backup db-model.json must include enumTypes from the source catalog")
+				.get();
 		}
 	}
 
@@ -171,7 +129,6 @@ public final class PostgresEnumSupport {
 		final String schema;
 		final String name;
 		final LinkedHashSet<String> labels = new LinkedHashSet<>();
-		final List<ColumnRef> columnRefs = new ArrayList<>();
 
 		EnumCandidate(String schema, String name) {
 			this.schema = schema;
@@ -191,16 +148,6 @@ public final class PostgresEnumSupport {
 			if (matcher.find()) {
 				labels.add(matcher.group(1).replace("''", "'"));
 			}
-		}
-	}
-
-	private static final class ColumnRef {
-		final String tableQualifiedName;
-		final int columnIndex;
-
-		ColumnRef(String tableQualifiedName, int columnIndex) {
-			this.tableQualifiedName = tableQualifiedName;
-			this.columnIndex = columnIndex;
 		}
 	}
 }

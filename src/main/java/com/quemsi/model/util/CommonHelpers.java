@@ -83,6 +83,41 @@ public class CommonHelpers {
         return "data-" + qualifiedName + ".json";
     }
 
+    /** Zip/staging path: {@code tables/{qualifiedName}/meta.json} */
+    public static String tableMetaEntryName(String qualifiedName) {
+        return "tables/" + qualifiedName + "/meta.json";
+    }
+
+    /** Zip/staging path: {@code tables/{qualifiedName}/pages/{pageNum}.json} */
+    public static String tablePageEntryName(String qualifiedName, int pageNum) {
+        return "tables/" + qualifiedName + "/pages/" + pageNum + ".json";
+    }
+
+    /** Prefix for listing page entries: {@code tables/{qualifiedName}/pages/} */
+    public static String tablePagesPrefix(String qualifiedName) {
+        return "tables/" + qualifiedName + "/pages/";
+    }
+
+    /**
+     * Parses page number from an entry ending with {@code /pages/{n}.json}.
+     * @return page number, or -1 if not a page entry
+     */
+    public static int pageNumFromEntryName(String entryName) {
+        if (entryName == null) {
+            return -1;
+        }
+        int pagesIdx = entryName.lastIndexOf("/pages/");
+        if (pagesIdx < 0 || !entryName.endsWith(".json")) {
+            return -1;
+        }
+        String num = entryName.substring(pagesIdx + "/pages/".length(), entryName.length() - ".json".length());
+        try {
+            return Integer.parseInt(num);
+        } catch (NumberFormatException e) {
+            return -1;
+        }
+    }
+
     public static boolean isEmptyOrNull(List<String> list){
         return list == null || list.isEmpty();
     }

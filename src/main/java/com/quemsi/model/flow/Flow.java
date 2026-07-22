@@ -136,6 +136,8 @@ public class Flow {
 				return null;
 			}
 		}finally{
+			fc.closeBackupArchiveQuietly();
+			fc.clearStagingDirQuietly();
 			if(lock != null && lock.isLocked()){
 				lock.unlock();
 			}

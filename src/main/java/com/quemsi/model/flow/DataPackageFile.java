@@ -14,32 +14,43 @@ import lombok.extern.slf4j.Slf4j;
 
 @Data
 @Slf4j
-public class DataPackageFile implements DataPackage{
+public class DataPackageFile implements DataPackage {
 	private File file;
 	private String name;
 	private long length;
 	private String contentType;
-	
-	public DataPackageFile(String name, File file, long length, String contentType){
+	private boolean deleteOnClear;
+
+	public DataPackageFile(String name, File file, long length, String contentType) {
+		this(name, file, length, contentType, false);
+	}
+
+	public DataPackageFile(String name, File file, long length, String contentType, boolean deleteOnClear) {
 		this.file = file;
 		this.name = name;
-		this.length = file.length();
+		this.length = file != null ? file.length() : length;
 		this.contentType = contentType;
+		this.deleteOnClear = deleteOnClear;
 	}
+
 	@Override
 	public File getFile(String destName) {
-		
-		if(!file.getName().equals(destName)){
-			file.renameTo(new File(destName));
-		}
 		return file;
 	}
+
+	@Override
+	public File asFile() {
+		return file;
+	}
+
 	@Override
 	public void clear() {
-		boolean deleted = FileUtils.deleteQuietly(file);
-		log.info("{} clear result {}", file, deleted);
+		if (deleteOnClear && file != null) {
+			boolean deleted = FileUtils.deleteQuietly(file);
+			log.info("{} clear result {}", file, deleted);
+		}
 	}
-	
+
 	@Override
 	public InputStream getInputStream() {
 		try {
@@ -47,5 +58,10 @@ public class DataPackageFile implements DataPackage{
 		} catch (FileNotFoundException e) {
 			throw Exceptions.notFound("file-not-found").withExtra("name", name).get();
 		}
+	}
+
+	@Override
+	public long getLength() {
+		return file != null ? file.length() : length;
 	}
 }

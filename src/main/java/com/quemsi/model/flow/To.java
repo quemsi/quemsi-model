@@ -43,6 +43,8 @@ public class To extends AbstractStep {
 			if(context.isDeleteAfterwards()) {
 				context.logStepInfo( context.getCurrentStep(), LogMessage.info("Clearing data packages"));
 				context.getDataPackages().stream().forEach(dp-> dp.clear());
+				context.closeBackupArchiveQuietly();
+				context.clearStagingDirQuietly();
 				context.logStepInfo( context.getCurrentStep(), LogMessage.info("Cleared data packages"));
 			}
 		}catch(Exception e) {

@@ -99,33 +99,37 @@ public class UpdateSchema extends AbstractStep {
     }
 
     private DbModel getDbModelFromDataFile(FlowContext context) {
-        List<DataPackage> dataPackages = context.getDataPackages();
-        if (dataPackages == null || dataPackages.isEmpty()) {
-            throw Exceptions.notFound("unable-to-find-data-packages").get();
-        }
-
-        Map<String, DataPackage> namedPackages = dataPackages.stream()
-            .collect(Collectors.toMap(DataPackage::getName, dp -> dp));
-
-        if (!namedPackages.containsKey(CommonConstants.DB_MODEL_FILE_NAME)) {
-            throw Exceptions.notFound("unable-to-find-db-model").get();
-        }
-
-        DataPackage dbModelPackage = namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME);
-        if (!"application/json".equals(dbModelPackage.getContentType())) {
-            throw Exceptions.badRequest("unsupported-content-type-for-db-model")
-                .withExtra("contentType", dbModelPackage.getContentType())
-                .withExtra("supported", "application/json")
-                .get();
-        }
-
         try {
+            if (context.getBackupArchive() != null
+                    && context.getBackupArchive().exists(CommonConstants.DB_MODEL_FILE_NAME)) {
+                try (java.io.InputStream in = context.getBackupArchive().open(CommonConstants.DB_MODEL_FILE_NAME)) {
+                    DbModel dbModel = objectMapper.readValue(in, DbModel.class);
+                    context.logStepInfo(context.getCurrentStep(),
+                        LogMessage.info("Loaded DbModel from archive with {} tables", dbModel.getTables().size()));
+                    return dbModel;
+                }
+            }
+
+            List<DataPackage> dataPackages = context.getDataPackages();
+            if (dataPackages == null || dataPackages.isEmpty()) {
+                throw Exceptions.notFound("unable-to-find-data-packages").get();
+            }
+
+            Map<String, DataPackage> namedPackages = dataPackages.stream()
+                .collect(Collectors.toMap(DataPackage::getName, dp -> dp));
+
+            if (!namedPackages.containsKey(CommonConstants.DB_MODEL_FILE_NAME)) {
+                throw Exceptions.notFound("unable-to-find-db-model").get();
+            }
+
+            DataPackage dbModelPackage = namedPackages.get(CommonConstants.DB_MODEL_FILE_NAME);
             String dbModelJsonStr = IOUtils.toString(
                 dbModelPackage.getInputStream(),
                 Charset.forName("UTF-8")
             );
             DbModel dbModel = objectMapper.readValue(dbModelJsonStr, DbModel.class);
-            context.logStepInfo(context.getCurrentStep(), LogMessage.info("Loaded DbModel from data file with {} tables", dbModel.getTables().size()));
+            context.logStepInfo(context.getCurrentStep(),
+                LogMessage.info("Loaded DbModel from data file with {} tables", dbModel.getTables().size()));
             return dbModel;
         } catch (IOException e) {
             throw Exceptions.server("io-exception-reading-db-model").withCause(e).get();
