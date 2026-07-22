@@ -15,6 +15,7 @@ import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbTrigger;
+import com.quemsi.model.flow.db.sql.DbXmlSchemaCollection;
 
 public class DDLServiceSqlserverRoutinesTypesTest {
 
@@ -88,6 +89,30 @@ public class DDLServiceSqlserverRoutinesTypesTest {
 			.build());
 		assertThat(DDLServiceSqlserver.createFullTextIndexSql(index),
 			containsString("[Document] TYPE COLUMN [FileExtension] LANGUAGE 1033"));
+	}
+
+	@Test
+	public void columnTypeSql_emitsTypedXmlSchemaCollection() {
+		DbColumn column = DbColumn.builder()
+			.name("AdditionalContactInfo")
+			.dataType("xml")
+			.xmlSchemaCollection("Person.AdditionalContactInfoSchemaCollection")
+			.build();
+		assertThat(DDLServiceSqlserver.columnTypeSql(column),
+			equalTo("xml([Person].[AdditionalContactInfoSchemaCollection])"));
+	}
+
+	@Test
+	public void createXmlSchemaCollectionSql_escapesQuotes() {
+		DbXmlSchemaCollection collection = DbXmlSchemaCollection.builder()
+			.schema("Person")
+			.name("AdditionalContactInfoSchemaCollection")
+			.definition("<xsd:schema xmlns:xsd='http://www.w3.org/2001/XMLSchema'/>")
+			.build();
+		assertThat(DDLServiceSqlserver.createXmlSchemaCollectionSql(collection),
+			equalTo("CREATE XML SCHEMA COLLECTION [Person].[AdditionalContactInfoSchemaCollection] AS N'<xsd:schema xmlns:xsd=''http://www.w3.org/2001/XMLSchema''/>'"));
+		assertThat(DDLServiceSqlserver.dropXmlSchemaCollectionSql(collection),
+			containsString("DROP XML SCHEMA COLLECTION [Person].[AdditionalContactInfoSchemaCollection]"));
 	}
 
 

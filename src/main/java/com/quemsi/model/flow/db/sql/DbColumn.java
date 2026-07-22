@@ -54,6 +54,10 @@ public class DbColumn {
     private boolean identity;
     @Getter
     private String comment;
+    /** SQL Server typed XML: schema.collection used as xml([schema].[collection]). */
+    @Getter
+    @Setter
+    private String xmlSchemaCollection;
 
     /**
      * Columns that cannot appear in {@code ORDER BY} (LOB / long / xml-like types).

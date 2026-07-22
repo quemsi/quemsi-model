@@ -83,6 +83,9 @@ public class DropTables extends AbstractStep{
 						.map(DbDomainType::qualifiedName)
 						.toArray(String[]::new));
 				}
+				if (dbModel.getXmlSchemaCollections() != null && !dbModel.getXmlSchemaCollections().isEmpty()) {
+					ddlService.dropXmlSchemaCollections(dbModel);
+				}
 				if (dbModel.getEnumTypes() != null && !dbModel.getEnumTypes().isEmpty()) {
 					ddlService.dropEnumTypes(dbModel.getEnumTypes().stream()
 						.map(DbEnumType::qualifiedName)

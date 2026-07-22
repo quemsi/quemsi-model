@@ -41,6 +41,7 @@ import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbTrigger;
 import com.quemsi.model.flow.db.sql.DbView;
+import com.quemsi.model.flow.db.sql.DbXmlSchemaCollection;
 import com.quemsi.model.util.CommonHelpers;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -69,7 +70,10 @@ select
 	   fall back to the base system type so columns are still discovered for db_datareader users. */
 	coalesce(ut.name, st.name) as column_type, st.name as data_type,
 	c.max_length as character_octet_length, c.precision as numeric_precision, c.scale as numeric_scale,
-	object_definition(c.default_object_id) as column_default, c.is_nullable, c.is_identity
+	object_definition(c.default_object_id) as column_default, c.is_nullable, c.is_identity,
+	case when c.xml_collection_id > 0
+		then schema_name(xsc.schema_id) + N'.' + xsc.name
+		else null end as xml_schema_collection
 from sys.columns c
 	inner join sys.tables t on c.object_id = t.object_id
 	/* Base system type: join system_type_id to types.user_type_id (not system_type_id) to avoid
@@ -79,10 +83,23 @@ from sys.columns c
 			or (c.system_type_id = 240 and c.user_type_id = st.user_type_id)
 		)
 	left join sys.types ut on c.user_type_id = ut.user_type_id
+	left join sys.xml_schema_collections xsc on c.xml_collection_id = xsc.xml_collection_id
 where schema_name(t.schema_id) in {inValues} and t.[type] = 'U'
 order by t.schema_id, t.name, c.column_id
 ;
     """;
+
+	static final String SQL_FOR_XML_SCHEMA_COLLECTIONS = """
+select
+	schema_name(xsc.schema_id) as schema_name,
+	xsc.name as collection_name,
+	convert(nvarchar(max), xml_schema_namespace(schema_name(xsc.schema_id), xsc.name)) as definition
+from sys.xml_schema_collections xsc
+where xsc.name <> N'sys'
+  and schema_name(xsc.schema_id) in {inValues}
+order by schema_name(xsc.schema_id), xsc.name
+;
+			""";
 
 	private static final String SQL_FOR_CONSTRAINTS = """
 select * from (
@@ -356,6 +373,7 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 		try(
 			Connection con = getDataSource().getConnection();
 			PreparedStatement tps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ALIAS_TYPES, schemas.size()));
+			PreparedStatement xscps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_XML_SCHEMA_COLLECTIONS, schemas.size()));
 			PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, schemas.size()));
 			PreparedStatement cps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CONSTRAINTS, schemas.size()));
 			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, schemas.size()));
@@ -392,6 +410,23 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} alias data types", dbModel.getDomainTypes().size()));
 
+			reportProgress(progress, LogMessage.info("Loading XML schema collections..."));
+			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> xscps.setString(i, schema)));
+			try (ResultSet xscrs = xscps.executeQuery()) {
+				while (xscrs.next()) {
+					String schemaName = xscrs.getString("SCHEMA_NAME");
+					String collectionName = xscrs.getString("COLLECTION_NAME");
+					String definition = xscrs.getString("DEFINITION");
+					requireDefinition("xml-schema-collection", schemaName, null, collectionName, definition);
+					dbModel.getXmlSchemaCollections().add(DbXmlSchemaCollection.builder()
+						.schema(schemaName)
+						.name(collectionName)
+						.definition(definition)
+						.build());
+				}
+			}
+			reportProgress(progress, LogMessage.info("Loaded {} XML schema collections", dbModel.getXmlSchemaCollections().size()));
+
 			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
 			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			try (ResultSet rs = ps.executeQuery()) {
@@ -409,10 +444,23 @@ order by schema_name(t.schema_id), t.name, fic.column_id
 					String columnDefault = rs.getString("COLUMN_DEFAULT");
 					String nullable = rs.getString("IS_NULLABLE");
 					String isIdentity = rs.getString("IS_IDENTITY");
+					String xmlSchemaCollection = rs.getString("XML_SCHEMA_COLLECTION");
 					
 					DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
 
-					table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+					table.addColumn(DbColumn.builder()
+						.name(columnName)
+						.dataType(dataType)
+						.ordinalPosition(ordinalPosition)
+						.columnType(columnType)
+						.maxLength(maxLength)
+						.numPrecision(numPrecision)
+						.numScale(numScale)
+						.columnDefault(columnDefault)
+						.nullable(CommonOps.isTrue(nullable))
+						.identity(CommonOps.isTrue(isIdentity))
+						.xmlSchemaCollection(xmlSchemaCollection)
+						.build());
 				}
 			}
 			applyAliasTypesToColumns(dbModel);

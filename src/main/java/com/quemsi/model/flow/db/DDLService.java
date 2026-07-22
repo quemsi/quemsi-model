@@ -43,6 +43,10 @@ public interface DDLService extends AutoCloseable {
 	default boolean dropEnumTypes(String... typeNames) {
 		return true;
 	}
+	/** Drop XML schema collections (SQL Server). No-op when unsupported. */
+	default boolean dropXmlSchemaCollections(DbModel dbModel) {
+		return true;
+	}
 	boolean checkSchema(String schema) throws SQLException;
 	
 	/**

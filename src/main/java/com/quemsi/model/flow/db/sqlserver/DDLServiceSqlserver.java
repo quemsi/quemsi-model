@@ -32,6 +32,7 @@ import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.db.sql.DbTrigger;
 import com.quemsi.model.flow.db.sql.DbView;
+import com.quemsi.model.flow.db.sql.DbXmlSchemaCollection;
 import com.quemsi.model.flow.db.sql.diff.DbCheckConstraintDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbColumnDiffOp;
 import com.quemsi.model.flow.db.sql.diff.DbForeignKeyDiffOp;
@@ -186,7 +187,7 @@ public class DDLServiceSqlserver implements DDLService{
 		}
     }
 
-    private String columnType(String type, Integer maxLength, Integer precision, Integer scale){
+    static String columnType(String type, Integer maxLength, Integer precision, Integer scale){
 		/* sys.columns.max_length is bytes: nchar/nvarchar use 2 bytes per char; char/varchar/binary are 1:1. */
 		if (Set.of("char", "varchar", "binary", "varbinary").contains(type) && maxLength != null) {
 			StringBuilder sb = new StringBuilder(type).append("(");
@@ -212,6 +213,13 @@ public class DDLServiceSqlserver implements DDLService{
 		}
 		return type;
     }
+
+	static String columnTypeSql(DbColumn column) {
+		if (StringUtils.hasText(column.getXmlSchemaCollection())) {
+			return "xml(" + CommonHelpers.bracketQuotedQualified(column.getXmlSchemaCollection()) + ")";
+		}
+		return columnType(column.getDataType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale());
+	}
 
 	/** T-SQL bracket identifier; escape ] as ]]. */
 	private static void appendBracketQuoted(StringBuilder sb, String name) {
@@ -285,7 +293,7 @@ public class DDLServiceSqlserver implements DDLService{
 			for(DbColumn c : columns){
 				sb.append("  ");
 				appendBracketQuoted(sb, c.getName());
-				sb.append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+				sb.append(" ").append(columnTypeSql(c));
                 if(c.isIdentity()){
                     sb.append(" IDENTITY(1,1)");
                 }
@@ -389,6 +397,7 @@ public class DDLServiceSqlserver implements DDLService{
 				}
 			}
 			createDomainTypes(dbModel);
+			createXmlSchemaCollections(dbModel);
 			if (scripts.isEmpty()) {
 				return;
 			}
@@ -423,6 +432,79 @@ public class DDLServiceSqlserver implements DDLService{
 				log.info("ddl : {}", sql);
 				s.executeUpdate(sql);
 			}
+		}
+	}
+
+	private void createXmlSchemaCollections(DbModel dbModel) throws SQLException {
+		if (dbModel.getXmlSchemaCollections() == null || dbModel.getXmlSchemaCollections().isEmpty()) {
+			return;
+		}
+		try (Statement s = conn.createStatement()) {
+			for (DbXmlSchemaCollection collection : dbModel.getXmlSchemaCollections()) {
+				if (xmlSchemaCollectionExists(collection.getSchema(), collection.getName())) {
+					log.info("xml schema collection {} already exists skipping", collection.qualifiedName());
+					continue;
+				}
+				String sql = createXmlSchemaCollectionSql(collection);
+				log.info("ddl : CREATE XML SCHEMA COLLECTION {}",
+					CommonHelpers.bracketQuotedQualified(collection.getSchema(), collection.getName()));
+				s.executeUpdate(sql);
+			}
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-xml-schema-collections").withCause(e).get();
+		}
+	}
+
+	static String createXmlSchemaCollectionSql(DbXmlSchemaCollection collection) {
+		if (collection.getDefinition() == null || collection.getDefinition().isBlank()) {
+			throw Exceptions.server("missing-object-definition")
+				.withExtra("objectType", "xml-schema-collection")
+				.withExtra("objectName", collection.qualifiedName())
+				.get();
+		}
+		return "CREATE XML SCHEMA COLLECTION "
+			+ CommonHelpers.bracketQuotedQualified(collection.getSchema(), collection.getName())
+			+ " AS N'" + collection.getDefinition().replace("'", "''") + "'";
+	}
+
+	static String dropXmlSchemaCollectionSql(DbXmlSchemaCollection collection) {
+		StringBuilder sb = new StringBuilder();
+		sb.append("IF EXISTS (SELECT 1 FROM sys.xml_schema_collections WHERE name = N'");
+		sb.append(collection.getName().replace("'", "''"));
+		sb.append("' AND schema_name(schema_id) = N'");
+		sb.append(collection.getSchema().replace("'", "''"));
+		sb.append("') DROP XML SCHEMA COLLECTION ");
+		sb.append(CommonHelpers.bracketQuotedQualified(collection.getSchema(), collection.getName()));
+		return sb.toString();
+	}
+
+	private boolean xmlSchemaCollectionExists(String schema, String name) throws SQLException {
+		try (PreparedStatement ps = conn.prepareStatement(
+				"select 1 from sys.xml_schema_collections where schema_name(schema_id) = ? and name = ?")) {
+			ps.setString(1, schema);
+			ps.setString(2, name);
+			try (ResultSet rs = ps.executeQuery()) {
+				return rs.next();
+			}
+		}
+	}
+
+	@Override
+	public boolean dropXmlSchemaCollections(DbModel dbModel) {
+		if (dbModel == null || dbModel.getXmlSchemaCollections() == null || dbModel.getXmlSchemaCollections().isEmpty()) {
+			return true;
+		}
+		try {
+			Statement s = conn.createStatement();
+			for (DbXmlSchemaCollection collection : dbModel.getXmlSchemaCollections()) {
+				String sql = dropXmlSchemaCollectionSql(collection);
+				log.info("ddl : {}", sql);
+				s.addBatch(sql);
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			throw Exceptions.server("failed-to-drop-xml-schema-collections").withCause(e).get();
 		}
 	}
 
@@ -865,7 +947,7 @@ public class DDLServiceSqlserver implements DDLService{
 		for(DbColumn c : columns){
 			sb.append("  ");
 			appendBracketQuoted(sb, c.getName());
-			sb.append(" ").append(columnType(c.getDataType(), c.getMaxLength(), c.getNumPrecision(), c.getNumScale()));
+			sb.append(" ").append(columnTypeSql(c));
 			if(c.isIdentity()){
 				sb.append(" IDENTITY(1,1)");
 			}

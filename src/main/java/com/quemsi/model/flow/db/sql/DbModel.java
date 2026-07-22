@@ -47,6 +47,8 @@ public class DbModel {
     protected List<DbFullTextCatalog> fullTextCatalogs;
     /** SQL Server full-text indexes (required before CONTAINS/FREETEXT views/routines). */
     protected List<DbFullTextIndex> fullTextIndexes;
+    /** SQL Server XML schema collections (required before typed xml columns / XQuery views). */
+    protected List<DbXmlSchemaCollection> xmlSchemaCollections;
     
     public DbModel(){
         tables = new HashMap<>();
@@ -63,6 +65,7 @@ public class DbModel {
         triggers = new LinkedList<>();
         fullTextCatalogs = new LinkedList<>();
         fullTextIndexes = new LinkedList<>();
+        xmlSchemaCollections = new LinkedList<>();
     }
     public DbTable addTable(String tableName){
         return addTable(tableName, null);
