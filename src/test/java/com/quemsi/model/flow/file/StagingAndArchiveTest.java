@@ -7,9 +7,13 @@ import static org.hamcrest.Matchers.hasSize;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -79,6 +83,66 @@ public class StagingAndArchiveTest {
             DataPage.class);
         assertThat(loaded.getPageNum(), equalTo(0));
         assertThat(loaded.getSize(), equalTo(1));
+    }
+
+    @Test
+    public void stagingWriter_emptyTable_finishWithPageSizeHint() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        StagingBackupWriter writer = new StagingBackupWriter(tempDir);
+        writer.setObjectMapper(mapper);
+
+        writer.finishTable("public.empty", 10_000);
+
+        TableDataMeta meta = mapper.readValue(
+            tempDir.resolve(CommonHelpers.tableMetaEntryName("public.empty")).toFile(),
+            TableDataMeta.class);
+        assertThat(meta.getTotalPages(), equalTo(0));
+        assertThat(meta.getTotalRecords(), equalTo(0));
+        assertThat(meta.getPageSize(), equalTo(10_000));
+        assertThat(meta.getDataFormat(), equalTo(TableData.FORMAT_TABULAR));
+    }
+
+    @Test
+    public void stagingWriter_parallelPersist_metaTotalsAreCorrect() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        StagingBackupWriter writer = new StagingBackupWriter(tempDir);
+        writer.setObjectMapper(mapper);
+
+        DbTable table = new DbTable("dbo", "Taxi");
+        int pageCount = 20;
+        int pageSize = 100;
+        ExecutorService pool = Executors.newFixedThreadPool(8);
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (int i = 0; i < pageCount; i++) {
+                final int pageNum = i;
+                futures.add(pool.submit(() -> {
+                    Request request = Request.builder().table(table).pageNum(pageNum).pageSize(pageSize).build();
+                    TableDataPage page = new TableDataPage();
+                    page.setRequest(request);
+                    Map<Object, Object[]> rows = new HashMap<>();
+                    for (int r = 0; r < pageSize; r++) {
+                        int id = pageNum * pageSize + r;
+                        rows.put(id, new Object[] { id });
+                    }
+                    page.setTableData(rows);
+                    writer.persist(page);
+                }));
+            }
+            for (Future<?> f : futures) {
+                f.get();
+            }
+        } finally {
+            pool.shutdown();
+        }
+        writer.finishTable(table.qualifiedName(), pageSize);
+
+        TableDataMeta meta = mapper.readValue(
+            tempDir.resolve(CommonHelpers.tableMetaEntryName("dbo.Taxi")).toFile(),
+            TableDataMeta.class);
+        assertThat(meta.getTotalPages(), equalTo(pageCount));
+        assertThat(meta.getTotalRecords(), equalTo(pageCount * pageSize));
+        assertThat(meta.getPageSize(), equalTo(pageSize));
     }
 
     @Test

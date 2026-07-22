@@ -27,6 +27,10 @@ import lombok.Singular;
 public class DbModel {
     private String format;
     private String sourceType;
+    /** Backup page size used when this model was produced. */
+    private Integer batchSize;
+    /** Backup parallelism used when this model was produced. */
+    private Integer parallelism;
     private Set<String>schemas;
     protected Map<String, DbTable> tables;
     private List<ReferenceInfo> referenceInfos;

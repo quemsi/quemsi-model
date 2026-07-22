@@ -41,7 +41,6 @@ public class DMLServicePostgres implements DMLService{
 	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(%s) as max_val FROM %s";
 	private static final String UPDATE_SEQUENCE_SQL = "SELECT setval(?, ?, false)";
 
-	private static final int maxRowsPerPage = 5_000;
 	private DataSource dataSource;
 
 	static String quotedTable(DbTable table) {
@@ -50,8 +49,25 @@ public class DMLServicePostgres implements DMLService{
 
 	@Override
 	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
-		int expected = expectedPageSize != null && expectedPageSize > 0 ? expectedPageSize : 1000;
-		return Math.min(maxRowsPerPage, expected);
+		return expectedPageSize != null && expectedPageSize > 0 ? expectedPageSize : 1000;
+	}
+
+	@Override
+	public long countRows(DbTable table) {
+		String from = quotedTable(table);
+		try (Connection conn = dataSource.getConnection();
+			 Statement stmt = conn.createStatement();
+			 ResultSet rs = stmt.executeQuery(String.format("SELECT COUNT(*) FROM %s", from))) {
+			if (rs.next()) {
+				return rs.getLong(1);
+			}
+			return 0L;
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-count-rows")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
 	}
 
     @Override

@@ -89,10 +89,23 @@ public class StagingBackupWriter {
     }
 
     public void finishTable(String qualifiedName) {
+        finishTable(qualifiedName, null);
+    }
+
+    /**
+     * Writes meta.json. When no pages were persisted (empty table), {@code pageSizeHint}
+     * supplies the planned page size so meta is still accurate (totalPages=0).
+     */
+    public void finishTable(String qualifiedName, Integer pageSizeHint) {
         TableStats stats = statsByTable.get(qualifiedName);
         if (stats == null) {
             stats = new TableStats();
             stats.dataFormat = TableData.FORMAT_TABULAR;
+            if (pageSizeHint != null) {
+                stats.pageSize = pageSizeHint;
+            }
+        } else if (pageSizeHint != null && stats.pageSize <= 0) {
+            stats.pageSize = pageSizeHint;
         }
         TableDataMeta meta = TableDataMeta.builder()
             .tableName(qualifiedName)

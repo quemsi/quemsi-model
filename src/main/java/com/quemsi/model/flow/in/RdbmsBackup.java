@@ -1,17 +1,21 @@
 package com.quemsi.model.flow.in;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.ForkJoinPool;
 import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.Future;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
@@ -35,9 +39,7 @@ import com.quemsi.model.util.QuemsiTemp;
 
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
 
-@Slf4j
 public class RdbmsBackup implements Source {
     @Autowired
     @Setter
@@ -47,12 +49,28 @@ public class RdbmsBackup implements Source {
     @Setter
     private String format = "json";
     @Setter
-    private int batchSize = 100;
+    private int batchSize = 10_000;
     @Setter
     private int parallelism;
     private Map<String, ForkJoinTask<Boolean>> taskRegistry = new HashMap<>();
     private AtomicBoolean globalCancellationFlag = new AtomicBoolean(false);
     private AtomicReference<Exception> firstFailure = new AtomicReference<>();
+    private Semaphore inFlightRows;
+    private int rowBudget;
+    private ExecutorService pagePool;
+
+    /** Row budget = batchSize (page shape) × backup parallelism. */
+    public static int deriveRowBudget(int batchSize, int parallelism) {
+        return Math.max(1, parallelism) * Math.max(1, batchSize);
+    }
+
+    /** Pages to fan out for a table given row count and page size. */
+    public static int totalPages(long totalRows, int pageSize) {
+        if (totalRows <= 0 || pageSize <= 0) {
+            return 0;
+        }
+        return (int) ((totalRows + pageSize - 1L) / pageSize);
+    }
 
     @Override
     public void execute(FlowContext context) {
@@ -66,11 +84,17 @@ public class RdbmsBackup implements Source {
         StagingBackupWriter stagingWriter = new StagingBackupWriter(stagingDir);
         stagingWriter.setObjectMapper(dataMapper);
 
-        try (ForkJoinPool pool = new ForkJoinPool(parallelism)) {
+        rowBudget = deriveRowBudget(batchSize, parallelism);
+        inFlightRows = new Semaphore(rowBudget);
+        pagePool = Executors.newFixedThreadPool(Math.max(1, parallelism));
+
+        try (ForkJoinPool pool = new ForkJoinPool(Math.max(1, parallelism))) {
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("creating db model from datasource"));
             DbModel dbModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("db model created from datasource"));
             dbModel.setFormat(format);
+            dbModel.setBatchSize(batchSize);
+            dbModel.setParallelism(parallelism);
             String dbModelJson = dataMapper.writeValueAsString(dbModel);
             stagingWriter.writeDbModel(dbModelJson);
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Wrote db-model.json to staging"));
@@ -81,6 +105,9 @@ public class RdbmsBackup implements Source {
             List<DbTable> tables = dbModel.orderedTables();
             context.logStepInfo(context.getCurrentStep(),
                 LogMessage.info("{} tables will be backed up", tables.size()));
+            context.logStepInfo(context.getCurrentStep(),
+                LogMessage.info("backing up with parallelism={} batchSize={} rowBudget={}",
+                    parallelism, batchSize, rowBudget));
 
             List<ForkJoinTask<Boolean>> tasks = tables.stream()
                 .map(table -> new RdmsBackupTask(table, stagingWriter, context, ignoreConstraints))
@@ -112,6 +139,15 @@ public class RdbmsBackup implements Source {
                 .withCause(e)
                 .withExtra("flowName", context.getFlow().getName())
                 .get();
+        } finally {
+            if (pagePool != null) {
+                pagePool.shutdown();
+                try {
+                    pagePool.awaitTermination(1, TimeUnit.HOURS);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
         }
     }
 
@@ -138,7 +174,7 @@ public class RdbmsBackup implements Source {
 
         @Override
         public Boolean call() throws Exception {
-            try (DMLService dmlService = datasource.dmlService()) {
+            try {
                 context.logStepInfo(context.getCurrentStep(), LogMessage.info("{} will wait for [{}] {}",
                     table.getName(), table.getReferences().size(),
                     table.getReferences().stream().map(t -> t.getRefTableName()).toList()));
@@ -167,34 +203,80 @@ public class RdbmsBackup implements Source {
                 }
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("all dependencies are processed for {}", table.getName()));
-                Request request = new Request();
-                request.setSeqGenerator(new AtomicLong(1));
-                request.setPageNum(0);
-                int expectedPageSize = dmlService.getTablePageSize(batchSize, table);
+
+                int pageSize;
+                long totalRows;
+                try (DMLService dmlService = datasource.dmlService()) {
+                    pageSize = dmlService.getTablePageSize(batchSize, table);
+                    totalRows = dmlService.countRows(table);
+                }
+                int pages = totalPages(totalRows, pageSize);
                 context.logStepInfo(context.getCurrentStep(),
-                    LogMessage.info("expected page size for {} is {}", table.getName(), expectedPageSize));
-                request.setPageSize(expectedPageSize);
-                request.setTable(table);
-                TableDataPage dataPage = null;
-                AtomicInteger counter = new AtomicInteger(0);
-                while (dataPage == null || dataPage.isHasMorePage()) {
+                    LogMessage.info("backing up {} with {} pages pageSize={} parallelism={}",
+                        table.getName(), pages, pageSize, parallelism));
+
+                AtomicLong seqGenerator = new AtomicLong(1);
+                List<Future<?>> pageFutures = new ArrayList<>(pages);
+                for (int pageNum = 0; pageNum < pages; pageNum++) {
                     if (globalCancellationFlag.get()) {
                         return false;
                     }
-                    dataPage = dmlService.getTableDataPage(request);
-                    counter.incrementAndGet();
-                    stagingWriter.persist(dataPage);
-                    int rowCount = dataPage.getDocuments() != null
-                        ? dataPage.getDocuments().size()
-                        : (dataPage.getTableData() != null ? dataPage.getTableData().size() : 0);
-                    context.logStepInfo(context.getCurrentStep(),
-                        LogMessage.info("page {} persisted for {} with {} rows",
-                            counter.get(), table.getName(), rowCount));
-                    request = request.toBuilder().pageNum(request.getPageNum() + 1).build();
+                    final int pn = pageNum;
+                    int cost = Math.max(1, pageSize);
+                    if (cost > rowBudget) {
+                        throw Exceptions.badRequest("page-exceeds-max-in-flight-rows")
+                            .withExtra("table", table.qualifiedName())
+                            .withExtra("pageNum", pn)
+                            .withExtra("pageRows", cost)
+                            .withExtra("rowBudget", rowBudget)
+                            .get();
+                    }
+                    inFlightRows.acquire(cost);
+                    pageFutures.add(pagePool.submit((Callable<Void>) () -> {
+                        try {
+                            if (globalCancellationFlag.get()) {
+                                return null;
+                            }
+                            try (DMLService dml = datasource.dmlService()) {
+                                context.logStepInfo(context.getCurrentStep(),
+                                    LogMessage.info("page {} fetch+persist start for {}", pn, table.getName()));
+                                Request request = Request.builder()
+                                    .table(table)
+                                    .pageNum(pn)
+                                    .pageSize(pageSize)
+                                    .seqGenerator(seqGenerator)
+                                    .build();
+                                TableDataPage dataPage = dml.getTableDataPage(request);
+                                stagingWriter.persist(dataPage);
+                                int rowCount = dataPage.getDocuments() != null
+                                    ? dataPage.getDocuments().size()
+                                    : (dataPage.getTableData() != null ? dataPage.getTableData().size() : 0);
+                                context.logStepInfo(context.getCurrentStep(),
+                                    LogMessage.info("page {} fetch+persist done for {} with {} rows",
+                                        pn, table.getName(), rowCount));
+                            }
+                            return null;
+                        } catch (Exception e) {
+                            context.logStepError(context.getCurrentStep(),
+                                "failed page " + pn + " for " + table.getName(), e);
+                            firstFailure.compareAndSet(null, e);
+                            globalCancellationFlag.set(true);
+                            throw e;
+                        } finally {
+                            inFlightRows.release(cost);
+                        }
+                    }));
                 }
-                stagingWriter.finishTable(table.qualifiedName());
+
+                for (Future<?> pf : pageFutures) {
+                    pf.get();
+                }
+                if (globalCancellationFlag.get()) {
+                    return false;
+                }
+                stagingWriter.finishTable(table.qualifiedName(), pageSize);
                 context.logStepInfo(context.getCurrentStep(),
-                    LogMessage.info("{} pages completed for {}", counter.get(), table.getName()));
+                    LogMessage.info("{} pages completed for {}", pages, table.getName()));
                 return true;
             } catch (Exception e) {
                 context.logStepError(context.getCurrentStep(), "failed process " + table.getName(), e);

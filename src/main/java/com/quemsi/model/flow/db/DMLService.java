@@ -6,6 +6,8 @@ import com.quemsi.model.flow.in.TableDataPage;
 
 public interface DMLService extends AutoCloseable{
     int getTablePageSize(Integer expectedPageSize, DbTable table);
+    /** Exact (or estimated for Mongo) row/document count for pagination fan-out. */
+    long countRows(DbTable table);
 	TableDataPage getTableDataPage(TableDataPage.Request request);
 	int writePageData(DbTable table, DataPage dataPage);
 	boolean clearTables(String... tableNames);

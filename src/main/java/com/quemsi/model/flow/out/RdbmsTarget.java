@@ -44,7 +44,7 @@ import lombok.Getter;
 import lombok.Setter;
 
 public class RdbmsTarget extends AbstractStorage {
-    public static final int DEFAULT_MAX_IN_FLIGHT_ROWS = 50_000;
+    public static final int DEFAULT_BATCH_SIZE = 10_000;
 
     @Setter
     private DataSourceFactory datasourceFactory;
@@ -52,12 +52,11 @@ public class RdbmsTarget extends AbstractStorage {
     private ObjectMapper objectMapper;
     @Setter
     private int parallelism;
-    @Setter
-    private int maxInFlightRows = DEFAULT_MAX_IN_FLIGHT_ROWS;
     private Map<String, CompletableFuture<Object>> taskRegistry = new HashMap<>();
     private AtomicBoolean globalCancellationFlag = new AtomicBoolean(false);
     private AtomicReference<Exception> firstFailure = new AtomicReference<>();
     private Semaphore inFlightRows;
+    private int rowBudget;
     private ExecutorService pageWritePool;
 
     @Override
@@ -74,8 +73,12 @@ public class RdbmsTarget extends AbstractStorage {
         return datasourceFactory.getName();
     }
 
-    private int effectiveMaxInFlightRows() {
-        return maxInFlightRows > 0 ? maxInFlightRows : DEFAULT_MAX_IN_FLIGHT_ROWS;
+    /** Row budget = archive batchSize (page shape) × restore parallelism. */
+    public static int deriveRowBudget(Integer archiveBatchSize, int restoreParallelism) {
+        int pageRows = archiveBatchSize != null && archiveBatchSize > 0
+            ? archiveBatchSize
+            : DEFAULT_BATCH_SIZE;
+        return Math.max(1, restoreParallelism) * pageRows;
     }
 
     @Override
@@ -94,8 +97,6 @@ public class RdbmsTarget extends AbstractStorage {
         globalCancellationFlag.set(false);
         firstFailure.set(null);
         taskRegistry.clear();
-        int rowBudget = effectiveMaxInFlightRows();
-        inFlightRows = new Semaphore(rowBudget);
         pageWritePool = Executors.newFixedThreadPool(Math.max(1, parallelism));
 
         try (DDLService ddlService = datasourceFactory.ddlService()) {
@@ -117,14 +118,17 @@ public class RdbmsTarget extends AbstractStorage {
                 PostgresEnumSupport.ensureEnumTypes(dbModel);
             }
 
+            rowBudget = deriveRowBudget(dbModel.getBatchSize(), parallelism);
+            inFlightRows = new Semaphore(rowBudget);
+
             context.logStepInfo(context.getCurrentStep(),
                 LogMessage.info("schema will be created with {} tables", dbModel.getTables().size()));
             ddlService.createTables(dbModel);
             context.logStepInfo(context.getCurrentStep(),
                 LogMessage.info("schema is created with {} tables", dbModel.getTables().size()));
             context.logStepInfo(context.getCurrentStep(),
-                LogMessage.info("restoring with parallelism={} maxInFlightRows={}",
-                    parallelism, rowBudget));
+                LogMessage.info("restoring with parallelism={} archiveBatchSize={} rowBudget={}",
+                    parallelism, dbModel.getBatchSize(), rowBudget));
 
             ExecutorService tablePool = Executors.newFixedThreadPool(Math.max(1, parallelism));
             try {
@@ -273,7 +277,7 @@ public class RdbmsTarget extends AbstractStorage {
                     LogMessage.info("restoring {} pages for {} (meta totalPages={})",
                         pageEntries.size(), table.qualifiedName(), meta.getTotalPages()));
 
-                int rowBudget = effectiveMaxInFlightRows();
+                int rowBudget = RdbmsTarget.this.rowBudget;
                 List<Future<Boolean>> pageFutures = new ArrayList<>();
                 for (String pageEntry : pageEntries) {
                     if (globalCancellationFlag.get()) {
@@ -290,7 +294,7 @@ public class RdbmsTarget extends AbstractStorage {
                             .withExtra("table", table.qualifiedName())
                             .withExtra("pageNum", dataPage.getPageNum())
                             .withExtra("pageRows", cost)
-                            .withExtra("maxInFlightRows", rowBudget)
+                            .withExtra("rowBudget", rowBudget)
                             .get();
                     }
                     inFlightRows.acquire(cost);

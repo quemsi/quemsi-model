@@ -31,7 +31,7 @@ public class SourceFactory extends AbstractFactory<Source>{
 	private Map<String, Function<JsonNode, Source>> builders = Map.of(
 			"RdbmsBackup", node -> {
 				String datasource = node.findValue("datasource").asText(null);
-				int batchSize = jsonUtils.asInteger(node.findValue("batchSize"), 1000);
+				int batchSize = jsonUtils.asInteger(node.findValue("batchSize"), 10_000);
 				int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 10);
 				RdbmsBackup s = new RdbmsBackup();
 				s.setBatchSize(batchSize);
