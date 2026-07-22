@@ -32,6 +32,7 @@ import javax.sql.DataSource;
 
 import com.microsoft.sqlserver.jdbc.Geography;
 import com.microsoft.sqlserver.jdbc.Geometry;
+import com.microsoft.sqlserver.jdbc.ISQLServerConnection;
 import com.microsoft.sqlserver.jdbc.ISQLServerPreparedStatement;
 import com.microsoft.sqlserver.jdbc.SQLServerResultSet;
 import com.quemsi.commons.util.Exceptions;
@@ -223,6 +224,8 @@ select * from (
 		try(Connection conn = dataSource.getConnection()){
 			boolean previousAutoCommit = conn.getAutoCommit();
 			boolean identityInsertOn = false;
+			Boolean previousBulkCopy = null;
+			ISQLServerConnection sqlServerConn = null;
 			String from = quotedTable(table);
 			try {
 				conn.setAutoCommit(false);
@@ -239,10 +242,17 @@ select * from (
 				}
 				paramsBuilder.append(")");
 				sqlBuilder.append(") values ").append(paramsBuilder.toString());
-				/* Keep INSERT fully parameterized so useBulkCopyForBatchInsert can engage.
-				 * IDENTITY_INSERT must be separate session statements, not concatenated into the PS. */
+				/*
+				 * useBulkCopyForBatchInsert cannot insert explicit identity values (mssql-jdbc #1606/#2221).
+				 * Disable bulk-copy for this connection before prepareStatement when the table has identity.
+				 */
 				boolean hasIdentity = Arrays.stream(orderedColumns).anyMatch(DbColumn::isIdentity);
 				if(hasIdentity){
+					if (conn.isWrapperFor(ISQLServerConnection.class)) {
+						sqlServerConn = conn.unwrap(ISQLServerConnection.class);
+						previousBulkCopy = sqlServerConn.getUseBulkCopyForBatchInsert();
+						sqlServerConn.setUseBulkCopyForBatchInsert(false);
+					}
 					try (Statement identityStmt = conn.createStatement()) {
 						identityStmt.execute(String.format(SET_INSERT_IDENTITY_ON, from));
 					}
@@ -275,6 +285,9 @@ select * from (
 					} catch (SQLException identityOffEx) {
 						log.warn("failed to turn off IDENTITY_INSERT for {}", from, identityOffEx);
 					}
+				}
+				if (sqlServerConn != null && previousBulkCopy != null) {
+					sqlServerConn.setUseBulkCopyForBatchInsert(previousBulkCopy);
 				}
 				try {
 					conn.setAutoCommit(previousAutoCommit);

@@ -24,6 +24,7 @@ import javax.sql.DataSource;
 import org.junit.jupiter.api.Test;
 
 import com.microsoft.sqlserver.jdbc.Geography;
+import com.microsoft.sqlserver.jdbc.ISQLServerConnection;
 import com.microsoft.sqlserver.jdbc.ISQLServerPreparedStatement;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.model.flow.db.sql.DbColumn;
@@ -46,6 +47,8 @@ public class DMLServiceSqlserverWritePageDataTest {
 		assertThat(recording.statementSql.get(0), equalTo("SET IDENTITY_INSERT [dbo].[Employees] ON"));
 		assertThat(recording.lastPrepareSql, equalTo("insert into [dbo].[Employees]([EmployeeID], [LastName]) values (?, ?)"));
 		assertThat(recording.statementSql.get(1), equalTo("SET IDENTITY_INSERT [dbo].[Employees] OFF"));
+		assertThat(recording.bulkCopySetCalls.get() >= 1, equalTo(true));
+		assertThat(recording.bulkCopyEnabled.get(), equalTo(true));
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.commitCalls.get(), equalTo(1));
 	}
@@ -298,6 +301,8 @@ public class DMLServiceSqlserverWritePageDataTest {
 		final AtomicInteger setDateCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
+		final AtomicBoolean bulkCopyEnabled = new AtomicBoolean(true);
+		final AtomicInteger bulkCopySetCalls = new AtomicInteger();
 		final List<String> statementSql = new ArrayList<>();
 		final boolean failOnExecuteBatch;
 		volatile String lastPrepareSql;
@@ -306,8 +311,8 @@ public class DMLServiceSqlserverWritePageDataTest {
 		RecordingConnection(boolean failOnExecuteBatch) {
 			this.failOnExecuteBatch = failOnExecuteBatch;
 			this.connection = (Connection) Proxy.newProxyInstance(
-				Connection.class.getClassLoader(),
-				new Class<?>[] { Connection.class },
+				ISQLServerConnection.class.getClassLoader(),
+				new Class<?>[] { Connection.class, ISQLServerConnection.class },
 				this::invokeConnection);
 		}
 
@@ -332,6 +337,17 @@ public class DMLServiceSqlserverWritePageDataTest {
 					return preparedStatementProxy();
 				case "createStatement":
 					return statementProxy();
+				case "isWrapperFor":
+					Class<?> iface = (Class<?>) args[0];
+					return iface.isInstance(proxy) || iface.getName().contains("SQLServerConnection");
+				case "unwrap":
+					return proxy;
+				case "getUseBulkCopyForBatchInsert":
+					return bulkCopyEnabled.get();
+				case "setUseBulkCopyForBatchInsert":
+					bulkCopyEnabled.set((Boolean) args[0]);
+					bulkCopySetCalls.incrementAndGet();
+					return null;
 				case "close":
 					autoCommitAfterClose.set(autoCommit.get());
 					return null;
