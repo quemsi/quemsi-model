@@ -36,12 +36,12 @@ public class StorageFactory extends AbstractFactory<Storage>{
 		"RdbmsTarget", node -> {
 			String datasource = node.get("datasource").asText(null);
 			int parallelism = jsonUtils.asInteger(node.findValue("parallelism"), 10);
-			int maxInFlightPages = jsonUtils.asInteger(node.findValue("maxInFlightPages"), parallelism);
+			int maxInFlightRows = jsonUtils.asInteger(node.findValue("maxInFlightRows"), 50_000);
 			RdbmsTarget rdbmsTarget = new RdbmsTarget();
 			rdbmsTarget.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
 			rdbmsTarget.setObjectMapper(TableDataObjectMapper.create());
 			rdbmsTarget.setParallelism(parallelism);
-			rdbmsTarget.setMaxInFlightPages(maxInFlightPages);
+			rdbmsTarget.setMaxInFlightRows(maxInFlightRows);
 			return rdbmsTarget;
 		});
 }

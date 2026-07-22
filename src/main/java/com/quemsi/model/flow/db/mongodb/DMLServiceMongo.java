@@ -27,8 +27,7 @@ import lombok.extern.slf4j.Slf4j;
 @AllArgsConstructor
 @NoArgsConstructor
 public class DMLServiceMongo implements DMLService {
-    private static final int MAX_PAGES = 10;
-    private static final int MAX_DOCS_PER_PAGE = 100000;
+    private static final int MAX_DOCS_PER_PAGE = 5_000;
 
     private DatasourceFactoryMongo factory;
 
@@ -57,10 +56,8 @@ public class DMLServiceMongo implements DMLService {
 
     @Override
     public int getTablePageSize(Integer expectedPageSize, DbTable table) {
-        long total = collection(table).estimatedDocumentCount();
-        int calculated = (int) Math.ceil((double) total / MAX_PAGES);
-        int expected = expectedPageSize != null ? expectedPageSize : 1000;
-        return Math.min(MAX_DOCS_PER_PAGE, Math.max(expected, calculated));
+        int expected = expectedPageSize != null && expectedPageSize > 0 ? expectedPageSize : 1000;
+        return Math.min(MAX_DOCS_PER_PAGE, expected);
     }
 
     @Override

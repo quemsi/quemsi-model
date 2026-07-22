@@ -44,6 +44,8 @@ import lombok.Getter;
 import lombok.Setter;
 
 public class RdbmsTarget extends AbstractStorage {
+    public static final int DEFAULT_MAX_IN_FLIGHT_ROWS = 50_000;
+
     @Setter
     private DataSourceFactory datasourceFactory;
     @Setter
@@ -51,11 +53,11 @@ public class RdbmsTarget extends AbstractStorage {
     @Setter
     private int parallelism;
     @Setter
-    private int maxInFlightPages;
+    private int maxInFlightRows = DEFAULT_MAX_IN_FLIGHT_ROWS;
     private Map<String, CompletableFuture<Object>> taskRegistry = new HashMap<>();
     private AtomicBoolean globalCancellationFlag = new AtomicBoolean(false);
     private AtomicReference<Exception> firstFailure = new AtomicReference<>();
-    private Semaphore inFlightPages;
+    private Semaphore inFlightRows;
     private ExecutorService pageWritePool;
 
     @Override
@@ -72,8 +74,8 @@ public class RdbmsTarget extends AbstractStorage {
         return datasourceFactory.getName();
     }
 
-    private int effectiveMaxInFlightPages() {
-        return maxInFlightPages > 0 ? maxInFlightPages : Math.max(1, parallelism);
+    private int effectiveMaxInFlightRows() {
+        return maxInFlightRows > 0 ? maxInFlightRows : DEFAULT_MAX_IN_FLIGHT_ROWS;
     }
 
     @Override
@@ -92,7 +94,8 @@ public class RdbmsTarget extends AbstractStorage {
         globalCancellationFlag.set(false);
         firstFailure.set(null);
         taskRegistry.clear();
-        inFlightPages = new Semaphore(effectiveMaxInFlightPages());
+        int rowBudget = effectiveMaxInFlightRows();
+        inFlightRows = new Semaphore(rowBudget);
         pageWritePool = Executors.newFixedThreadPool(Math.max(1, parallelism));
 
         try (DDLService ddlService = datasourceFactory.ddlService()) {
@@ -120,8 +123,8 @@ public class RdbmsTarget extends AbstractStorage {
             context.logStepInfo(context.getCurrentStep(),
                 LogMessage.info("schema is created with {} tables", dbModel.getTables().size()));
             context.logStepInfo(context.getCurrentStep(),
-                LogMessage.info("restoring with parallelism={} maxInFlightPages={}",
-                    parallelism, effectiveMaxInFlightPages()));
+                LogMessage.info("restoring with parallelism={} maxInFlightRows={}",
+                    parallelism, rowBudget));
 
             ExecutorService tablePool = Executors.newFixedThreadPool(Math.max(1, parallelism));
             try {
@@ -270,27 +273,36 @@ public class RdbmsTarget extends AbstractStorage {
                     LogMessage.info("restoring {} pages for {} (meta totalPages={})",
                         pageEntries.size(), table.qualifiedName(), meta.getTotalPages()));
 
+                int rowBudget = effectiveMaxInFlightRows();
                 List<Future<Boolean>> pageFutures = new ArrayList<>();
                 for (String pageEntry : pageEntries) {
                     if (globalCancellationFlag.get()) {
                         future.complete(false);
                         return false;
                     }
-                    inFlightPages.acquire();
                     DataPage dataPage;
                     try (InputStream pageIn = archive.open(pageEntry)) {
                         dataPage = objectMapper.readValue(pageIn, DataPage.class);
-                    } catch (Exception e) {
-                        inFlightPages.release();
-                        throw e;
                     }
+                    int cost = Math.max(1, dataPage.getSize());
+                    if (cost > rowBudget) {
+                        throw Exceptions.badRequest("page-exceeds-max-in-flight-rows")
+                            .withExtra("table", table.qualifiedName())
+                            .withExtra("pageNum", dataPage.getPageNum())
+                            .withExtra("pageRows", cost)
+                            .withExtra("maxInFlightRows", rowBudget)
+                            .get();
+                    }
+                    inFlightRows.acquire(cost);
                     int totalPages = meta.getTotalPages() != null ? meta.getTotalPages() : pageEntries.size();
                     PageRestoreTask pageTask = new PageRestoreTask(table, dataPage, totalPages, context);
+                    final int acquired = cost;
                     pageFutures.add(pageWritePool.submit(() -> {
                         try {
                             return pageTask.call();
                         } finally {
-                            inFlightPages.release();
+                            pageTask.clearDataPage();
+                            inFlightRows.release(acquired);
                         }
                     }));
                 }
@@ -327,6 +339,10 @@ public class RdbmsTarget extends AbstractStorage {
             this.context = context;
         }
 
+        void clearDataPage() {
+            this.dataPage = null;
+        }
+
         @Override
         public Boolean call() {
             if (globalCancellationFlag.get()) {
@@ -334,14 +350,18 @@ public class RdbmsTarget extends AbstractStorage {
                     LogMessage.info("Page restore task for table {} cancelled before execution", table.getName()));
                 return false;
             }
+            DataPage page = dataPage;
+            if (page == null) {
+                return false;
+            }
             try (DMLService dmlService = datasourceFactory.dmlService()) {
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restoring page {} of {} with {} records for {}",
-                        dataPage.getPageNum(), totalPages, dataPage.getSize(), table.getName()));
-                dmlService.writePageData(table, dataPage);
+                        page.getPageNum(), totalPages, page.getSize(), table.getName()));
+                dmlService.writePageData(table, page);
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restored page {} of {} records for {}",
-                        dataPage.getPageNum(), dataPage.getSize(), table.getName()));
+                        page.getPageNum(), page.getSize(), table.getName()));
                 if (globalCancellationFlag.get()) {
                     return false;
                 }
@@ -351,6 +371,8 @@ public class RdbmsTarget extends AbstractStorage {
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
                 return false;
+            } finally {
+                clearDataPage();
             }
             return true;
         }
