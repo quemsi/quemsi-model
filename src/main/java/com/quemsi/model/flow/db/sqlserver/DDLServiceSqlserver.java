@@ -357,8 +357,14 @@ public class DDLServiceSqlserver implements DDLService{
 			orderedIndexes.sort(Comparator
 					.comparingInt(DDLServiceSqlserver::xmlIndexCreateOrder)
 					.thenComparing(IndexInfo::getIndexName, Comparator.nullsLast(String::compareToIgnoreCase)));
+			Set<String> uniqueConstraintNames = uniqueConstraintNamesForTable(dbModel, tableName);
 			for (IndexInfo indCols : orderedIndexes) {
 					if (indCols.getColumns() != null && indCols.getColumns().contains("rowguid")) {
+						continue;
+					}
+					/* UNIQUE constraints are applied via ALTER TABLE ADD CONSTRAINT; skip their backing indexes. */
+					if (indCols.getIndexName() != null && uniqueConstraintNames.contains(indCols.getIndexName())) {
+						log.info("skipping unique-constraint index {} on {}", indCols.getIndexName(), tableName);
 						continue;
 					}
 					StringBuilder indBuilder = new StringBuilder(createIndexSql(indCols, quotedTableName));
@@ -433,6 +439,19 @@ public class DDLServiceSqlserver implements DDLService{
 			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
 		}
     }
+
+	static Set<String> uniqueConstraintNamesForTable(DbModel dbModel, String qualifiedTableName) {
+		Set<String> names = new HashSet<>();
+		if (dbModel.getContraintInfos() == null) {
+			return names;
+		}
+		for (ContraintInfo info : dbModel.getContraintInfos()) {
+			if (qualifiedTableName.equals(info.qualifiedTableName()) && info.getConstraintName() != null) {
+				names.add(info.getConstraintName());
+			}
+		}
+		return names;
+	}
 
 	private void createDomainTypes(DbModel dbModel) throws SQLException {
 		if (dbModel.getDomainTypes() == null || dbModel.getDomainTypes().isEmpty()) {

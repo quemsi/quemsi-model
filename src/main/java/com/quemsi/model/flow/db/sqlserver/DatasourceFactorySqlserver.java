@@ -152,7 +152,7 @@ INNER JOIN sys.columns col ON ic.object_id = col.object_id and ic.column_id = co
 INNER JOIN sys.tables t ON ind.object_id = t.object_id 
 LEFT JOIN sys.xml_indexes xi ON ind.object_id = xi.object_id AND ind.index_id = xi.index_id
 LEFT JOIN sys.indexes using_ind ON xi.object_id = using_ind.object_id AND xi.using_xml_index_id = using_ind.index_id
-WHERE ind.is_primary_key = 0 AND t.is_ms_shipped = 0 and schema_name(t.schema_id ) in {inValues}
+WHERE ind.is_primary_key = 0 AND ind.is_unique_constraint = 0 AND t.is_ms_shipped = 0 and schema_name(t.schema_id ) in {inValues}
 ORDER BY t.schema_id, t.name, ind.name, ic.is_included_column, ic.key_ordinal
 ;
             """;

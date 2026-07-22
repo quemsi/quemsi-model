@@ -5,6 +5,8 @@ import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.nullValue;
 
+import java.util.Set;
+
 import org.junit.jupiter.api.Test;
 
 import com.quemsi.model.flow.db.sql.DbColumn;
@@ -144,6 +146,25 @@ public class DDLServiceSqlserverRoutinesTypesTest {
 		assertThat(DatasourceFactorySqlserver.formatAliasBaseType("nchar", 20, 0, 0), equalTo("nchar(10)"));
 		assertThat(DatasourceFactorySqlserver.formatAliasBaseType("decimal", 5, 4, 2), equalTo("decimal(4,2)"));
 		assertThat(DatasourceFactorySqlserver.formatAliasBaseType("int", 4, 10, 0), equalTo("int"));
+	}
+
+	@Test
+	public void uniqueConstraintNamesForTable_collectsNames() {
+		DbModel model = new DbModel();
+		model.getContraintInfos().add(DbModel.ContraintInfo.builder()
+			.schema("sales")
+			.tableName("staffs")
+			.constraintName("UQ__staffs__AB6E6164493EC26B")
+			.columnName("email")
+			.build());
+		model.getContraintInfos().add(DbModel.ContraintInfo.builder()
+			.schema("sales")
+			.tableName("other")
+			.constraintName("UQ_other")
+			.columnName("x")
+			.build());
+		assertThat(DDLServiceSqlserver.uniqueConstraintNamesForTable(model, "sales.staffs"),
+			equalTo(Set.of("UQ__staffs__AB6E6164493EC26B")));
 	}
 
 	@Test
