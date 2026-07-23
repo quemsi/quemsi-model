@@ -13,7 +13,7 @@ public class MaskColumn implements Serializable {
     private int parallelism;
     private List<MaskColumnConfig> columns;
     @Data
-    public static class MaskColumnConfig {
+    public static class MaskColumnConfig implements Serializable{
         private String schema;
         private String table;
         private String column;   
