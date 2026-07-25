@@ -24,6 +24,7 @@ import com.quemsi.model.flow.out.RdbmsTarget;
  */
 public class PageSizeAndRowBudgetTest {
 
+	@SuppressWarnings("resource")
 	@Test
 	public void getTablePageSize_followsBatchSizeWithoutClamp() {
 		DbTable table = new DbTable("dbo", "t");
