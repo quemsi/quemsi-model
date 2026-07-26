@@ -165,6 +165,74 @@ public class DbModelDiffExtractorTest {
     }
 
     @Test
+    public void givenSequencesDifferOnlyByLastValue_whenExtract_thenNoModify() {
+        DbModel source = new DbModel();
+        source.getSequences().add(DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .startValue(1L)
+            .incrementBy(1L)
+            .lastValue(1L)
+            .build());
+
+        DbModel target = new DbModel();
+        target.getSequences().add(DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .startValue(1L)
+            .incrementBy(1L)
+            .lastValue(42L)
+            .build());
+
+        DbModelDiff diff = extractor.extract(source, target);
+        assertThat(findOp(diff, DbSequenceDiffOp.class, DiffOpType.MODIFY, "bookings.flights_flight_id_seq"), equalTo(null));
+    }
+
+    @Test
+    public void givenSequencesDifferOnlyByStartValue_whenExtract_thenNoModify() {
+        DbModel source = new DbModel();
+        source.getSequences().add(DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .startValue(1L)
+            .incrementBy(1L)
+            .build());
+
+        DbModel target = new DbModel();
+        target.getSequences().add(DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .startValue(100L)
+            .incrementBy(1L)
+            .build());
+
+        DbModelDiff diff = extractor.extract(source, target);
+        assertThat(findOp(diff, DbSequenceDiffOp.class, DiffOpType.MODIFY, "bookings.flights_flight_id_seq"), equalTo(null));
+    }
+
+    @Test
+    public void givenSequencesDifferByIncrement_whenExtract_thenReturnModify() {
+        DbModel source = new DbModel();
+        source.getSequences().add(DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .incrementBy(2L)
+            .lastValue(1L)
+            .build());
+
+        DbModel target = new DbModel();
+        target.getSequences().add(DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .incrementBy(1L)
+            .lastValue(99L)
+            .build());
+
+        DbModelDiff diff = extractor.extract(source, target);
+        assertThat(findOp(diff, DbSequenceDiffOp.class, DiffOpType.MODIFY, "bookings.flights_flight_id_seq"), notNullValue());
+    }
+
+    @Test
     public void givenUniqueConstraintAdded_whenExtract_thenReturnUniqueConstraintOperation() {
         DbModel source = new DbModel();
         DbTable table = source.addTable("uniq_table");
@@ -197,6 +265,11 @@ public class DbModelDiffExtractorTest {
             .name("v_shared")
             .definition("SELECT id FROM t")
             .build());
+        source.getViews().add(DbView.builder()
+            .schema("public")
+            .name("v_changed")
+            .definition("SELECT id, name FROM t")
+            .build());
 
         DbModel target = new DbModel();
         target.getViews().add(DbView.builder()
@@ -207,6 +280,11 @@ public class DbModelDiffExtractorTest {
         target.getViews().add(DbView.builder()
             .schema("public")
             .name("v_shared")
+            .definition("SELECT id FROM t;")
+            .build());
+        target.getViews().add(DbView.builder()
+            .schema("public")
+            .name("v_changed")
             .definition("SELECT id FROM t")
             .build());
 
@@ -214,8 +292,10 @@ public class DbModelDiffExtractorTest {
 
         assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.CREATE, "public.v_new"), notNullValue());
         assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.DROP, "public.v_old"), notNullValue());
-        // Same definition still yields MODIFY (recreate)
-        assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.MODIFY, "public.v_shared"), notNullValue());
+        // Same definition (ignoring trailing semicolon) skips MODIFY
+        assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.MODIFY, "public.v_shared"), equalTo(null));
+        // Different definition yields MODIFY
+        assertThat(findOp(diff, DbViewDiffOp.class, DiffOpType.MODIFY, "public.v_changed"), notNullValue());
     }
 
     private DbColumn column(String name, String type, boolean nullable) {

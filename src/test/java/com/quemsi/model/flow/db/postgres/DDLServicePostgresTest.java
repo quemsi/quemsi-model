@@ -508,6 +508,66 @@ public class DDLServicePostgresTest {
     }
 
     @Test
+    public void givenSequenceModifyOnlyLastValue_whenDdlFrom_thenNoRestartStatement() {
+        DbModelDiff diff = new DbModelDiff();
+        DbSequence oldSeq = DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .startValue(1L)
+            .incrementBy(1L)
+            .lastValue(42L)
+            .build();
+
+        DbSequence newSeq = DbSequence.builder()
+            .schema("bookings")
+            .name("flights_flight_id_seq")
+            .startValue(1L)
+            .incrementBy(1L)
+            .lastValue(1L)
+            .build();
+
+        diff.getOperations().add(DbSequenceDiffOp.builder()
+            .opType(DiffOpType.MODIFY)
+            .qualifiedName("bookings.flights_flight_id_seq")
+            .oldSequence(oldSeq)
+            .newSequence(newSeq)
+            .build());
+
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+        assertThat(statements, hasSize(0));
+    }
+
+    @Test
+    public void givenSequenceModifyOnlyStartValue_whenDdlFrom_thenNoAlterStatement() {
+        DbModelDiff diff = new DbModelDiff();
+        DbSequence oldSeq = DbSequence.builder()
+            .schema(null)
+            .name("seq_test")
+            .startValue(1L)
+            .build();
+
+        DbSequence newSeq = DbSequence.builder()
+            .schema(null)
+            .name("seq_test")
+            .startValue(100L)
+            .build();
+
+        diff.getOperations().add(DbSequenceDiffOp.builder()
+            .opType(DiffOpType.MODIFY)
+            .qualifiedName("seq_test")
+            .oldSequence(oldSeq)
+            .newSequence(newSeq)
+            .build());
+
+        DbModel dbModel = createEmptyDbModel();
+        List<String> statements = ddlService.ddlFrom(diff, dbModel);
+
+        assertThat(statements, hasSize(0));
+    }
+
+    @Test
     public void givenMultipleOperations_whenDdlFrom_thenReturnAllStatements() {
         DbModelDiff diff = new DbModelDiff();
         

@@ -993,15 +993,7 @@ public class DDLServiceOracle implements DDLService {
 			}
 			hasChanges = true;
 		}
-		if (!Objects.equals(oldSeq.getLastValue(), newSeq.getLastValue())
-			|| !Objects.equals(oldSeq.getStartValue(), newSeq.getStartValue())) {
-			if (newSeq.getLastValue() != null) {
-				sb.append(" RESTART START WITH ").append(newSeq.getLastValue() + 1L);
-			} else if (newSeq.getStartValue() != null) {
-				sb.append(" RESTART START WITH ").append(newSeq.getStartValue());
-			}
-			hasChanges = true;
-		}
+		// Do not RESTART on lastValue/startValue — counters are handled by UpdateSequences.
 		if (!Objects.equals(oldSeq.getCacheSize(), newSeq.getCacheSize())) {
 			if (newSeq.getCacheSize() != null && newSeq.getCacheSize() > 0L) {
 				sb.append(" CACHE ").append(newSeq.getCacheSize());

@@ -437,16 +437,17 @@ public class DbModelDiffExtractor {
                 .oldView(view)
                 .build());
         }
-        // Always recreate views present in both — underlying tables may have changed
         for (String key : commonKeys) {
             DbView sourceView = sourceByName.get(key);
             DbView targetView = targetByName.get(key);
-            diff.getOperations().add(DbViewDiffOp.builder()
-                .opType(DiffOpType.MODIFY)
-                .qualifiedName(sourceView.qualifiedName())
-                .oldView(targetView)
-                .newView(sourceView)
-                .build());
+            if (!sameView(sourceView, targetView)) {
+                diff.getOperations().add(DbViewDiffOp.builder()
+                    .opType(DiffOpType.MODIFY)
+                    .qualifiedName(sourceView.qualifiedName())
+                    .oldView(targetView)
+                    .newView(sourceView)
+                    .build());
+            }
         }
     }
 
@@ -540,15 +541,30 @@ public class DbModelDiffExtractor {
     }
 
     private boolean sameSequence(DbSequence left, DbSequence right) {
+        // startValue/lastValue are not structural schema properties for UpdateSchema;
+        // lastValue is runtime counter state (handled by UpdateSequences)
         return Objects.equals(left.getSchema(), right.getSchema())
             && Objects.equals(left.getName(), right.getName())
-            && Objects.equals(left.getStartValue(), right.getStartValue())
             && Objects.equals(left.getMinValue(), right.getMinValue())
             && Objects.equals(left.getMaxValue(), right.getMaxValue())
             && Objects.equals(left.getIncrementBy(), right.getIncrementBy())
             && left.isCycle() == right.isCycle()
-            && Objects.equals(left.getCacheSize(), right.getCacheSize())
-            && Objects.equals(left.getLastValue(), right.getLastValue());
+            && Objects.equals(left.getCacheSize(), right.getCacheSize());
+    }
+
+    private boolean sameView(DbView left, DbView right) {
+        return Objects.equals(normalizeViewDefinition(left.getDefinition()), normalizeViewDefinition(right.getDefinition()));
+    }
+
+    private String normalizeViewDefinition(String definition) {
+        if (definition == null) {
+            return null;
+        }
+        String normalized = definition.trim();
+        if (normalized.endsWith(";")) {
+            normalized = normalized.substring(0, normalized.length() - 1).trim();
+        }
+        return normalized;
     }
 
     private Map<String, IndexInfo> indexMap(DbModel model) {

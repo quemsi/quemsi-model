@@ -1120,15 +1120,7 @@ public class DDLServicePostgres implements DDLService{
             hasChanges = true;
         }
         
-        if (!Objects.equals(oldSeq.getLastValue(), newSeq.getLastValue()) || 
-            !Objects.equals(oldSeq.getStartValue(), newSeq.getStartValue())) {
-            if (newSeq.getLastValue() != null) {
-                sb.append(" RESTART WITH ").append(newSeq.getLastValue());
-            } else if (newSeq.getStartValue() != null) {
-                sb.append(" RESTART WITH ").append(newSeq.getStartValue());
-            }
-            hasChanges = true;
-        }
+        // Do not alter startValue/lastValue — not treated as schema structure (UpdateSequences handles counters).
         
         if (!Objects.equals(oldSeq.getCacheSize(), newSeq.getCacheSize()) && newSeq.getCacheSize() != null) {
             sb.append(" CACHE ").append(newSeq.getCacheSize());
