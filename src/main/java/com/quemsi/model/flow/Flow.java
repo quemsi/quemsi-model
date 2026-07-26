@@ -7,6 +7,7 @@ import java.util.Map;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.quemsi.commons.util.BaseRuntimeException;
@@ -35,6 +36,8 @@ public class Flow {
 	private ApiClient apiClient;
 	@Autowired
 	private DateUtils dateUtils;
+	@Value("${spring.application.version:unknown}")
+	private String agentVersion;
 	private Long id;
 	private String name;
 	private String title;
@@ -90,6 +93,7 @@ public class Flow {
 					}
 					fc.getTags().put("flow", this.name);
 					fc.getDataVersion().setTags(fc.getTags().entrySet().stream().map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build()).toList());
+					fc.getDataVersion().setAgentVersion(agentVersion);
 				}
 				apiClient.saveFlowExecution(execution);
 				fc.logInfo("flow execution started");

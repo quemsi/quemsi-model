@@ -27,6 +27,8 @@ import lombok.Singular;
 public class DbModel {
     private String format;
     private String sourceType;
+    /** Software version of the agent that produced this backup. */
+    private String agentVersion;
     /** Backup page size used when this model was produced. */
     private Integer batchSize;
     /** Backup parallelism used when this model was produced. */

@@ -66,10 +66,12 @@ public class PageSizeAndRowBudgetTest {
 		DbModel model = new DbModel();
 		model.setBatchSize(10_000);
 		model.setParallelism(10);
+		model.setAgentVersion("2.5.3-SNAPSHOT");
 		ObjectMapper mapper = new ObjectMapper();
 		DbModel read = mapper.readValue(mapper.writeValueAsString(model), DbModel.class);
 		assertThat(read.getBatchSize(), equalTo(10_000));
 		assertThat(read.getParallelism(), equalTo(10));
+		assertThat(read.getAgentVersion(), equalTo("2.5.3-SNAPSHOT"));
 	}
 
 	@Test

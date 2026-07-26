@@ -95,6 +95,7 @@ public class RdbmsBackup implements Source {
             dbModel.setFormat(format);
             dbModel.setBatchSize(batchSize);
             dbModel.setParallelism(parallelism);
+            dbModel.setAgentVersion(context.getDataVersion().getAgentVersion());
             String dbModelJson = dataMapper.writeValueAsString(dbModel);
             stagingWriter.writeDbModel(dbModelJson);
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Wrote db-model.json to staging"));
