@@ -16,7 +16,8 @@ public class LocalDrive {
         if((getUsedSize() + size) > capacity){
             throw Exceptions.badRequest("not-enough-capacity").withExtra("localDrive", name)
                 .withExtra("freeSpace", capacity - getUsedSize())
-                .withExtra("fileSize", size).get();
+                .withExtra("fileSize", size)
+                .withExtra("hint", "this deosn't mean your hard drive is full. You can increase the capacity of the local drive or delete some files").get();
         }
     }
 }
