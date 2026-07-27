@@ -8,6 +8,7 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -464,8 +465,8 @@ where tc.OWNER in {inValues}
 			reportProgress(progress, LogMessage.info("Loading constraints..."));
 			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
 			ResultSet crs = cps.executeQuery();
-			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
-			Map<String, ContraintInfo> contraintInfos = new HashMap<>();
+			Map<String, ReferenceInfo> referenceInfos = new LinkedHashMap<>();
+			Map<String, ContraintInfo> contraintInfos = new LinkedHashMap<>();
 			while (crs.next()) {
 				String schemaName = crs.getString("TABLE_SCHEMA");
 				String tableName = crs.getString("TABLE_NAME");

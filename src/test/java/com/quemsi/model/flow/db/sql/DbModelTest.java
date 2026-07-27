@@ -11,6 +11,8 @@ import java.util.List;
 
 import org.junit.jupiter.api.Test;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.quemsi.model.flow.TableDataObjectMapper;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 
@@ -317,6 +319,74 @@ public class DbModelTest {
 
     @Test
     public void givenHrEmployeesDepartmentsCycleWhenOrderedThenEmployeesBeforeDepartments(){
+        DbModel dbModel = hrModelWithCycle();
+
+        dbModel.build();
+
+        assertThat(dbModel.getCircularIgnore().isEmpty(), equalTo(false));
+        assertThat(dbModel.getCircularIgnore().stream().anyMatch(r -> "EMP_MANAGER_FK".equals(r.getConstraintName())), equalTo(true));
+
+        List<String> ordered = dbModel.orderedTableNames();
+        assertThat(ordered.contains("HR.EMPLOYEES"), equalTo(true));
+        assertThat(ordered.contains("HR.DEPARTMENTS"), equalTo(true));
+        assertThat(ordered.indexOf("HR.JOBS") < ordered.indexOf("HR.EMPLOYEES"), equalTo(true));
+        assertThat(ordered.indexOf("HR.LOCATIONS") < ordered.indexOf("HR.DEPARTMENTS"), equalTo(true));
+        assertThat(ordered.indexOf("HR.DEPARTMENTS") < ordered.indexOf("HR.EMPLOYEES"), equalTo(true));
+    }
+
+    @Test
+    public void build_isIdempotent_andDoesNotDuplicateReferences() {
+        DbModel dbModel = hrModelWithCycle();
+        dbModel.build();
+        int empRefs = dbModel.findTable("HR.EMPLOYEES").orElseThrow().getReferences().size();
+        int circular = dbModel.getCircularIgnore().size();
+
+        dbModel.build();
+
+        assertThat(dbModel.findTable("HR.EMPLOYEES").orElseThrow().getReferences().size(), equalTo(empRefs));
+        assertThat(dbModel.getCircularIgnore().size(), equalTo(circular));
+        assertThat(dbModel.orderedTableNames().indexOf("HR.DEPARTMENTS")
+            < dbModel.orderedTableNames().indexOf("HR.EMPLOYEES"), equalTo(true));
+    }
+
+    @Test
+    public void afterJsonRoundTrip_buildRestoresTableReferencesForRestoreOrdering() throws Exception {
+        DbModel original = hrModelWithCycle();
+        original.build();
+        ObjectMapper om = TableDataObjectMapper.create();
+        String json = om.writeValueAsString(original);
+
+        DbModel restored = om.readValue(json, DbModel.class);
+        // Re-build so circularIgnore / graph match referenceInfos even if JSON shape drifts.
+        restored.build();
+
+        assertThat(restored.findTable("HR.EMPLOYEES").orElseThrow().getReferences().isEmpty(), equalTo(false));
+        assertThat(restored.orderedTableNames().indexOf("HR.DEPARTMENTS")
+            < restored.orderedTableNames().indexOf("HR.EMPLOYEES"), equalTo(true));
+    }
+
+    @Test
+    public void whenDeptMgrFkDiscoveredBeforeEmpDeptFk_empDeptMayBeCircularIgnored() {
+        // Oracle ALL_CONSTRAINTS order is by table name, so DEPT_* is seen before EMP_*.
+        // That puts EMP_DEPT_FK into circularIgnore — restore must drop FKs before load
+        // (RdbmsTarget.disableConstraints) or EMPLOYEES can insert before DEPARTMENTS.
+        DbModel dbModel = hrModelWithCycle();
+        List<ReferenceInfo> oracleLikeOrder = List.of(
+            dbModel.getReferenceInfos().stream().filter(r -> "DEPT_LOC_FK".equals(r.getConstraintName())).findFirst().orElseThrow(),
+            dbModel.getReferenceInfos().stream().filter(r -> "DEPT_MGR_FK".equals(r.getConstraintName())).findFirst().orElseThrow(),
+            dbModel.getReferenceInfos().stream().filter(r -> "EMP_DEPT_FK".equals(r.getConstraintName())).findFirst().orElseThrow(),
+            dbModel.getReferenceInfos().stream().filter(r -> "EMP_JOB_FK".equals(r.getConstraintName())).findFirst().orElseThrow(),
+            dbModel.getReferenceInfos().stream().filter(r -> "EMP_MANAGER_FK".equals(r.getConstraintName())).findFirst().orElseThrow()
+        );
+        dbModel.setReferenceInfos(oracleLikeOrder);
+
+        dbModel.build();
+
+        assertThat(dbModel.getCircularIgnore().stream().anyMatch(r -> "EMP_DEPT_FK".equals(r.getConstraintName())),
+            equalTo(true));
+    }
+
+    private static DbModel hrModelWithCycle() {
         DbModel dbModel = new DbModel();
 
         DbTable jobs = dbModel.crateIfAbsent("JOBS", "HR");
@@ -347,17 +417,7 @@ public class DbModelTest {
             ReferenceInfo.builder().constraintName("DEPT_MGR_FK").srcSchema("HR").srcTableName("DEPARTMENTS").srcColumnName(deptMgrId.getName()).refSchema("HR").refTableName("EMPLOYEES").refColumnName(employeeId.getName()).build(),
             ReferenceInfo.builder().constraintName("DEPT_LOC_FK").srcSchema("HR").srcTableName("DEPARTMENTS").srcColumnName(deptLocId.getName()).refSchema("HR").refTableName("LOCATIONS").refColumnName(locationId.getName()).build()
         ));
-
-        dbModel.build();
-
-        assertThat(dbModel.getCircularIgnore().isEmpty(), equalTo(false));
-        assertThat(dbModel.getCircularIgnore().stream().anyMatch(r -> "EMP_MANAGER_FK".equals(r.getConstraintName())), equalTo(true));
-
-        List<String> ordered = dbModel.orderedTableNames();
-        assertThat(ordered.contains("HR.EMPLOYEES"), equalTo(true));
-        assertThat(ordered.contains("HR.DEPARTMENTS"), equalTo(true));
-        assertThat(ordered.indexOf("HR.JOBS") < ordered.indexOf("HR.EMPLOYEES"), equalTo(true));
-        assertThat(ordered.indexOf("HR.LOCATIONS") < ordered.indexOf("HR.DEPARTMENTS"), equalTo(true));
+        return dbModel;
     }
 
     @Test

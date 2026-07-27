@@ -96,11 +96,30 @@ public class DbModel {
     }
 
     public void build(){
+        // Idempotent: clear derived graph so deserialize/re-build and processors stay consistent.
+        if (tables != null) {
+            for (DbTable table : tables.values()) {
+                if (table.getReferences() != null) {
+                    table.getReferences().clear();
+                }
+                if (table.getReferencedBy() != null) {
+                    table.getReferencedBy().clear();
+                }
+            }
+        }
+        if (circularIgnore == null) {
+            circularIgnore = new HashSet<>();
+        } else {
+            circularIgnore.clear();
+        }
         addReferenceInfosToColumns();
         findReferencesToBreakCycle();
     }
 
     public void addReferenceInfosToColumns(){
+        if (referenceInfos == null) {
+            return;
+        }
         for(ReferenceInfo refInfo : this.referenceInfos){
             // if(!StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getSrcSchema()) || !StringUtils.equalsIgnoreCase(this.getSchema(), refInfo.getRefSchema())){
             //     continue;
@@ -117,6 +136,9 @@ public class DbModel {
     }
 
     public void findReferencesToBreakCycle(){
+        if (referenceInfos == null) {
+            return;
+        }
         Map<String, Set<String>> reachablity = new HashMap<>();
         for(ReferenceInfo refInfo : referenceInfos){
             Queue<String> checkReachability = new LinkedList<>();

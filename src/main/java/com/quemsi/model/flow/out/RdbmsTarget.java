@@ -113,6 +113,9 @@ public class RdbmsTarget extends AbstractStorage {
             }
 
             context.getDbModelProcessors().forEach(p -> p.process(dbModel));
+            // Rebuild FK graph after JSON deserialize / schema processors so restore waits
+            // and circularIgnore are recalculated from referenceInfos.
+            dbModel.build();
 
             if (DatasourceType.POSTGRES.name().equals(dbModel.getSourceType())) {
                 PostgresEnumSupport.ensureEnumTypes(dbModel);
@@ -120,6 +123,19 @@ public class RdbmsTarget extends AbstractStorage {
 
             rowBudget = deriveRowBudget(dbModel.getBatchSize(), parallelism);
             inFlightRows = new Semaphore(rowBudget);
+
+            Set<ReferenceInfo> allFks = new LinkedHashSet<>();
+            if (dbModel.getReferenceInfos() != null) {
+                allFks.addAll(dbModel.getReferenceInfos());
+            }
+            if (dbModel.getCircularIgnore() != null) {
+                allFks.addAll(dbModel.getCircularIgnore());
+            }
+            // Existing target tables may still have FKs (createTables skips them). Drop before load;
+            // FKs are re-applied after data via enableContraints.
+            context.logStepInfo(context.getCurrentStep(),
+                LogMessage.info("disabling {} foreign keys before data restore", allFks.size()));
+            ddlService.disableConstraints(allFks);
 
             context.logStepInfo(context.getCurrentStep(),
                 LogMessage.info("schema will be created with {} tables", dbModel.getTables().size()));
@@ -143,13 +159,6 @@ public class RdbmsTarget extends AbstractStorage {
                     result = t.get() && result;
                 }
 
-                Set<ReferenceInfo> allFks = new LinkedHashSet<>();
-                if (dbModel.getReferenceInfos() != null) {
-                    allFks.addAll(dbModel.getReferenceInfos());
-                }
-                if (dbModel.getCircularIgnore() != null) {
-                    allFks.addAll(dbModel.getCircularIgnore());
-                }
                 ddlService.enableContraints(allFks);
 
                 if (result) {
