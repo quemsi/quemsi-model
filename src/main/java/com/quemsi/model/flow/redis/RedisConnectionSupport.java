@@ -122,6 +122,7 @@ public final class RedisConnectionSupport {
 		Jedis jedis = new Jedis(hostAndPort, clientConfig);
 		try {
 			jedis.ping();
+			assertNotReplica(jedis, hostAndPort.toString());
 		} catch (RuntimeException ex) {
 			jedis.close();
 			throw ex;
@@ -160,6 +161,7 @@ public final class RedisConnectionSupport {
 			String discoveredMaster = master != null ? master.toString() : "unknown";
 			try {
 				jedis.ping();
+				assertNotReplica(jedis, discoveredMaster);
 			} catch (RuntimeException ex) {
 				jedis.close();
 				pool.close();
@@ -185,6 +187,64 @@ public final class RedisConnectionSupport {
 			}
 			throw ex;
 		}
+	}
+
+	/**
+	 * A replica answers PING and may even accept writes when replica-read-only is off, but replication
+	 * would revert them, so clearing a replica can never synchronize the cache. Detect it up front
+	 * instead of waiting for the first delete to be rejected.
+	 */
+	private static void assertNotReplica(Jedis jedis, String address) {
+		String role = detectRole(jedis);
+		if ("slave".equals(role) || "replica".equals(role)) {
+			throw Exceptions.badRequest("redis-target-is-replica")
+					.withExtra("address", address)
+					.withExtra("role", role)
+					.get();
+		}
+	}
+
+	private static String detectRole(Jedis jedis) {
+		try {
+			List<Object> role = jedis.role();
+			if (role != null && !role.isEmpty()) {
+				String parsed = asRoleString(role.get(0));
+				if (parsed != null) {
+					return parsed;
+				}
+			}
+		} catch (JedisException ignored) {
+			/* ROLE may be disabled or restricted by ACL, fall back to INFO */
+		}
+		try {
+			return parseRoleFromInfo(jedis.info("replication"));
+		} catch (JedisException ignored) {
+			/* INFO may also be hidden, leave the role unknown */
+		}
+		return null;
+	}
+
+	private static String asRoleString(Object value) {
+		if (value instanceof String str) {
+			return str.trim().toLowerCase();
+		}
+		if (value instanceof byte[] bytes) {
+			return new String(bytes, java.nio.charset.StandardCharsets.UTF_8).trim().toLowerCase();
+		}
+		return null;
+	}
+
+	private static String parseRoleFromInfo(String info) {
+		if (StringUtils.isEmptyOrNull(info)) {
+			return null;
+		}
+		for (String line : info.split("\\r?\\n")) {
+			String trimmed = line.trim();
+			if (trimmed.startsWith("role:")) {
+				return trimmed.substring("role:".length()).trim().toLowerCase();
+			}
+		}
+		return null;
 	}
 
 	private static JedisClientConfig buildClientConfig(String username, String password, int connectTimeout,
