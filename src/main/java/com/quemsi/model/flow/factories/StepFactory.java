@@ -13,6 +13,7 @@ import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.dto.MaskColumn;
 import com.quemsi.model.dto.UpdateSchemaConfig;
+import com.quemsi.model.dto.ClearRedisConfig;
 import com.quemsi.model.flow.From;
 import com.quemsi.model.flow.Step;
 import com.quemsi.model.flow.To;
@@ -30,6 +31,7 @@ import com.quemsi.model.flow.process.MaskColumns;
 import com.quemsi.model.flow.process.SchemaMapping;
 import com.quemsi.model.flow.process.UpdateSchema;
 import com.quemsi.model.flow.process.UpdateSequences;
+import com.quemsi.model.flow.redis.ClearRedis;
 
 import lombok.Getter;
 
@@ -155,6 +157,17 @@ public class StepFactory extends AbstractFactory<Step>{
 					updateSchema.setConfig(config);
 				}
 				return updateSchema;
+			}),
+			Map.entry("ClearRedis", (Function<JsonNode, Step>) node -> {
+				ClearRedis clearRedis = new ClearRedis();
+				ObjectMapper objectMapper = context.getBean(ObjectMapper.class);
+				clearRedis.setObjectMapper(objectMapper);
+				JsonNode configNode = node.get("config");
+				if(configNode != null) {
+					ClearRedisConfig config = objectMapper.convertValue(configNode, ClearRedisConfig.class);
+					clearRedis.setConfig(config);
+				}
+				return clearRedis;
 			})
 			);
 }

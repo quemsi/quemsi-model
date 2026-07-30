@@ -10,6 +10,7 @@ import com.quemsi.model.dto.agent.onapi.TestAWSS3DriveResult;
 import com.quemsi.model.dto.agent.onapi.TestAzureBlobDriveResult;
 import com.quemsi.model.dto.agent.onapi.TestDatasourceResult;
 import com.quemsi.model.dto.agent.onapi.TestFolderAccessResult;
+import com.quemsi.model.dto.agent.onapi.TestRedisResult;
 import com.quemsi.model.dto.agent.onapi.VersionDeleted;
 
 import lombok.AllArgsConstructor;
@@ -32,6 +33,7 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = TestAzureBlobDrive.class, name = "TestAzureBlobDrive"),
     @JsonSubTypes.Type(value = TestAWSS3Drive.class, name = "TestAWSS3Drive"),
     @JsonSubTypes.Type(value = TestFolderAccess.class, name = "TestFolderAccess"),
+    @JsonSubTypes.Type(value = TestRedis.class, name = "TestRedis"),
 
     @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
     @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted"),
@@ -39,7 +41,8 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = TestDatasourceResult.class, name = "TestDatasourceResult"),
     @JsonSubTypes.Type(value = TestAzureBlobDriveResult.class, name = "TestAzureBlobDriveResult"),
     @JsonSubTypes.Type(value = TestAWSS3DriveResult.class, name = "TestAWSS3DriveResult"),
-    @JsonSubTypes.Type(value = TestFolderAccessResult.class, name = "TestFolderAccessResult")
+    @JsonSubTypes.Type(value = TestFolderAccessResult.class, name = "TestFolderAccessResult"),
+    @JsonSubTypes.Type(value = TestRedisResult.class, name = "TestRedisResult")
 })
 @Data
 @NoArgsConstructor
