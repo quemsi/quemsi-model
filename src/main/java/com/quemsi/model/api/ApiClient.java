@@ -13,7 +13,7 @@ import com.quemsi.model.dto.agent.AgentCommand;
 
 public interface ApiClient {
     @GetMapping("/api/agent/all-model")
-    AgentModel allModel(String agentVersion);
+    AgentModel allModel(String agentVersion, String runtime);
     @GetMapping("/api/agent/next-command")
     AgentCommand nextCommand();
     @PostMapping("/api/agent/flow-execution")
