@@ -10,9 +10,11 @@ import java.util.Map;
 
 import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.dto.DataVersion;
+import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.dto.FlowExecution;
 import com.quemsi.model.dto.FlowExecution.FlowExecutionStep;
 import com.quemsi.model.dto.FlowExecutionStatus;
+import com.quemsi.model.dto.Tag;
 import com.quemsi.model.flow.file.BackupArchive;
 import com.quemsi.model.flow.process.DbModelProcessor;
 import com.quemsi.model.util.QuemsiTemp;
@@ -58,6 +60,24 @@ public class FlowContext {
 	public void setDataVersion(DataVersion dataVersion){
 		this.dataVersion = dataVersion;
 		execution.setVersion(dataVersion);
+	}
+
+	/**
+	 * Records the backup DB provider on the version column and as the reserved {@code db} tag
+	 * so UI tag filters and tag-based version lookup both see it.
+	 */
+	public void recordDatasourceType(DatasourceType type) {
+		if (type == null || dataVersion == null) {
+			return;
+		}
+		dataVersion.setDatasourceType(type);
+		if (tags == null) {
+			tags = new HashMap<>();
+		}
+		tags.put(DataVersion.DB_TAG, type.name());
+		dataVersion.setTags(tags.entrySet().stream()
+				.map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build())
+				.toList());
 	}
 	
 	public boolean inError() {

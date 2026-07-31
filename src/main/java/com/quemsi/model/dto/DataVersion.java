@@ -18,7 +18,7 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode(callSuper = true)
 public class DataVersion extends BaseDto<Long>{
 	@Builder
-	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files, LocalDateTime createdAt, String descript, String agentVersion){
+	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files, LocalDateTime createdAt, String descript, String agentVersion, DatasourceType datasourceType){
 		super(id, true);
 		this.data = data;
 		this.tags = tags;
@@ -26,6 +26,7 @@ public class DataVersion extends BaseDto<Long>{
 		this.createdAt = createdAt;
 		this.descript = descript;
 		this.agentVersion = agentVersion;
+		this.datasourceType = datasourceType;
 	}
     private NamedEntityReference data;
 	private NamedEntityReference storage;
@@ -35,7 +36,11 @@ public class DataVersion extends BaseDto<Long>{
 	private String descript;
 	/** Software version of the agent that produced this backup. */
 	private String agentVersion;
+	/** DB provider that produced this backup (POSTGRES, SQLSERVER, …). */
+	private DatasourceType datasourceType;
 	private Long companyId;
+	/** Reserved system tag name for {@link #datasourceType} (UI tag filters). */
+	public static final String DB_TAG = "db";
 	public void setFiles(List<DataFile> fs){
 		if(files == null){
 			files = fs;

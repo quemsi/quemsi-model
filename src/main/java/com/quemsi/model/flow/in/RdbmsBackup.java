@@ -92,6 +92,7 @@ public class RdbmsBackup implements Source {
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("creating db model from datasource"));
             DbModel dbModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("db model created from datasource"));
+            context.recordDatasourceType(datasource.type());
             dbModel.setFormat(format);
             dbModel.setBatchSize(batchSize);
             dbModel.setParallelism(parallelism);
