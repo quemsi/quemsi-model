@@ -240,7 +240,7 @@ public class RdbmsBackup implements Source {
                             }
                             try (DMLService dml = datasource.dmlService()) {
                                 context.logStepInfo(context.getCurrentStep(),
-                                    LogMessage.info("page {} fetch+persist start for {}", pn, table.getName()));
+                                    LogMessage.info("page {} of {} fetch+persist start for {}", pn + 1, pages, table.getName()));
                                 Request request = Request.builder()
                                     .table(table)
                                     .pageNum(pn)
@@ -253,13 +253,13 @@ public class RdbmsBackup implements Source {
                                     ? dataPage.getDocuments().size()
                                     : (dataPage.getTableData() != null ? dataPage.getTableData().size() : 0);
                                 context.logStepInfo(context.getCurrentStep(),
-                                    LogMessage.info("page {} fetch+persist done for {} with {} rows",
-                                        pn, table.getName(), rowCount));
+                                    LogMessage.info("page {} of {} fetch+persist done for {} with {} rows",
+                                        pn + 1, pages, table.getName(), rowCount));
                             }
                             return null;
                         } catch (Exception e) {
                             context.logStepError(context.getCurrentStep(),
-                                "failed page " + pn + " for " + table.getName(), e);
+                                "failed page " + (pn + 1) + " of " + pages + " for " + table.getName(), e);
                             firstFailure.compareAndSet(null, e);
                             globalCancellationFlag.set(true);
                             throw e;

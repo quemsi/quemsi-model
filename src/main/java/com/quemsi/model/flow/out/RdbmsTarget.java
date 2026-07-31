@@ -370,11 +370,11 @@ public class RdbmsTarget extends AbstractStorage {
             try (DMLService dmlService = datasourceFactory.dmlService()) {
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restoring page {} of {} with {} records for {}",
-                        page.getPageNum(), totalPages, page.getSize(), table.getName()));
+                        page.getPageNum() + 1, totalPages, page.getSize(), table.getName()));
                 dmlService.writePageData(table, page);
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restored page {} of {} records for {}",
-                        page.getPageNum(), page.getSize(), table.getName()));
+                        page.getPageNum() + 1, totalPages, page.getSize(), table.getName()));
                 if (globalCancellationFlag.get()) {
                     return false;
                 }
