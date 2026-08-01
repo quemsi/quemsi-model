@@ -16,6 +16,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @Builder
 public class AgentLogRecord{
+    private Long companyId;
     private Long agentId;
     private Long flowExecutionId;
     private Long flowExecutionStepId;
