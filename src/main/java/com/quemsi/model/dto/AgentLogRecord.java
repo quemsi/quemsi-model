@@ -28,6 +28,8 @@ public class AgentLogRecord{
     private String cause;
     /** Full stack trace; kept out of message/_msg for UI readability. */
     private String stackTrace;
+    /** Optional long payload (e.g. JSON model dump); collapsed in UI like stackTrace. */
+    private String detail;
     private String level;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
     private LocalDateTime timestamp;
