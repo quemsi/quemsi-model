@@ -136,7 +136,7 @@ public class RdbmsBackup implements Source {
             throw Exceptions.server("json-serialization-error").withCause(e).get();
         } catch (Exception e) {
             context.clearStagingDirQuietly();
-            context.logError("error in backup", e);
+            // Flow boundary logs the structured ERROR + stack; avoid a second copy here.
             throw Exceptions.server("error-in-backup")
                 .withCause(e)
                 .withExtra("flowName", context.getFlow().getName())
@@ -259,8 +259,9 @@ public class RdbmsBackup implements Source {
                             }
                             return null;
                         } catch (Exception e) {
+                            // Short breadcrumb only — Flow logs full structured error once.
                             context.logStepError(context.getCurrentStep(),
-                                "failed page " + (pn + 1) + " of " + pages + " for " + table.getName(), e);
+                                "failed page " + (pn + 1) + " of " + pages + " for " + table.getName());
                             firstFailure.compareAndSet(null, e);
                             globalCancellationFlag.set(true);
                             throw e;
@@ -281,7 +282,7 @@ public class RdbmsBackup implements Source {
                     LogMessage.info("{} pages completed for {}", pages, table.getName()));
                 return true;
             } catch (Exception e) {
-                context.logStepError(context.getCurrentStep(), "failed process " + table.getName(), e);
+                context.logStepError(context.getCurrentStep(), "failed process " + table.getName());
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
             }

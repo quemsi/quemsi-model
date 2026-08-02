@@ -1,7 +1,5 @@
 package com.quemsi.model.flow;
 
-import java.io.PrintWriter;
-import java.io.StringWriter;
 import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.LinkedList;
@@ -89,21 +87,15 @@ public class FlowContext {
 	public void logError(FlowExecutionStep step, String tag, Throwable e) {
 		if(step != null){
 			step.setStatus(FlowExecutionStatus.FAILED);
-			StringWriter sw = new StringWriter();
-			e.printStackTrace(new PrintWriter(sw));
 			if (logWriter != null && execution != null && execution.getId() != null && step.getId() != null) {
-				logWriter.log(null, execution.getId(), step.getId(), LogMessage.error("{}: {}", tag, e.getMessage()));
-				logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(sw.toString()));
+				logWriter.log(null, execution.getId(), step.getId(), LogMessage.errorWithCause(tag, e));
 			}
 		}
 	}
 	public void logError(String tag, Throwable e) {
 		execution.setStatus(FlowExecutionStatus.FAILED);
-		StringWriter sw = new StringWriter();
-		e.printStackTrace(new PrintWriter(sw));
 		if (logWriter != null && execution.getId() != null) {
-			logWriter.log(null, execution.getId(), null, LogMessage.error("{}: {}", tag, e.getMessage()));
-			logWriter.log(null, execution.getId(), null, LogMessage.error(sw.toString()));
+			logWriter.log(null, execution.getId(), null, LogMessage.errorWithCause(tag, e));
 		}
 	}
 	
@@ -150,10 +142,7 @@ public class FlowContext {
 	}
 	public void logStepError(FlowExecutionStep step, String tag, Throwable e) {
 		if (logWriter != null && execution != null && execution.getId() != null && step != null && step.getId() != null) {
-			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error("{}: {}", tag, e.getMessage()));
-			StringWriter sw = new StringWriter();
-			e.printStackTrace(new PrintWriter(sw));
-			logWriter.log(null, execution.getId(), step.getId(), LogMessage.error(sw.toString()));
+			logWriter.log(null, execution.getId(), step.getId(), LogMessage.errorWithCause(tag, e));
 		}
 	}
 

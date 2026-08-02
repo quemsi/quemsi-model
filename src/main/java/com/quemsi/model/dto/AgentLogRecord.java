@@ -20,7 +20,14 @@ public class AgentLogRecord{
     private Long agentId;
     private Long flowExecutionId;
     private Long flowExecutionStepId;
+    /** Short human-readable line (VictoriaLogs _msg). */
     private String message;
+    /** Stable error code when from BaseRuntimeException (e.g. unable-to-build-dbmodel). */
+    private String messageId;
+    /** Root-cause message only (no stack). */
+    private String cause;
+    /** Full stack trace; kept out of message/_msg for UI readability. */
+    private String stackTrace;
     private String level;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss.SSS")
     private LocalDateTime timestamp;

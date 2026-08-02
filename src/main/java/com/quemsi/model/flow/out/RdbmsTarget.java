@@ -327,7 +327,7 @@ public class RdbmsTarget extends AbstractStorage {
                 future.complete(allSucceeded);
                 return allSucceeded;
             } catch (Exception e) {
-                context.logStepError(context.getCurrentStep(), "failed to process " + table.getName(), e);
+                context.logStepError(context.getCurrentStep(), "failed to process " + table.getName());
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
                 future.complete(false);
@@ -380,7 +380,7 @@ public class RdbmsTarget extends AbstractStorage {
                 }
             } catch (Exception e) {
                 context.logStepError(context.getCurrentStep(),
-                    "Failed to restore page for table " + table.getName() + ": " + e.getMessage(), e);
+                    "Failed to restore page for table " + table.getName());
                 firstFailure.compareAndSet(null, e);
                 globalCancellationFlag.set(true);
                 return false;
