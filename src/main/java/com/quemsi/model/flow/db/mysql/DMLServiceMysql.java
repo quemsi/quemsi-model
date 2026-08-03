@@ -144,7 +144,7 @@ public class DMLServiceMysql implements DMLService{
 					primaryKeys.size(), DMLServiceMysql::quoteTable, DMLServiceMysql::quoteColumn);
 				log.info("subset sql for {} :{} keys={}", request.getTable().qualifiedName(), sql, primaryKeys.size());
 				ps = conn.prepareStatement(sql);
-				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable().getPkColumnNames().size(), primaryKeys);
+				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable(), primaryKeys);
 			} else {
 				String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), sortColumnNames);
 				log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());

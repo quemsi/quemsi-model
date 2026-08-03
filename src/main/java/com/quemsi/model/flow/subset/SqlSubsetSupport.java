@@ -1,19 +1,30 @@
 package com.quemsi.model.flow.subset;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.sql.Connection;
+import java.sql.Date;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.sql.Types;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DataSourceFactory;
+import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.util.CommonHelpers;
 
@@ -144,7 +155,7 @@ public final class SqlSubsetSupport {
             sql.append(" WHERE ");
             appendPkInClause(sql, "c", childPkCols, batch.size(), columnQuoter);
             try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
-                bindPkKeys(ps, 1, childPkCols.size(), batch);
+                bindPkKeys(ps, 1, child, batch);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
                         parentKeys.add(readPkKey(rs, parentPkCols));
@@ -185,22 +196,147 @@ public final class SqlSubsetSupport {
         sql.append(')');
     }
 
-    public static int bindPkKeys(PreparedStatement ps, int startIndex, int pkArity, List<String> keys)
+    /**
+     * Binds canonical string PK keys as native JDBC types inferred from {@link DbTable} PK columns.
+     */
+    public static int bindPkKeys(PreparedStatement ps, int startIndex, DbTable table, List<String> keys)
             throws SQLException {
+        requirePrimaryKey(table);
+        List<String> pkCols = table.getPkColumnNames();
         int idx = startIndex;
         for (String key : keys) {
-            String[] parts = splitPkKey(key, pkArity);
-            for (String part : parts) {
-                ps.setObject(idx++, part);
+            String[] parts = splitPkKey(key, pkCols.size());
+            for (int c = 0; c < pkCols.size(); c++) {
+                DbColumn column = table.column(pkCols.get(c));
+                Object typed = coercePkValue(parts[c], column);
+                if (typed == null) {
+                    ps.setNull(idx++, Types.NULL);
+                } else {
+                    ps.setObject(idx++, typed);
+                }
             }
         }
         return idx;
     }
 
+    /**
+     * Converts a canonical string PK part into a JDBC-friendly native value for the column type.
+     * Keeps plan keys as strings for set membership while avoiding varchar/bigint mismatches.
+     */
+    public static Object coercePkValue(String part, DbColumn column) {
+        if (part == null || part.isEmpty()) {
+            return null;
+        }
+        String type = normalizeSqlType(column);
+        if (type == null || type.isBlank()) {
+            return inferNumericOrString(part);
+        }
+        return switch (type) {
+            case "BIGINT", "INT8", "BIGSERIAL", "SERIAL8", "LONG" -> Long.valueOf(part);
+            case "NUMBER" -> {
+                if (column != null && column.getNumScale() != null && column.getNumScale() > 0) {
+                    yield new BigDecimal(part);
+                }
+                yield coerceIntegerLike(part);
+            }
+            case "INTEGER", "INT", "INT4", "SERIAL", "SERIAL4", "MEDIUMINT", "SMALLINT", "INT2", "TINYINT",
+                    "SMALLSERIAL", "SERIAL2" -> coerceIntegerLike(part);
+            case "NUMERIC", "DECIMAL", "MONEY", "SMALLMONEY" -> new BigDecimal(part);
+            case "REAL", "FLOAT4", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "FLOAT8" -> Double.valueOf(part);
+            case "BOOLEAN", "BOOL", "BIT" -> coerceBoolean(part);
+            case "UUID", "UNIQUEIDENTIFIER" -> UUID.fromString(part);
+            case "DATE" -> {
+                try {
+                    yield Date.valueOf(LocalDate.parse(part));
+                } catch (Exception e) {
+                    yield Date.valueOf(part);
+                }
+            }
+            case "TIMESTAMP", "TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITHOUT TIME ZONE",
+                    "DATETIME", "DATETIME2", "SMALLDATETIME", "DATETIMEOFFSET" -> coerceTimestamp(part);
+            default -> part;
+        };
+    }
+
+    private static Object coerceIntegerLike(String part) {
+        try {
+            long v = Long.parseLong(part);
+            if (v >= Integer.MIN_VALUE && v <= Integer.MAX_VALUE) {
+                return (int) v;
+            }
+            return v;
+        } catch (NumberFormatException e) {
+            return new BigInteger(part);
+        }
+    }
+
+    private static Object inferNumericOrString(String part) {
+        try {
+            if (part.indexOf('.') >= 0 || part.indexOf('e') >= 0 || part.indexOf('E') >= 0) {
+                return new BigDecimal(part);
+            }
+            return coerceIntegerLike(part);
+        } catch (NumberFormatException e) {
+            return part;
+        }
+    }
+
+    private static Boolean coerceBoolean(String part) {
+        String p = part.trim();
+        if ("t".equalsIgnoreCase(p) || "true".equalsIgnoreCase(p) || "1".equals(p) || "y".equalsIgnoreCase(p)) {
+            return Boolean.TRUE;
+        }
+        if ("f".equalsIgnoreCase(p) || "false".equalsIgnoreCase(p) || "0".equals(p) || "n".equalsIgnoreCase(p)) {
+            return Boolean.FALSE;
+        }
+        return Boolean.valueOf(p);
+    }
+
+    private static Object coerceTimestamp(String part) {
+        try {
+            return Timestamp.valueOf(LocalDateTime.parse(part));
+        } catch (Exception ignored) {
+            // fall through
+        }
+        try {
+            return Timestamp.from(OffsetDateTime.parse(part).toInstant());
+        } catch (Exception ignored) {
+            // fall through
+        }
+        try {
+            return Timestamp.valueOf(part.replace('T', ' '));
+        } catch (Exception e) {
+            return part;
+        }
+    }
+
+    private static String normalizeSqlType(DbColumn column) {
+        if (column == null) {
+            return null;
+        }
+        String type = column.getDataType();
+        if (type == null || type.isBlank()) {
+            type = column.getColumnType();
+        }
+        if (type == null || type.isBlank()) {
+            return null;
+        }
+        String normalized = type.trim().toUpperCase(Locale.ROOT);
+        int paren = normalized.indexOf('(');
+        if (paren > 0) {
+            normalized = normalized.substring(0, paren).trim();
+        }
+        int dot = normalized.lastIndexOf('.');
+        if (dot >= 0 && dot < normalized.length() - 1) {
+            normalized = normalized.substring(dot + 1);
+        }
+        return normalized;
+    }
+
     public static String readPkKey(ResultSet rs, List<String> pkCols) throws SQLException {
         if (pkCols.size() == 1) {
             Object v = rs.getObject(1);
-            return v == null ? "" : v.toString();
+            return canonicalPkPart(v);
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < pkCols.size(); i++) {
@@ -208,9 +344,29 @@ public final class SqlSubsetSupport {
                 sb.append(DataSourceFactory.PK_VALUES_SEPERATOR);
             }
             Object v = rs.getObject(i + 1);
-            sb.append(v == null ? "" : v.toString());
+            sb.append(canonicalPkPart(v));
         }
         return sb.toString();
+    }
+
+    /** Stable string form for set membership; must round-trip via {@link #coercePkValue}. */
+    static String canonicalPkPart(Object v) {
+        if (v == null) {
+            return "";
+        }
+        if (v instanceof BigDecimal bd) {
+            return bd.stripTrailingZeros().toPlainString();
+        }
+        if (v instanceof Double d) {
+            return BigDecimal.valueOf(d).stripTrailingZeros().toPlainString();
+        }
+        if (v instanceof Float f) {
+            return BigDecimal.valueOf(f.doubleValue()).stripTrailingZeros().toPlainString();
+        }
+        if (v instanceof byte[] bytes) {
+            return java.util.Base64.getEncoder().encodeToString(bytes);
+        }
+        return v.toString();
     }
 
     public static String[] splitPkKey(String key, int arity) {

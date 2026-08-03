@@ -1,5 +1,6 @@
 package com.quemsi.model.flow.subset;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -7,8 +8,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 @Data
 @Builder
@@ -46,6 +49,8 @@ public class SubsetPlan {
 
     @Data
     @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
     public static class SubsetTableProvenance {
         @Builder.Default
         private long driverCount = 0;
@@ -61,7 +66,9 @@ public class SubsetPlan {
 
     @Data
     @Builder
-    public static class SubsetTableSummary {
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class SubsetTableSummary implements Serializable{
         private String table;
         private long count;
         private long driverCount;

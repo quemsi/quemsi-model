@@ -3,6 +3,8 @@ package com.quemsi.model.util;
 import java.io.IOException;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.quemsi.commons.util.SecretMask;
 import com.quemsi.model.dto.AgentModel;
 import com.quemsi.model.dto.AgentModel.AWSS3Drive;
@@ -21,7 +23,9 @@ import com.quemsi.model.dto.agent.UpdateAgentModel;
  * (literals → {@link SecretMask#MASKED}; env-var names kept when {@code useEnvVar}).
  */
 public final class CredentialLogSanitizer {
-    private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final ObjectMapper MAPPER = new ObjectMapper()
+        .registerModule(new JavaTimeModule())
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
 
     private CredentialLogSanitizer() {
     }

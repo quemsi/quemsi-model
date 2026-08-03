@@ -210,7 +210,7 @@ select * from (
 					primaryKeys.size(), DMLServiceSqlserver::quotedTable, DMLServiceSqlserver::quotedColumn);
 				log.info("subset sql for {} :{} keys={}", from, sql, primaryKeys.size());
 				ps = conn.prepareStatement(sql);
-				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable().getPkColumnNames().size(), primaryKeys);
+				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable(), primaryKeys);
 			} else {
 				String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, selectList, sortColumnNames, from);
 				log.info("sql for {} :{} offset :{} count: {}", from, sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
