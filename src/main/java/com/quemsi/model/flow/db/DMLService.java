@@ -1,5 +1,10 @@
 package com.quemsi.model.flow.db;
 
+import java.util.Collection;
+import java.util.List;
+import java.util.Set;
+
+import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
@@ -13,4 +18,29 @@ public interface DMLService extends AutoCloseable{
 	boolean clearTables(String... tableNames);
 	void updateSequence(String qualifiedSequenceName, Long newValue);
 	Long getMaxColumnValue(String tableName, String columnName);
+
+	/** Filtered count for subset drivers. Default: unsupported. */
+	default long countRows(DbTable table, String whereFragment) {
+		throw unsupportedSubset();
+	}
+
+	/** Seed primary keys for a subset driver. Default: unsupported. */
+	default Set<String> selectPrimaryKeys(DbTable table, String whereFragment, Integer limit) {
+		throw unsupportedSubset();
+	}
+
+	/** Parent PK keys referenced by selected child rows via an FK. Default: unsupported. */
+	default Set<String> selectParentPrimaryKeys(DbTable child, DbTable parent,
+			List<String> childFkColumns, List<String> parentRefColumns, Collection<String> childPkKeys) {
+		throw unsupportedSubset();
+	}
+
+	/** Whether this DML service supports subset backups. */
+	default boolean supportsSubset() {
+		return false;
+	}
+
+	private static RuntimeException unsupportedSubset() {
+		return Exceptions.badRequest("subset-not-supported-for-datasource").get();
+	}
 }

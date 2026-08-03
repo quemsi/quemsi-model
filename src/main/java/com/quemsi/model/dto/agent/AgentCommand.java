@@ -5,6 +5,7 @@ import java.io.Serializable;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.quemsi.model.dto.agent.onapi.NotifyError;
+import com.quemsi.model.dto.agent.onapi.PreviewSubsetResult;
 import com.quemsi.model.dto.agent.onapi.RetentionCompleted;
 import com.quemsi.model.dto.agent.onapi.TestAWSS3DriveResult;
 import com.quemsi.model.dto.agent.onapi.TestAzureBlobDriveResult;
@@ -30,6 +31,7 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = RetentionExecute.class, name = "RetentionExecute"),
     @JsonSubTypes.Type(value = VersionDeleteRequest.class, name = "VersionDeleteRequest"),
     @JsonSubTypes.Type(value = TestDatasource.class, name = "TestDatasource"),
+    @JsonSubTypes.Type(value = PreviewSubset.class, name = "PreviewSubset"),
     @JsonSubTypes.Type(value = TestAzureBlobDrive.class, name = "TestAzureBlobDrive"),
     @JsonSubTypes.Type(value = TestAWSS3Drive.class, name = "TestAWSS3Drive"),
     @JsonSubTypes.Type(value = TestFolderAccess.class, name = "TestFolderAccess"),
@@ -39,6 +41,7 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted"),
     @JsonSubTypes.Type(value = VersionDeleted.class, name = "VersionDeleted"),
     @JsonSubTypes.Type(value = TestDatasourceResult.class, name = "TestDatasourceResult"),
+    @JsonSubTypes.Type(value = PreviewSubsetResult.class, name = "PreviewSubsetResult"),
     @JsonSubTypes.Type(value = TestAzureBlobDriveResult.class, name = "TestAzureBlobDriveResult"),
     @JsonSubTypes.Type(value = TestAWSS3DriveResult.class, name = "TestAWSS3DriveResult"),
     @JsonSubTypes.Type(value = TestFolderAccessResult.class, name = "TestFolderAccessResult"),

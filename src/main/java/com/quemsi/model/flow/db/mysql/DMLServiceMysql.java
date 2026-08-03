@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,8 @@ import com.quemsi.model.flow.in.CustomSerializedColumn;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.flow.subset.SqlSubsetSupport;
+import com.quemsi.model.flow.subset.SqlSubsetSupport.LimitStyle;
 import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
@@ -41,6 +44,22 @@ public class DMLServiceMysql implements DMLService{
 	private static final String GET_MAX_COLUMN_VALUE_SQL = "SELECT MAX(`%s`) as max_val FROM %s";
 	
 	private DataSource dataSource;
+
+	private static String quoteTable(DbTable table) {
+		if (!com.quemsi.commons.util.StringUtils.isEmptyOrNull(table.getSchema())) {
+			return "`" + table.getSchema() + "`.`" + table.getName() + "`";
+		}
+		return "`" + table.getName() + "`";
+	}
+
+	private static String quoteColumn(String columnName) {
+		return "`" + columnName + "`";
+	}
+
+	@Override
+	public boolean supportsSubset() {
+		return true;
+	}
 
 	@Override
 	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
@@ -64,6 +83,46 @@ public class DMLServiceMysql implements DMLService{
 		}
 	}
 
+	@Override
+	public long countRows(DbTable table, String whereFragment) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.countRows(conn, table, whereFragment, DMLServiceMysql::quoteTable);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-count-rows")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public Set<String> selectPrimaryKeys(DbTable table, String whereFragment, Integer limit) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.selectPrimaryKeys(conn, table, whereFragment, limit,
+				DMLServiceMysql::quoteTable, DMLServiceMysql::quoteColumn, LimitStyle.MYSQL_LIMIT);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-select-primary-keys")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public Set<String> selectParentPrimaryKeys(DbTable child, DbTable parent,
+			List<String> childFkColumns, List<String> parentRefColumns, Collection<String> childPkKeys) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.selectParentPrimaryKeys(conn, child, parent, childFkColumns, parentRefColumns,
+				childPkKeys, DMLServiceMysql::quoteTable, DMLServiceMysql::quoteColumn);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-select-parent-keys")
+				.withExtra("child", child.qualifiedName())
+				.withExtra("parent", parent.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
@@ -76,11 +135,23 @@ public class DMLServiceMysql implements DMLService{
 					? "NULL"
 					: orderable.stream().map(c -> "`" + c + "`").collect(Collectors.joining(", "));
 			}
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), sortColumnNames);
-			log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
-			PreparedStatement ps = conn.prepareStatement(sql);
-			ps.setInt(1, request.getPageNum() * request.getPageSize());
-			ps.setInt(2, request.getPageSize());
+			PreparedStatement ps;
+			List<String> primaryKeys = request.getPrimaryKeys();
+			if (primaryKeys != null && !primaryKeys.isEmpty()) {
+				String orderBy = request.getTable().getPkColumnNames().stream()
+					.map(c -> "t." + quoteColumn(c)).collect(Collectors.joining(", "));
+				String sql = SqlSubsetSupport.buildKeyedSelectSql(request.getTable(), "t.*", orderBy,
+					primaryKeys.size(), DMLServiceMysql::quoteTable, DMLServiceMysql::quoteColumn);
+				log.info("subset sql for {} :{} keys={}", request.getTable().qualifiedName(), sql, primaryKeys.size());
+				ps = conn.prepareStatement(sql);
+				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable().getPkColumnNames().size(), primaryKeys);
+			} else {
+				String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().getName(), sortColumnNames);
+				log.info("sql for {} :{} offset :{} count: {}", request.getTable().getName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
+				ps = conn.prepareStatement(sql);
+				ps.setInt(1, request.getPageNum() * request.getPageSize());
+				ps.setInt(2, request.getPageSize());
+			}
 			
 			TableDataPage page = new TableDataPage();
 			page.setRequest(request);

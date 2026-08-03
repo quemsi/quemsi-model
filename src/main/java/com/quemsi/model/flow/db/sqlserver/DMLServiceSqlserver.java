@@ -21,6 +21,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +45,8 @@ import com.quemsi.model.flow.in.CustomSerializedColumn;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.flow.subset.SqlSubsetSupport;
+import com.quemsi.model.flow.subset.SqlSubsetSupport.LimitStyle;
 import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
@@ -116,6 +119,11 @@ select * from (
 	}
 
 	@Override
+	public boolean supportsSubset() {
+		return true;
+	}
+
+	@Override
 	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
 		return expectedPageSize != null && expectedPageSize > 0 ? expectedPageSize : 1000;
 	}
@@ -138,6 +146,46 @@ select * from (
 		}
 	}
 
+	@Override
+	public long countRows(DbTable table, String whereFragment) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.countRows(conn, table, whereFragment, DMLServiceSqlserver::quotedTable);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-count-rows")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public Set<String> selectPrimaryKeys(DbTable table, String whereFragment, Integer limit) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.selectPrimaryKeys(conn, table, whereFragment, limit,
+				DMLServiceSqlserver::quotedTable, DMLServiceSqlserver::quotedColumn, LimitStyle.SQLSERVER_TOP);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-select-primary-keys")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public Set<String> selectParentPrimaryKeys(DbTable child, DbTable parent,
+			List<String> childFkColumns, List<String> parentRefColumns, Collection<String> childPkKeys) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.selectParentPrimaryKeys(conn, child, parent, childFkColumns, parentRefColumns,
+				childPkKeys, DMLServiceSqlserver::quotedTable, DMLServiceSqlserver::quotedColumn);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-select-parent-keys")
+				.withExtra("child", child.qualifiedName())
+				.withExtra("parent", parent.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
     @Override
     public TableDataPage getTableDataPage(Request request){
 		try(Connection conn = dataSource.getConnection()){
@@ -153,13 +201,24 @@ select * from (
 				: orderByForTable(request.getTable(), sortColumns);
 			String from = quotedTable(request.getTable());
 			String selectList = selectListForTable(request.getTable());
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, selectList, sortColumnNames, from);
-			log.info("sql for {} :{} offset :{} count: {}", from, sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
-			PreparedStatement ps = conn.prepareStatement(sql);
-			ps.setInt(1, request.getPageNum() * request.getPageSize());
-			ps.setInt(2, request.getPageNum() * request.getPageSize());
-			ps.setInt(3, request.getPageSize());
-			
+			PreparedStatement ps;
+			List<String> primaryKeys = request.getPrimaryKeys();
+			if (primaryKeys != null && !primaryKeys.isEmpty()) {
+				String orderBy = request.getTable().getPkColumnNames().stream()
+					.map(c -> "t." + quotedColumn(c)).collect(Collectors.joining(", "));
+				String sql = SqlSubsetSupport.buildKeyedSelectSql(request.getTable(), selectList, orderBy,
+					primaryKeys.size(), DMLServiceSqlserver::quotedTable, DMLServiceSqlserver::quotedColumn);
+				log.info("subset sql for {} :{} keys={}", from, sql, primaryKeys.size());
+				ps = conn.prepareStatement(sql);
+				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable().getPkColumnNames().size(), primaryKeys);
+			} else {
+				String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, selectList, sortColumnNames, from);
+				log.info("sql for {} :{} offset :{} count: {}", from, sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
+				ps = conn.prepareStatement(sql);
+				ps.setInt(1, request.getPageNum() * request.getPageSize());
+				ps.setInt(2, request.getPageNum() * request.getPageSize());
+				ps.setInt(3, request.getPageSize());
+			}
 			TableDataPage page = new TableDataPage();
 			page.setRequest(request);
 			String pkNames = request.getTable().joinedPkColumnNames();

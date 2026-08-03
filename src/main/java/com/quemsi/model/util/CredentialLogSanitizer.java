@@ -12,6 +12,7 @@ import com.quemsi.model.dto.ClearRedisConfig;
 import com.quemsi.model.dto.agent.TestAWSS3Drive;
 import com.quemsi.model.dto.agent.TestAzureBlobDrive;
 import com.quemsi.model.dto.agent.TestDatasource;
+import com.quemsi.model.dto.agent.PreviewSubset;
 import com.quemsi.model.dto.agent.TestRedis;
 import com.quemsi.model.dto.agent.UpdateAgentModel;
 
@@ -64,6 +65,29 @@ public final class CredentialLogSanitizer {
             .correlationId(source.getCorrelationId())
             .timeoutMilis(source.getTimeoutMilis())
             .datasource(maskedDs)
+            .build();
+    }
+
+    public static PreviewSubset copyMasked(PreviewSubset source) {
+        if (source == null) {
+            return null;
+        }
+        Datasource ds = source.getDatasource();
+        Datasource maskedDs = null;
+        if (ds != null) {
+            try {
+                maskedDs = MAPPER.readValue(MAPPER.writeValueAsBytes(ds), Datasource.class);
+                maskDatasourceInPlace(maskedDs);
+            } catch (IOException e) {
+                throw new IllegalStateException("Failed to copy Datasource for logging", e);
+            }
+        }
+        return PreviewSubset.builder()
+            .agentId(source.getAgentId())
+            .correlationId(source.getCorrelationId())
+            .timeoutMilis(source.getTimeoutMilis())
+            .datasource(maskedDs)
+            .subset(source.getSubset())
             .build();
     }
 

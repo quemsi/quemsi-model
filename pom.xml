@@ -91,6 +91,13 @@
 			<artifactId>jedis</artifactId>
 			<version>5.2.0</version>
 		</dependency>
+		<!-- Keep aligned with Spring Data JPA 3.3.x (4.9). 5.x breaks native-query
+		     enhancement for PostgreSQL :: casts escaped as \\:\\: in quemsi-api repos. -->
+		<dependency>
+			<groupId>com.github.jsqlparser</groupId>
+			<artifactId>jsqlparser</artifactId>
+			<version>4.9</version>
+		</dependency>
 	  <dependency>
 			<groupId>org.projectlombok</groupId>
 			<artifactId>lombok</artifactId>

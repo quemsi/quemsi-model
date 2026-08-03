@@ -16,6 +16,7 @@ import com.quemsi.model.flow.in.RdbmsBackup;
 import com.quemsi.model.flow.in.Source;
 import com.quemsi.model.flow.in.StoredData;
 import com.quemsi.model.flow.out.Storage;
+import com.quemsi.model.flow.subset.SubsetConfig;
 
 import lombok.Getter;
 
@@ -38,6 +39,10 @@ public class SourceFactory extends AbstractFactory<Source>{
 				s.setParallelism(parallelism);
 				s.setDatasource(context.getBean(datasource, DataSourceFactory.class));
 				s.setDataMapper(TableDataObjectMapper.create());
+				JsonNode subsetNode = node.get("subset");
+				if (subsetNode != null && !subsetNode.isNull()) {
+					s.setSubset(objectMapper.convertValue(subsetNode, SubsetConfig.class));
+				}
 				return s;
 			},
 			"StoredData", node -> {

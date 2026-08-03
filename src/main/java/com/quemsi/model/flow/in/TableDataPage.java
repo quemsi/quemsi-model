@@ -1,5 +1,6 @@
 package com.quemsi.model.flow.in;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -27,5 +28,10 @@ public class TableDataPage {
         public int pageNum;
         private DbTable table;
         private int pageSize;
+        /**
+         * When non-null/non-empty, fetch only these primary-key strings (subset export page).
+         * Composite PKs use {@link com.quemsi.model.flow.db.DataSourceFactory#PK_VALUES_SEPERATOR}.
+         */
+        private List<String> primaryKeys;
     }
 }

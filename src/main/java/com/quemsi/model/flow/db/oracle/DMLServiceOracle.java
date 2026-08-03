@@ -13,6 +13,7 @@ import java.sql.Timestamp;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collection;
 import java.util.HashMap;
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -31,6 +32,7 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.sql.DbColumn;
@@ -39,6 +41,8 @@ import com.quemsi.model.flow.in.CustomSerializedColumn;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.flow.subset.SqlSubsetSupport;
+import com.quemsi.model.flow.subset.SqlSubsetSupport.LimitStyle;
 import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
@@ -78,6 +82,25 @@ offset ? rows fetch next ? rows only
 	private DataSource dataSource;
 	private ReentrantLock globalLock;
 
+	static String quotedTable(DbTable table) {
+		if (!StringUtils.isEmptyOrNull(table.getSchema())) {
+			return quoteIdent(table.getSchema()) + "." + quoteIdent(table.getName());
+		}
+		return quoteIdent(table.getName());
+	}
+
+	static String quoteIdent(String identifier) {
+		if (identifier == null) {
+			return null;
+		}
+		return "\"" + identifier.replace("\"", "\"\"") + "\"";
+	}
+
+	@Override
+	public boolean supportsSubset() {
+		return true;
+	}
+
 	@Override
 	public int getTablePageSize(Integer expectedPageSize, DbTable table) {
 		return expectedPageSize != null && expectedPageSize > 0 ? expectedPageSize : 1000;
@@ -101,6 +124,46 @@ offset ? rows fetch next ? rows only
 	}
 
 	@Override
+	public long countRows(DbTable table, String whereFragment) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.countRows(conn, table, whereFragment, DMLServiceOracle::quotedTable);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-count-rows")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public Set<String> selectPrimaryKeys(DbTable table, String whereFragment, Integer limit) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.selectPrimaryKeys(conn, table, whereFragment, limit,
+				DMLServiceOracle::quotedTable, DMLServiceOracle::quoteIdent, LimitStyle.ORACLE_FETCH);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-select-primary-keys")
+				.withExtra("table", table.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public Set<String> selectParentPrimaryKeys(DbTable child, DbTable parent,
+			List<String> childFkColumns, List<String> parentRefColumns, Collection<String> childPkKeys) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.selectParentPrimaryKeys(conn, child, parent, childFkColumns, parentRefColumns,
+				childPkKeys, DMLServiceOracle::quotedTable, DMLServiceOracle::quoteIdent);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-select-parent-keys")
+				.withExtra("child", child.qualifiedName())
+				.withExtra("parent", parent.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
 	public TableDataPage getTableDataPage(Request request) {
 		try (Connection conn = dataSource.getConnection()) {
 			String sortColumnNames;
@@ -112,12 +175,23 @@ offset ? rows fetch next ? rows only
 					? "ROWNUM"
 					: orderable.stream().map(this::quoteIdentifier).collect(Collectors.joining(", "));
 			}
-			String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().qualifiedName(), sortColumnNames);
-			log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
-			PreparedStatement ps = conn.prepareStatement(sql);
-			ps.setInt(1, request.getPageNum() * request.getPageSize());
-			ps.setInt(2, request.getPageSize());
-
+			PreparedStatement ps;
+			List<String> primaryKeys = request.getPrimaryKeys();
+			if (primaryKeys != null && !primaryKeys.isEmpty()) {
+				String orderBy = request.getTable().getPkColumnNames().stream()
+					.map(c -> "t." + quoteIdent(c)).collect(Collectors.joining(", "));
+				String sql = SqlSubsetSupport.buildKeyedSelectSql(request.getTable(), "t.*", orderBy,
+					primaryKeys.size(), DMLServiceOracle::quotedTable, DMLServiceOracle::quoteIdent);
+				log.info("subset sql for {} :{} keys={}", request.getTable().qualifiedName(), sql, primaryKeys.size());
+				ps = conn.prepareStatement(sql);
+				SqlSubsetSupport.bindPkKeys(ps, 1, request.getTable().getPkColumnNames().size(), primaryKeys);
+			} else {
+				String sql = String.format(GET_TABLE_DATA_PAGE_FORMAT, request.getTable().qualifiedName(), sortColumnNames);
+				log.info("sql for {} :{} offset :{} count: {}", request.getTable().qualifiedName(), sql, request.getPageNum() * request.getPageSize(), request.getPageSize());
+				ps = conn.prepareStatement(sql);
+				ps.setInt(1, request.getPageNum() * request.getPageSize());
+				ps.setInt(2, request.getPageSize());
+			}
 			TableDataPage page = new TableDataPage();
 			page.setRequest(request);
 			List<String> pkColumnNames = new ArrayList<>(request.getTable().getPkColumnNames());

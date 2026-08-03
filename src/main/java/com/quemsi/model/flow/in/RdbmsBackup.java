@@ -35,6 +35,9 @@ import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.file.StagingBackupWriter;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.flow.subset.SubsetConfig;
+import com.quemsi.model.flow.subset.SubsetPlan;
+import com.quemsi.model.flow.subset.SubsetPlanner;
 import com.quemsi.model.util.QuemsiTemp;
 
 import lombok.Getter;
@@ -52,6 +55,10 @@ public class RdbmsBackup implements Source {
     private int batchSize = 10_000;
     @Setter
     private int parallelism;
+    @Setter
+    @Getter
+    private SubsetConfig subset;
+    private volatile SubsetPlan activeSubsetPlan;
     private Map<String, ForkJoinTask<Boolean>> taskRegistry = new HashMap<>();
     private AtomicBoolean globalCancellationFlag = new AtomicBoolean(false);
     private AtomicReference<Exception> firstFailure = new AtomicReference<>();
@@ -101,6 +108,28 @@ public class RdbmsBackup implements Source {
             stagingWriter.writeDbModel(dbModelJson);
             context.logStepInfo(context.getCurrentStep(), LogMessage.info("Wrote db-model.json to staging"));
 
+            activeSubsetPlan = null;
+            if (subset != null && subset.isActive()) {
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("Planning subset backup"));
+                try (DMLService dmlService = datasource.dmlService()) {
+                    activeSubsetPlan = new SubsetPlanner().plan(dbModel, dmlService, subset);
+                }
+                for (SubsetPlan.SubsetTableSummary summary : activeSubsetPlan.summaries()) {
+                    context.logStepInfo(context.getCurrentStep(), LogMessage.info(
+                        "subset table {} count={} driver={} requiredByFk={} requiredBy={}",
+                        summary.getTable(), summary.getCount(), summary.getDriverCount(),
+                        summary.getRequiredByFkCount(), summary.getRequiredBy()));
+                }
+                if (context.getTags() != null) {
+                    context.getTags().put("subset", "true");
+                    if (context.getDataVersion() != null) {
+                        context.getDataVersion().setTags(context.getTags().entrySet().stream()
+                            .map(e -> com.quemsi.model.dto.Tag.builder().name(e.getKey()).val(e.getValue()).build())
+                            .toList());
+                    }
+                }
+            }
+
             Set<String> ignoreConstraints = dbModel.getCircularIgnore().stream()
                 .map(ci -> ci.getConstraintName())
                 .collect(Collectors.toSet());
@@ -108,11 +137,12 @@ public class RdbmsBackup implements Source {
             context.logStepInfo(context.getCurrentStep(),
                 LogMessage.info("{} tables will be backed up", tables.size()));
             context.logStepInfo(context.getCurrentStep(),
-                LogMessage.info("backing up with parallelism={} batchSize={} rowBudget={}",
-                    parallelism, batchSize, rowBudget));
+                LogMessage.info("backing up with parallelism={} batchSize={} rowBudget={} subset={}",
+                    parallelism, batchSize, rowBudget, activeSubsetPlan != null));
 
+            final SubsetPlan subsetPlan = activeSubsetPlan;
             List<ForkJoinTask<Boolean>> tasks = tables.stream()
-                .map(table -> new RdmsBackupTask(table, stagingWriter, context, ignoreConstraints))
+                .map(table -> new RdmsBackupTask(table, stagingWriter, context, ignoreConstraints, subsetPlan))
                 .map(t -> {
                     ForkJoinTask<Boolean> task = pool.submit(t);
                     taskRegistry.put(t.getTable().getName(), task);
@@ -157,6 +187,9 @@ public class RdbmsBackup implements Source {
     public void fillDetails(Map<String, Object> steps) {
         steps.put("datasource", this.datasource.getName());
         steps.put("type", RdbmsBackup.class.getSimpleName());
+        if (subset != null) {
+            steps.put("subset", subset);
+        }
     }
 
     public class RdmsBackupTask implements Callable<Boolean> {
@@ -165,13 +198,15 @@ public class RdbmsBackup implements Source {
         private StagingBackupWriter stagingWriter;
         private FlowContext context;
         Set<String> ignoreConstraints;
+        private SubsetPlan subsetPlan;
 
         public RdmsBackupTask(DbTable table, StagingBackupWriter stagingWriter, FlowContext context,
-                Set<String> ignoreConstraints) {
+                Set<String> ignoreConstraints, SubsetPlan subsetPlan) {
             this.table = table;
             this.stagingWriter = stagingWriter;
             this.context = context;
             this.ignoreConstraints = ignoreConstraints;
+            this.subsetPlan = subsetPlan;
         }
 
         @Override
@@ -208,17 +243,31 @@ public class RdbmsBackup implements Source {
 
                 int pageSize;
                 long totalRows;
+                List<String> orderedKeys = null;
                 try (DMLService dmlService = datasource.dmlService()) {
                     pageSize = dmlService.getTablePageSize(batchSize, table);
-                    totalRows = dmlService.countRows(table);
+                    if (subsetPlan != null) {
+                        orderedKeys = new ArrayList<>(subsetPlan.keysFor(table.qualifiedName()));
+                        totalRows = orderedKeys.size();
+                    } else {
+                        totalRows = dmlService.countRows(table);
+                    }
                 }
                 int pages = totalPages(totalRows, pageSize);
                 context.logStepInfo(context.getCurrentStep(),
-                    LogMessage.info("backing up {} with {} pages pageSize={} parallelism={}",
-                        table.getName(), pages, pageSize, parallelism));
+                    LogMessage.info("backing up {} with {} pages pageSize={} parallelism={} subsetRows={}",
+                        table.getName(), pages, pageSize, parallelism, totalRows));
+
+                if (pages == 0) {
+                    stagingWriter.finishTable(table.qualifiedName(), pageSize);
+                    context.logStepInfo(context.getCurrentStep(),
+                        LogMessage.info("{} empty (0 pages)", table.getName()));
+                    return true;
+                }
 
                 AtomicLong seqGenerator = new AtomicLong(1);
                 List<Future<?>> pageFutures = new ArrayList<>(pages);
+                final List<String> keysForPaging = orderedKeys;
                 for (int pageNum = 0; pageNum < pages; pageNum++) {
                     if (globalCancellationFlag.get()) {
                         return false;
@@ -242,13 +291,17 @@ public class RdbmsBackup implements Source {
                             try (DMLService dml = datasource.dmlService()) {
                                 context.logStepInfo(context.getCurrentStep(),
                                     LogMessage.info("page {} of {} fetch+persist start for {}", pn + 1, pages, table.getName()));
-                                Request request = Request.builder()
+                                Request.RequestBuilder reqBuilder = Request.builder()
                                     .table(table)
                                     .pageNum(pn)
                                     .pageSize(pageSize)
-                                    .seqGenerator(seqGenerator)
-                                    .build();
-                                TableDataPage dataPage = dml.getTableDataPage(request);
+                                    .seqGenerator(seqGenerator);
+                                if (keysForPaging != null) {
+                                    int from = pn * pageSize;
+                                    int to = Math.min(from + pageSize, keysForPaging.size());
+                                    reqBuilder.primaryKeys(keysForPaging.subList(from, to));
+                                }
+                                TableDataPage dataPage = dml.getTableDataPage(reqBuilder.build());
                                 stagingWriter.persist(dataPage);
                                 int rowCount = dataPage.getDocuments() != null
                                     ? dataPage.getDocuments().size()
