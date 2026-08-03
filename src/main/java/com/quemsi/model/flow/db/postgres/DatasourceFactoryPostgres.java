@@ -415,26 +415,30 @@ order by table_schema, table_name, trigger_name
     public DbModel getDbModel(Consumer<LogMessage> progress) {
 		long startTime = System.currentTimeMillis();
         DbModel dbModel = new DbModel();
-		dbModel.setSchemas(getSchemas());
 		dbModel.setSourceType(DatasourceType.POSTGRES.name());
-		reportProgress(progress, LogMessage.info("Loading model for schemas: {}", getSchemas()));
 		try(
-			Connection con = getDataSource().getConnection();
-			PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, schemas.size()));
-			PreparedStatement cps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CONSTRAINTS, schemas.size()));
-			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, schemas.size()));
-			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, schemas.size()));
-			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, schemas.size()));
-			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, schemas.size()));
-			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, schemas.size()));
-			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FUNCTIONS, schemas.size()));
-			PreparedStatement eps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ENUM_TYPES, schemas.size()));
-			PreparedStatement dps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_TYPES, schemas.size()));
-			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_COLUMNS, schemas.size()));
-			PreparedStatement tps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TRIGGERS, schemas.size()));
+			Connection con = getDataSource().getConnection()
+		){
+			reportProgress(progress, LogMessage.info("Resolving schemas..."));
+			Set<String> effectiveSchemas = resolveSchemas(con);
+			dbModel.setSchemas(effectiveSchemas);
+			reportProgress(progress, LogMessage.info("Loading model for schemas: {}", effectiveSchemas));
+			try(
+			PreparedStatement ps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_COLUMNS, effectiveSchemas.size()));
+			PreparedStatement cps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CONSTRAINTS, effectiveSchemas.size()));
+			PreparedStatement ist = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_INDEXES, effectiveSchemas.size()));
+			PreparedStatement sst = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_SEQUENCES, effectiveSchemas.size()));
+			PreparedStatement ckps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_CHECK_CONSTRAINTS, effectiveSchemas.size()));
+			PreparedStatement vps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEWS, effectiveSchemas.size()));
+			PreparedStatement vdps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_VIEW_DEPS, effectiveSchemas.size()));
+			PreparedStatement vfps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_FUNCTIONS, effectiveSchemas.size()));
+			PreparedStatement eps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_ENUM_TYPES, effectiveSchemas.size()));
+			PreparedStatement dps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_TYPES, effectiveSchemas.size()));
+			PreparedStatement dcps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_DOMAIN_COLUMNS, effectiveSchemas.size()));
+			PreparedStatement tps = con.prepareStatement(CommonHelpers.addInParameter(SQL_FOR_TRIGGERS, effectiveSchemas.size()));
 		){
 			reportProgress(progress, LogMessage.info("Loading tables and columns..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ps.setString(i, schema)));
 			ResultSet rs = ps.executeQuery();
 			RsHelper rsHelper = new RsHelper(rs);
 			while(rs.next()){
@@ -456,7 +460,7 @@ order by table_schema, table_name, trigger_name
 			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 
 			reportProgress(progress, LogMessage.info("Loading constraints..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> cps.setString(i, schema)));
 			ResultSet crs = cps.executeQuery();
 			Map<String, ReferenceInfo> referenceInfos = new HashMap<>();
 			Map<String, ContraintInfo> contraintInfos = new HashMap<>();
@@ -498,7 +502,7 @@ order by table_schema, table_name, trigger_name
 			dbModel.getReferenceInfos().addAll(referenceInfos.values());
 			dbModel.getContraintInfos().addAll(contraintInfos.values());
 			reportProgress(progress, LogMessage.info("Loading indexes..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ist.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ist.setString(i, schema)));
 			ResultSet irs = ist.executeQuery();
 			IndexInfo cur = null;
 			while (irs.next()) {
@@ -521,7 +525,7 @@ order by table_schema, table_name, trigger_name
 				CommonOps.getOrInit(dbModel.getIndexes(), cur.qualifiedTableName(), HashMap::new).put(cur.getIndexName(), cur);
 			}
 			reportProgress(progress, LogMessage.info("Loading sequences..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> sst.setString(i, schema)));
 			ResultSet srs = sst.executeQuery();
 			rsHelper = new RsHelper(srs);
 			while (srs.next()) {
@@ -542,7 +546,7 @@ order by table_schema, table_name, trigger_name
 				dbModel.getSequences().add(seq);
 			}
 			reportProgress(progress, LogMessage.info("Loading check constraints..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ckps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> ckps.setString(i, schema)));
 			ResultSet ckrs = ckps.executeQuery();
 			while (ckrs.next()) {
 				String schemaName = ckrs.getString("TABLE_SCHEMA");
@@ -558,7 +562,7 @@ order by table_schema, table_name, trigger_name
 				dbModel.getCheckConstraints().add(checkConstraint);
 			}
 			reportProgress(progress, LogMessage.info("Loading enum types..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> eps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> eps.setString(i, schema)));
 			ResultSet ers = eps.executeQuery();
 			Map<String, DbEnumType> enumByName = new HashMap<>();
 			while (ers.next()) {
@@ -580,7 +584,7 @@ order by table_schema, table_name, trigger_name
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} enum types", dbModel.getEnumTypes().size()));
 			reportProgress(progress, LogMessage.info("Loading domain types..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dps.setString(i, schema)));
 			ResultSet drs = dps.executeQuery();
 			while (drs.next()) {
 				String schemaName = drs.getString("SCHEMA_NAME");
@@ -601,7 +605,7 @@ order by table_schema, table_name, trigger_name
 					.build());
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} domain types", dbModel.getDomainTypes().size()));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> dcps.setString(i, schema)));
 			ResultSet dcrs = dcps.executeQuery();
 			while (dcrs.next()) {
 				String schemaName = dcrs.getString("TABLE_SCHEMA");
@@ -622,7 +626,7 @@ order by table_schema, table_name, trigger_name
 			}
 			reportProgress(progress, LogMessage.info("Loading views..."));
 			Map<String, DbView> viewsByName = new HashMap<>();
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vps.setString(i, schema)));
 			ResultSet vrs = vps.executeQuery();
 			while (vrs.next()) {
 				String schemaName = vrs.getString("SCHEMA_NAME");
@@ -637,7 +641,7 @@ order by table_schema, table_name, trigger_name
 				viewsByName.put(view.qualifiedName(), view);
 				dbModel.getViews().add(view);
 			}
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vdps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vdps.setString(i, schema)));
 			ResultSet vdrs = vdps.executeQuery();
 			while (vdrs.next()) {
 				String viewSchema = vdrs.getString("VIEW_SCHEMA");
@@ -654,7 +658,7 @@ order by table_schema, table_name, trigger_name
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} views", dbModel.getViews().size()));
 			reportProgress(progress, LogMessage.info("Loading routines..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vfps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> vfps.setString(i, schema)));
 			ResultSet vfrs = vfps.executeQuery();
 			Set<String> seenFunctions = new HashSet<>();
 			while (vfrs.next()) {
@@ -678,7 +682,7 @@ order by table_schema, table_name, trigger_name
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} routines", dbModel.getFunctions().size()));
 			reportProgress(progress, LogMessage.info("Loading triggers..."));
-			CommonHelpers.consumeIndexed(schemas, 1, Exceptions.wrapBiConsumer((i, schema) -> tps.setString(i, schema)));
+			CommonHelpers.consumeIndexed(effectiveSchemas, 1, Exceptions.wrapBiConsumer((i, schema) -> tps.setString(i, schema)));
 			ResultSet trs = tps.executeQuery();
 			while (trs.next()) {
 				String tableSchema = trs.getString("TABLE_SCHEMA");
@@ -715,11 +719,42 @@ order by table_schema, table_name, trigger_name
 			reportProgress(progress, LogMessage.info("Building model graph..."));
 			dbModel.build();
 			reportProgress(progress, LogMessage.info("Database model ready ({} tables, {} views) in {} secs", dbModel.getTables().size(), dbModel.getViews().size(), Duration.ofMillis(System.currentTimeMillis() - startTime).toString()));
+			}
 		}catch(Exception e){
 			throw Exceptions.server("unable-to-build-dbmodel").withCause(e).get();
 		}
 		return dbModel;
     }
+
+	/**
+	 * Uses configured schemas when present; otherwise defaults to {@code public}
+	 * (or the connection's {@code current_schema}) so empty schema lists never produce {@code IN ()}.
+	 */
+	private Set<String> resolveSchemas(Connection con) throws SQLException {
+		if (schemas != null && !schemas.isEmpty()) {
+			Set<String> normalized = new HashSet<>();
+			for (String s : schemas) {
+				if (s != null && !s.trim().isEmpty()) {
+					normalized.add(s.trim());
+				}
+			}
+			if (!normalized.isEmpty()) {
+				return normalized;
+			}
+		}
+		String currentSchema = null;
+		try (PreparedStatement ps = con.prepareStatement("select current_schema()");
+			 ResultSet rs = ps.executeQuery()) {
+			if (rs.next()) {
+				currentSchema = rs.getString(1);
+			}
+		}
+		if (currentSchema == null || currentSchema.isBlank()) {
+			currentSchema = "public";
+		}
+		log.info("Postgres datasource {} using default schema {}", getName(), currentSchema);
+		return Set.of(currentSchema.trim());
+	}
 
 	private void reportProgress(Consumer<LogMessage> progress, LogMessage message) {
 		if ("WARN".equals(message.getLevel())) {
