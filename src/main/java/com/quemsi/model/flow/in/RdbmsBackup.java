@@ -27,6 +27,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.quemsi.commons.util.BaseRuntimeException;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.LogMessage;
+import com.quemsi.model.dto.DataVersion;
+import com.quemsi.model.dto.Tag;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
@@ -120,15 +122,8 @@ public class RdbmsBackup implements Source {
                         summary.getTable(), summary.getCount(), summary.getDriverCount(),
                         summary.getRequiredByFkCount(), summary.getRequiredBy()));
                 }
-                if (context.getTags() != null) {
-                    context.getTags().put("subset", "true");
-                    if (context.getDataVersion() != null) {
-                        context.getDataVersion().setTags(context.getTags().entrySet().stream()
-                            .map(e -> com.quemsi.model.dto.Tag.builder().name(e.getKey()).val(e.getValue()).build())
-                            .toList());
-                    }
-                }
             }
+            putSubsetTag(context, activeSubsetPlan != null);
 
             Set<String> ignoreConstraints = dbModel.getCircularIgnore().stream()
                 .map(ci -> ci.getConstraintName())
@@ -180,6 +175,18 @@ public class RdbmsBackup implements Source {
                     Thread.currentThread().interrupt();
                 }
             }
+        }
+    }
+
+    private void putSubsetTag(FlowContext context, boolean subsetActive) {
+        if (context.getTags() == null) {
+            return;
+        }
+        context.getTags().put(DataVersion.SUBSET_TAG, subsetActive ? "true" : "false");
+        if (context.getDataVersion() != null) {
+            context.getDataVersion().setTags(context.getTags().entrySet().stream()
+                .map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build())
+                .toList());
         }
     }
 

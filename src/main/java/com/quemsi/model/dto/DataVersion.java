@@ -41,6 +41,8 @@ public class DataVersion extends BaseDto<Long>{
 	private Long companyId;
 	/** Reserved system tag name for {@link #datasourceType} (UI tag filters). */
 	public static final String DB_TAG = "db";
+	/** Reserved system tag name for whether the backup used subsetting (values {@code true}/{@code false}). */
+	public static final String SUBSET_TAG = "subset";
 	public void setFiles(List<DataFile> fs){
 		if(files == null){
 			files = fs;
