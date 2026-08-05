@@ -15,6 +15,7 @@ import com.quemsi.model.dto.FlowExecutionStatus;
 import com.quemsi.model.dto.Tag;
 import com.quemsi.model.flow.file.BackupArchive;
 import com.quemsi.model.flow.process.DbModelProcessor;
+import com.quemsi.model.flow.subset.SubsetSnapshot;
 import com.quemsi.model.util.QuemsiTemp;
 
 import lombok.Data;
@@ -76,6 +77,14 @@ public class FlowContext {
 		dataVersion.setTags(tags.entrySet().stream()
 				.map(e -> Tag.builder().name(e.getKey()).val(e.getValue()).build())
 				.toList());
+	}
+
+	/** Attaches subset definition + planned table counts to the data version for persistence. */
+	public void recordSubsetSnapshot(SubsetSnapshot snapshot) {
+		if (dataVersion == null) {
+			return;
+		}
+		dataVersion.setSubsetSnapshot(snapshot);
 	}
 	
 	public boolean inError() {

@@ -40,6 +40,7 @@ import com.quemsi.model.flow.in.TableDataPage.Request;
 import com.quemsi.model.flow.subset.SubsetConfig;
 import com.quemsi.model.flow.subset.SubsetPlan;
 import com.quemsi.model.flow.subset.SubsetPlanner;
+import com.quemsi.model.flow.subset.SubsetSnapshot;
 import com.quemsi.model.util.QuemsiTemp;
 
 import lombok.Getter;
@@ -122,6 +123,13 @@ public class RdbmsBackup implements Source {
                         summary.getTable(), summary.getCount(), summary.getDriverCount(),
                         summary.getRequiredByFkCount(), summary.getRequiredBy()));
                 }
+                SubsetSnapshot snap = SubsetSnapshot.builder()
+                    .config(subset)
+                    .tables(activeSubsetPlan.summaries())
+                    .build();
+                context.recordSubsetSnapshot(snap);
+                stagingWriter.writeSubsetSnapshot(dataMapper.writeValueAsString(snap));
+                context.logStepInfo(context.getCurrentStep(), LogMessage.info("Wrote subset-snapshot.json to staging"));
             }
             putSubsetTag(context, activeSubsetPlan != null);
 

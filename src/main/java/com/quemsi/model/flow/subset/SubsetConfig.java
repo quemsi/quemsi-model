@@ -1,5 +1,6 @@
 package com.quemsi.model.flow.subset;
 
+import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -12,7 +13,7 @@ import lombok.NoArgsConstructor;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class SubsetConfig {
+public class SubsetConfig implements Serializable{
     public static final int DEFAULT_MAX_ROWS_PER_TABLE = 100_000;
 
     private boolean enabled;

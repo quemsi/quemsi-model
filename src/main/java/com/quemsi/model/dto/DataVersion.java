@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.quemsi.commons.persistence.BaseDto;
+import com.quemsi.model.flow.subset.SubsetSnapshot;
 
 import lombok.Builder;
 import lombok.Data;
@@ -18,7 +19,8 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode(callSuper = true)
 public class DataVersion extends BaseDto<Long>{
 	@Builder
-	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files, LocalDateTime createdAt, String descript, String agentVersion, DatasourceType datasourceType){
+	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files, LocalDateTime createdAt,
+			String descript, String agentVersion, DatasourceType datasourceType, SubsetSnapshot subsetSnapshot){
 		super(id, true);
 		this.data = data;
 		this.tags = tags;
@@ -27,6 +29,7 @@ public class DataVersion extends BaseDto<Long>{
 		this.descript = descript;
 		this.agentVersion = agentVersion;
 		this.datasourceType = datasourceType;
+		this.subsetSnapshot = subsetSnapshot;
 	}
     private NamedEntityReference data;
 	private NamedEntityReference storage;
@@ -38,6 +41,8 @@ public class DataVersion extends BaseDto<Long>{
 	private String agentVersion;
 	/** DB provider that produced this backup (POSTGRES, SQLSERVER, …). */
 	private DatasourceType datasourceType;
+	/** Subset definition + table counts when this backup used subsetting; null otherwise. */
+	private SubsetSnapshot subsetSnapshot;
 	private Long companyId;
 	/** Reserved system tag name for {@link #datasourceType} (UI tag filters). */
 	public static final String DB_TAG = "db";

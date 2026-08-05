@@ -49,6 +49,16 @@ public class StagingBackupWriter {
         }
     }
 
+    public void writeSubsetSnapshot(String json) {
+        try {
+            Files.createDirectories(stagingRoot);
+            Path target = stagingRoot.resolve(CommonConstants.SUBSET_SNAPSHOT_FILE_NAME);
+            Files.writeString(target, json, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw Exceptions.server("unable-to-write-subset-snapshot-staging").withCause(e).get();
+        }
+    }
+
     public void persist(TableDataPage tableDataPage) {
         String qualifiedName = tableDataPage.getRequest().getTable().qualifiedName();
         int pageNum = tableDataPage.getRequest().getPageNum();
