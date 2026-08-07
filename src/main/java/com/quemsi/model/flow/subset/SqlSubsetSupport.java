@@ -245,13 +245,7 @@ public final class SqlSubsetSupport {
             case "REAL", "FLOAT4", "FLOAT", "DOUBLE", "DOUBLE PRECISION", "FLOAT8" -> Double.valueOf(part);
             case "BOOLEAN", "BOOL", "BIT" -> coerceBoolean(part);
             case "UUID", "UNIQUEIDENTIFIER" -> UUID.fromString(part);
-            case "DATE" -> {
-                try {
-                    yield Date.valueOf(LocalDate.parse(part));
-                } catch (Exception e) {
-                    yield Date.valueOf(part);
-                }
-            }
+            case "DATE" -> coerceDate(part);
             case "TIMESTAMP", "TIMESTAMPTZ", "TIMESTAMP WITH TIME ZONE", "TIMESTAMP WITHOUT TIME ZONE",
                     "DATETIME", "DATETIME2", "SMALLDATETIME", "DATETIMEOFFSET" -> coerceTimestamp(part);
             default -> part;
@@ -292,6 +286,34 @@ public final class SqlSubsetSupport {
         return Boolean.valueOf(p);
     }
 
+    /** Parses ISO date or timestamp-like strings (Oracle DATE often round-trips as {@code yyyy-MM-dd HH:mm:ss.S}). */
+    private static Object coerceDate(String part) {
+        String p = part.trim();
+        try {
+            return Date.valueOf(LocalDate.parse(p));
+        } catch (Exception ignored) {
+            // fall through
+        }
+        try {
+            return Date.valueOf(LocalDateTime.parse(p.replace(' ', 'T')).toLocalDate());
+        } catch (Exception ignored) {
+            // fall through
+        }
+        try {
+            return Date.valueOf(Timestamp.valueOf(p.replace('T', ' ')).toLocalDateTime().toLocalDate());
+        } catch (Exception ignored) {
+            // fall through
+        }
+        if (p.length() >= 10 && p.charAt(4) == '-' && p.charAt(7) == '-') {
+            try {
+                return Date.valueOf(p.substring(0, 10));
+            } catch (Exception ignored) {
+                // fall through
+            }
+        }
+        return part;
+    }
+
     private static Object coerceTimestamp(String part) {
         try {
             return Timestamp.valueOf(LocalDateTime.parse(part));
@@ -306,7 +328,11 @@ public final class SqlSubsetSupport {
         try {
             return Timestamp.valueOf(part.replace('T', ' '));
         } catch (Exception e) {
-            return part;
+            try {
+                return new Timestamp(Date.valueOf(LocalDate.parse(part.trim().substring(0, Math.min(10, part.trim().length())))).getTime());
+            } catch (Exception ignored) {
+                return part;
+            }
         }
     }
 
@@ -363,10 +389,41 @@ public final class SqlSubsetSupport {
         if (v instanceof Float f) {
             return BigDecimal.valueOf(f.doubleValue()).stripTrailingZeros().toPlainString();
         }
+        if (v instanceof Date d) {
+            return d.toLocalDate().toString();
+        }
+        if (v instanceof Timestamp ts) {
+            LocalDateTime ldt = ts.toLocalDateTime();
+            if (ldt.getHour() == 0 && ldt.getMinute() == 0 && ldt.getSecond() == 0 && ldt.getNano() == 0) {
+                return ldt.toLocalDate().toString();
+            }
+            return ldt.toString();
+        }
+        if (v instanceof LocalDate ld) {
+            return ld.toString();
+        }
+        if (v instanceof LocalDateTime ldt) {
+            if (ldt.getHour() == 0 && ldt.getMinute() == 0 && ldt.getSecond() == 0 && ldt.getNano() == 0) {
+                return ldt.toLocalDate().toString();
+            }
+            return ldt.toString();
+        }
+        if (v instanceof OffsetDateTime odt) {
+            return odt.toString();
+        }
         if (v instanceof byte[] bytes) {
             return java.util.Base64.getEncoder().encodeToString(bytes);
         }
-        return v.toString();
+        // Oracle JDBC may return oracle.sql.TIMESTAMP / DATE — normalize via toString then date prefix.
+        String asText = v.toString();
+        if (asText != null && asText.length() >= 10 && asText.charAt(4) == '-' && asText.charAt(7) == '-'
+                && (asText.length() == 10 || asText.charAt(10) == ' ' || asText.charAt(10) == 'T')) {
+            String time = asText.length() > 10 ? asText.substring(11) : "";
+            if (time.isEmpty() || time.startsWith("00:00:00")) {
+                return asText.substring(0, 10);
+            }
+        }
+        return asText;
     }
 
     public static String[] splitPkKey(String key, int arity) {

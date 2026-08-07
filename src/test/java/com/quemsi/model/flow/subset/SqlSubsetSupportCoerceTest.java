@@ -53,4 +53,21 @@ class SqlSubsetSupportCoerceTest {
         assertThat(SqlSubsetSupport.coercePkValue("10",
             DbColumn.builder().name("n").dataType("numeric").build()), equalTo(new BigDecimal("10")));
     }
+
+    @Test
+    void dateRoundTripFromTimestampMidnight() {
+        java.sql.Timestamp ts = java.sql.Timestamp.valueOf("2005-01-01 00:00:00.0");
+        String canonical = SqlSubsetSupport.canonicalPkPart(ts);
+        assertThat(canonical, equalTo("2005-01-01"));
+        DbColumn col = DbColumn.builder().name("start_date").dataType("DATE").build();
+        Object coerced = SqlSubsetSupport.coercePkValue(canonical, col);
+        assertThat(coerced, equalTo(java.sql.Date.valueOf("2005-01-01")));
+    }
+
+    @Test
+    void dateCoerceAcceptsOracleTimestampString() {
+        DbColumn col = DbColumn.builder().name("start_date").dataType("DATE").build();
+        Object coerced = SqlSubsetSupport.coercePkValue("2005-01-01 00:00:00.0", col);
+        assertThat(coerced, equalTo(java.sql.Date.valueOf("2005-01-01")));
+    }
 }
