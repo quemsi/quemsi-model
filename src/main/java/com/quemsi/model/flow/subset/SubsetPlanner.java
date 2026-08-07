@@ -75,9 +75,9 @@ public class SubsetPlanner {
                 continue;
             }
             for (ReferenceInfo ref : child.getReferences()) {
-                if (dbModel.getCircularIgnore() != null && dbModel.getCircularIgnore().contains(ref)) {
-                    continue;
-                }
+                // Follow all outbound FKs for parent closure. circularIgnore is for
+                // load/DDL ordering only (e.g. EMP_DEPT_FK vs DEPT_MGR_FK cycle) and must
+                // not omit required parents from the subset.
                 String parentQName = ref.refQualifiedName();
                 Optional<DbTable> parentOpt = dbModel.findTable(parentQName);
                 if (parentOpt.isEmpty()) {

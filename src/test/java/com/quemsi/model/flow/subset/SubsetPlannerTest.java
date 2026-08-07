@@ -121,6 +121,64 @@ class SubsetPlannerTest {
             "EXISTS (SELECT 1 FROM B b JOIN C c ON c.b_id = b.id WHERE b.id = t.b_id)");
     }
 
+    @Test
+    void parentClosureIncludesFkEvenWhenMarkedCircularIgnore() {
+        // Oracle HR-style cycle: DEPARTMENTS.MANAGER_ID → EMPLOYEES and EMPLOYEES.DEPARTMENT_ID → DEPARTMENTS.
+        // Load order puts EMP_DEPT_FK into circularIgnore, but subset parent closure must still follow it.
+        DbModel hr = new DbModel();
+        DbTable employees = hr.addTable("EMPLOYEES", "HR");
+        employees.getPkColumnNames().add("EMPLOYEE_ID");
+        employees.addColumn(col("EMPLOYEE_ID", 1));
+        employees.addColumn(col("DEPARTMENT_ID", 2));
+        employees.addColumn(col("JOB_ID", 3));
+        DbTable departments = hr.addTable("DEPARTMENTS", "HR");
+        departments.getPkColumnNames().add("DEPARTMENT_ID");
+        departments.addColumn(col("DEPARTMENT_ID", 1));
+        departments.addColumn(col("MANAGER_ID", 2));
+        DbTable jobs = hr.addTable("JOBS", "HR");
+        jobs.getPkColumnNames().add("JOB_ID");
+        jobs.addColumn(col("JOB_ID", 1));
+
+        ReferenceInfo deptMgr = ReferenceInfo.builder()
+            .constraintName("DEPT_MGR_FK")
+            .srcSchema("HR").srcTableName("DEPARTMENTS").srcColumnName("MANAGER_ID")
+            .refSchema("HR").refTableName("EMPLOYEES").refColumnName("EMPLOYEE_ID")
+            .build();
+        ReferenceInfo empDept = ReferenceInfo.builder()
+            .constraintName("EMP_DEPT_FK")
+            .srcSchema("HR").srcTableName("EMPLOYEES").srcColumnName("DEPARTMENT_ID")
+            .refSchema("HR").refTableName("DEPARTMENTS").refColumnName("DEPARTMENT_ID")
+            .build();
+        ReferenceInfo empJob = ReferenceInfo.builder()
+            .constraintName("EMP_JOB_FK")
+            .srcSchema("HR").srcTableName("EMPLOYEES").srcColumnName("JOB_ID")
+            .refSchema("HR").refTableName("JOBS").refColumnName("JOB_ID")
+            .build();
+        hr.setReferenceInfos(List.of(deptMgr, empDept, empJob));
+        hr.build();
+        assertThat(hr.getCircularIgnore().stream().anyMatch(r -> "EMP_DEPT_FK".equals(r.getConstraintName())),
+            equalTo(true));
+
+        FakeDml hrDml = new FakeDml();
+        hrDml.whereToSeedKey.put("t.EMPLOYEE_ID = 100", "emp-seed");
+        hrDml.seedKeys.put("emp-seed", Set.of("100"));
+        hrDml.parentByChild.put("EMPLOYEES|DEPARTMENTS", Map.of("100", Set.of("90")));
+        hrDml.parentByChild.put("EMPLOYEES|JOBS", Map.of("100", Set.of("AD_PRES")));
+        hrDml.parentByChild.put("DEPARTMENTS|EMPLOYEES", Map.of("90", Set.of("100")));
+
+        SubsetConfig config = SubsetConfig.builder()
+            .enabled(true)
+            .drivers(List.of(SubsetDriver.builder().table("HR.EMPLOYEES").where("t.EMPLOYEE_ID = 100").build()))
+            .build();
+
+        SubsetPlan plan = new SubsetPlanner().plan(hr, hrDml, config);
+
+        assertThat(plan.keysFor("HR.EMPLOYEES"), containsInAnyOrder("100"));
+        assertThat(plan.keysFor("HR.DEPARTMENTS"), containsInAnyOrder("90"));
+        assertThat(plan.keysFor("HR.JOBS"), containsInAnyOrder("AD_PRES"));
+        assertThat(plan.getProvenanceByTable().get("HR.DEPARTMENTS").getRequiredByTables(), hasItem("HR.EMPLOYEES"));
+    }
+
     static class FakeDml implements DMLService {
         Map<String, String> whereToSeedKey = new HashMap<>();
         Map<String, Set<String>> seedKeys = new HashMap<>();
