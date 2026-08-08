@@ -29,12 +29,18 @@ public final class QuemsiTemp {
     }
 
     public static Path createStagingDir(String purpose) {
+        Path base = baseDir();
         try {
-            Path base = baseDir();
             Files.createDirectories(base);
             return Files.createTempDirectory(base, purpose + "-");
         } catch (IOException e) {
-            throw Exceptions.server("unable-to-create-staging-dir").withExtra("purpose", purpose).withCause(e).get();
+            throw Exceptions.server("unable-to-create-staging-dir")
+                .withExtra("purpose", purpose)
+                .withExtra("baseDir", base.toString())
+                .withExtra("prop", System.getProperty(PROP))
+                .withExtra("env", System.getenv("QUEMSI_TEMP_DIR"))
+                .withCause(e)
+                .get();
         }
     }
 
