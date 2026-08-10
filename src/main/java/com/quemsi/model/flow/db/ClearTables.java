@@ -7,6 +7,7 @@ import java.util.Map;
 
 import com.quemsi.commons.util.CommonOps;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.FlowContext;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -33,7 +34,19 @@ public class ClearTables extends AbstractStep {
             DbModel dbModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
             if(all){
                 tables = CommonOps.reverse(dbModel.orderedTableNames());
-            }
+            } else if (tables != null && !tables.isEmpty()) {
+				LinkedList<String> existing = new LinkedList<>();
+				for (String tableName : tables) {
+					if (dbModel.findTable(tableName).isPresent()) {
+						existing.add(tableName);
+					} else {
+						log.warn("ClearTables: skipping missing table {}", tableName);
+						context.logStepInfo(context.getCurrentStep(),
+								LogMessage.warn("Skipping missing table {}", tableName));
+					}
+				}
+				tables = existing;
+			}
             if(tables != null && !tables.isEmpty()){
                 if(dbModel.getCircularIgnore() != null && !dbModel.getCircularIgnore().isEmpty()){
 					ddlService.disableConstraints(dbModel.getCircularIgnore());
