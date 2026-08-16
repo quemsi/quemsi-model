@@ -477,4 +477,159 @@ public final class SqlSubsetSupport {
         sql.append(" ORDER BY ").append(orderBy);
         return sql.toString();
     }
+
+    public static final int BROWSE_DEFAULT_LIMIT = 50;
+    public static final int BROWSE_MAX_LIMIT = 200;
+    /** Non-PK display columns included in browse grid. */
+    public static final int BROWSE_EXTRA_COLUMNS = 8;
+
+    public static int normalizeBrowseLimit(Integer limit) {
+        if (limit == null || limit <= 0) {
+            return BROWSE_DEFAULT_LIMIT;
+        }
+        return Math.min(limit, BROWSE_MAX_LIMIT);
+    }
+
+    /**
+     * Sample rows for the subset builder grid. PK columns first, then up to
+     * {@link #BROWSE_EXTRA_COLUMNS} other columns. Empty/null where = no filter.
+     */
+    public static SubsetBrowseResult browseRows(Connection conn, DbTable table, String whereFragment, Integer limit,
+            TableQuoter tableQuoter, ColumnQuoter columnQuoter, LimitStyle limitStyle) throws SQLException {
+        requirePrimaryKey(table);
+        if (!StringUtils.isEmptyOrNull(whereFragment)) {
+            SubsetPredicateValidator.validate(whereFragment);
+        }
+        int rowLimit = normalizeBrowseLimit(limit);
+        List<String> pkCols = table.getPkColumnNames();
+        List<String> displayCols = new ArrayList<>(pkCols);
+        for (DbColumn col : table.orderedColumns()) {
+            if (col == null || col.getName() == null) {
+                continue;
+            }
+            if (pkCols.contains(col.getName())) {
+                continue;
+            }
+            displayCols.add(col.getName());
+            if (displayCols.size() >= pkCols.size() + BROWSE_EXTRA_COLUMNS) {
+                break;
+            }
+        }
+        String selectList = displayCols.stream()
+            .map(c -> SubsetPredicateValidator.TABLE_ALIAS + "." + columnQuoter.quote(c))
+            .collect(Collectors.joining(", "));
+        String orderBy = pkCols.stream()
+            .map(c -> SubsetPredicateValidator.TABLE_ALIAS + "." + columnQuoter.quote(c))
+            .collect(Collectors.joining(", "));
+        String from = tableQuoter.quote(table) + " " + SubsetPredicateValidator.TABLE_ALIAS;
+        String where = whereClause(whereFragment);
+        String sql = buildSelectPkSql(selectList, from, where, orderBy, rowLimit, limitStyle);
+
+        List<SubsetBrowseResult.BrowseRow> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                String pkKey = readPkKey(rs, pkCols);
+                List<String> values = new ArrayList<>(displayCols.size());
+                for (int i = 0; i < displayCols.size(); i++) {
+                    Object v = rs.getObject(i + 1);
+                    values.add(v == null ? "" : canonicalPkPart(v));
+                }
+                rows.add(SubsetBrowseResult.BrowseRow.builder().pkKey(pkKey).values(values).build());
+            }
+        }
+        return SubsetBrowseResult.builder().columns(displayCols).rows(rows).build();
+    }
+
+    /**
+     * Builds a validated WHERE fragment for selected primary keys (alias {@code t}).
+     * Single-column PK uses {@code IN (...)}; composite uses OR of AND equalities.
+     */
+    public static String buildPkInPredicate(DbTable table, Collection<String> selectedKeys) {
+        requirePrimaryKey(table);
+        if (selectedKeys == null || selectedKeys.isEmpty()) {
+            throw Exceptions.badRequest("subset-pk-selection-required")
+                .withExtra("table", table.qualifiedName())
+                .get();
+        }
+        List<String> pkCols = table.getPkColumnNames();
+        String alias = SubsetPredicateValidator.TABLE_ALIAS;
+        StringBuilder sb = new StringBuilder();
+        if (pkCols.size() == 1) {
+            DbColumn column = table.column(pkCols.get(0));
+            sb.append(alias).append('.').append(pkCols.get(0)).append(" IN (");
+            boolean first = true;
+            for (String key : selectedKeys) {
+                if (key == null) {
+                    continue;
+                }
+                if (!first) {
+                    sb.append(", ");
+                }
+                first = false;
+                sb.append(sqlLiteral(key, column));
+            }
+            sb.append(')');
+        } else {
+            boolean firstKey = true;
+            for (String key : selectedKeys) {
+                if (key == null) {
+                    continue;
+                }
+                if (!firstKey) {
+                    sb.append(" OR ");
+                }
+                firstKey = false;
+                String[] parts = splitPkKey(key, pkCols.size());
+                sb.append('(');
+                for (int c = 0; c < pkCols.size(); c++) {
+                    if (c > 0) {
+                        sb.append(" AND ");
+                    }
+                    DbColumn column = table.column(pkCols.get(c));
+                    sb.append(alias).append('.').append(pkCols.get(c)).append(" = ")
+                        .append(sqlLiteral(parts[c], column));
+                }
+                sb.append(')');
+            }
+        }
+        String predicate = sb.toString();
+        if (predicate.isBlank()) {
+            throw Exceptions.badRequest("subset-pk-selection-required")
+                .withExtra("table", table.qualifiedName())
+                .get();
+        }
+        SubsetPredicateValidator.validate(predicate);
+        return predicate;
+    }
+
+    static String sqlLiteral(String canonicalPart, DbColumn column) {
+        Object typed = coercePkValue(canonicalPart, column);
+        if (typed == null) {
+            return "NULL";
+        }
+        if (typed instanceof Number || typed instanceof Boolean) {
+            return typed.toString();
+        }
+        if (typed instanceof UUID uuid) {
+            return "'" + uuid + "'";
+        }
+        if (typed instanceof Date d) {
+            return "'" + d.toLocalDate() + "'";
+        }
+        if (typed instanceof Timestamp ts) {
+            return "'" + ts.toLocalDateTime() + "'";
+        }
+        if (typed instanceof LocalDate ld) {
+            return "'" + ld + "'";
+        }
+        if (typed instanceof LocalDateTime ldt) {
+            return "'" + ldt + "'";
+        }
+        if (typed instanceof OffsetDateTime odt) {
+            return "'" + odt + "'";
+        }
+        String text = typed.toString();
+        return "'" + text.replace("'", "''") + "'";
+    }
 }

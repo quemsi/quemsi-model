@@ -8,6 +8,7 @@ import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
+import com.quemsi.model.flow.subset.SubsetBrowseResult;
 
 public interface DMLService extends AutoCloseable{
     int getTablePageSize(Integer expectedPageSize, DbTable table);
@@ -32,6 +33,11 @@ public interface DMLService extends AutoCloseable{
 	/** Parent PK keys referenced by selected child rows via an FK. Default: unsupported. */
 	default Set<String> selectParentPrimaryKeys(DbTable child, DbTable parent,
 			List<String> childFkColumns, List<String> parentRefColumns, Collection<String> childPkKeys) {
+		throw unsupportedSubset();
+	}
+
+	/** Sample rows for subset builder browse grid. Default: unsupported. */
+	default SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer limit) {
 		throw unsupportedSubset();
 	}
 

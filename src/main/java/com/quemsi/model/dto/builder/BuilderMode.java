@@ -4,5 +4,6 @@ public enum BuilderMode {
     CLEAR_TABLES,
     DROP_TABLES,
     MASK_COLUMNS,
-    UPDATE_SEQUENCES
+    UPDATE_SEQUENCES,
+    SUBSET
 }

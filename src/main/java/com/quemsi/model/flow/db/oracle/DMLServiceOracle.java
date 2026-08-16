@@ -43,6 +43,7 @@ import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
 import com.quemsi.model.flow.subset.SqlSubsetSupport;
 import com.quemsi.model.flow.subset.SqlSubsetSupport.LimitStyle;
+import com.quemsi.model.flow.subset.SubsetBrowseResult;
 import com.quemsi.model.util.CommonHelpers;
 
 import lombok.AllArgsConstructor;
@@ -158,6 +159,19 @@ offset ? rows fetch next ? rows only
 			throw Exceptions.server("unable-to-select-parent-keys")
 				.withExtra("child", child.qualifiedName())
 				.withExtra("parent", parent.qualifiedName())
+				.withCause(e)
+				.get();
+		}
+	}
+
+	@Override
+	public SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer limit) {
+		try (Connection conn = dataSource.getConnection()) {
+			return SqlSubsetSupport.browseRows(conn, table, whereFragment, limit,
+				DMLServiceOracle::quotedTable, DMLServiceOracle::quoteIdent, LimitStyle.ORACLE_FETCH);
+		} catch (SQLException e) {
+			throw Exceptions.server("unable-to-browse-rows")
+				.withExtra("table", table.qualifiedName())
 				.withCause(e)
 				.get();
 		}
