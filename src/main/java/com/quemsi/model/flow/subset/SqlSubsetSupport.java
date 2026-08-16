@@ -99,18 +99,19 @@ public final class SqlSubsetSupport {
 
     private static String buildSelectPkSql(String pkSelect, String from, String where, String orderBy,
             Integer limit, LimitStyle limitStyle) {
+        return buildPagedSelectSql(pkSelect, from, where, orderBy, limit, 0, limitStyle);
+    }
+
+    private static String buildPagedSelectSql(String selectList, String from, String where, String orderBy,
+            Integer limit, int offset, LimitStyle limitStyle) {
+        String base = "SELECT " + selectList + " FROM " + from + where + " ORDER BY " + orderBy;
         if (limit == null || limit <= 0) {
-            return "SELECT " + pkSelect + " FROM " + from + where + " ORDER BY " + orderBy;
+            return base;
         }
+        int off = Math.max(0, offset);
         return switch (limitStyle) {
-            case MYSQL_LIMIT -> "SELECT " + pkSelect + " FROM " + from + where + " ORDER BY " + orderBy
-                + " LIMIT " + limit;
-            case POSTGRES_LIMIT -> "SELECT " + pkSelect + " FROM " + from + where + " ORDER BY " + orderBy
-                + " LIMIT " + limit;
-            case SQLSERVER_TOP -> "SELECT TOP (" + limit + ") " + pkSelect + " FROM " + from + where
-                + " ORDER BY " + orderBy;
-            case ORACLE_FETCH -> "SELECT " + pkSelect + " FROM " + from + where + " ORDER BY " + orderBy
-                + " FETCH FIRST " + limit + " ROWS ONLY";
+            case MYSQL_LIMIT, POSTGRES_LIMIT -> base + " LIMIT " + limit + " OFFSET " + off;
+            case SQLSERVER_TOP, ORACLE_FETCH -> base + " OFFSET " + off + " ROWS FETCH NEXT " + limit + " ROWS ONLY";
         };
     }
 
@@ -490,17 +491,28 @@ public final class SqlSubsetSupport {
         return Math.min(limit, BROWSE_MAX_LIMIT);
     }
 
+    public static int normalizeBrowsePage(Integer page) {
+        if (page == null || page < 0) {
+            return 0;
+        }
+        return page;
+    }
+
     /**
      * Sample rows for the subset builder grid. PK columns first, then up to
      * {@link #BROWSE_EXTRA_COLUMNS} other columns. Empty/null where = no filter.
+     * {@code page} is 0-based; {@code pageSize} is the browse page size (not driver seed limit).
      */
-    public static SubsetBrowseResult browseRows(Connection conn, DbTable table, String whereFragment, Integer limit,
-            TableQuoter tableQuoter, ColumnQuoter columnQuoter, LimitStyle limitStyle) throws SQLException {
+    public static SubsetBrowseResult browseRows(Connection conn, DbTable table, String whereFragment,
+            Integer pageSize, Integer page, TableQuoter tableQuoter, ColumnQuoter columnQuoter, LimitStyle limitStyle)
+            throws SQLException {
         requirePrimaryKey(table);
         if (!StringUtils.isEmptyOrNull(whereFragment)) {
             SubsetPredicateValidator.validate(whereFragment);
         }
-        int rowLimit = normalizeBrowseLimit(limit);
+        int size = normalizeBrowseLimit(pageSize);
+        int pageNum = normalizeBrowsePage(page);
+        long total = countRows(conn, table, whereFragment, tableQuoter);
         List<String> pkCols = table.getPkColumnNames();
         List<String> displayCols = new ArrayList<>(pkCols);
         for (DbColumn col : table.orderedColumns()) {
@@ -523,7 +535,8 @@ public final class SqlSubsetSupport {
             .collect(Collectors.joining(", "));
         String from = tableQuoter.quote(table) + " " + SubsetPredicateValidator.TABLE_ALIAS;
         String where = whereClause(whereFragment);
-        String sql = buildSelectPkSql(selectList, from, where, orderBy, rowLimit, limitStyle);
+        int offset = pageNum * size;
+        String sql = buildPagedSelectSql(selectList, from, where, orderBy, size, offset, limitStyle);
 
         List<SubsetBrowseResult.BrowseRow> rows = new ArrayList<>();
         try (PreparedStatement ps = conn.prepareStatement(sql);
@@ -538,7 +551,13 @@ public final class SqlSubsetSupport {
                 rows.add(SubsetBrowseResult.BrowseRow.builder().pkKey(pkKey).values(values).build());
             }
         }
-        return SubsetBrowseResult.builder().columns(displayCols).rows(rows).build();
+        return SubsetBrowseResult.builder()
+            .columns(displayCols)
+            .rows(rows)
+            .totalCount(total)
+            .page(pageNum)
+            .pageSize(size)
+            .build();
     }
 
     /**

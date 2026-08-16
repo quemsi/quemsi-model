@@ -125,9 +125,9 @@ public class DMLServiceMysql implements DMLService{
 	}
 
 	@Override
-	public SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer limit) {
+	public SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer pageSize, Integer page) {
 		try (Connection conn = dataSource.getConnection()) {
-			return SqlSubsetSupport.browseRows(conn, table, whereFragment, limit,
+			return SqlSubsetSupport.browseRows(conn, table, whereFragment, pageSize, page,
 				DMLServiceMysql::quoteTable, DMLServiceMysql::quoteColumn, LimitStyle.MYSQL_LIMIT);
 		} catch (SQLException e) {
 			throw Exceptions.server("unable-to-browse-rows")

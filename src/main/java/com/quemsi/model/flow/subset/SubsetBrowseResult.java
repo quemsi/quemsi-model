@@ -18,6 +18,11 @@ public class SubsetBrowseResult implements Serializable {
     private List<String> columns = new ArrayList<>();
     @Builder.Default
     private List<BrowseRow> rows = new ArrayList<>();
+    /** Total matching rows (for pager). */
+    private long totalCount;
+    /** 0-based page index. */
+    private int page;
+    private int pageSize;
 
     @Data
     @Builder

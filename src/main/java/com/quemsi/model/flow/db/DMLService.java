@@ -36,8 +36,8 @@ public interface DMLService extends AutoCloseable{
 		throw unsupportedSubset();
 	}
 
-	/** Sample rows for subset builder browse grid. Default: unsupported. */
-	default SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer limit) {
+	/** Sample rows for subset builder browse grid. {@code page} is 0-based. Default: unsupported. */
+	default SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer pageSize, Integer page) {
 		throw unsupportedSubset();
 	}
 
