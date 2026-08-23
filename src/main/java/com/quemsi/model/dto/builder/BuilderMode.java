@@ -5,5 +5,7 @@ public enum BuilderMode {
     DROP_TABLES,
     MASK_COLUMNS,
     UPDATE_SEQUENCES,
-    SUBSET
+    SUBSET,
+    /** Read-only schema / sample-row peek on the agent (no result_config). */
+    BROWSE
 }
