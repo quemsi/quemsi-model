@@ -502,11 +502,14 @@ public final class SqlSubsetSupport {
      * Sample rows for the subset builder grid. PK columns first, then up to
      * {@link #BROWSE_EXTRA_COLUMNS} other columns. Empty/null where = no filter.
      * {@code page} is 0-based; {@code pageSize} is the browse page size (not driver seed limit).
+     * Relations without a primary key (e.g. views) use {@code SELECT *} ordered by column 1.
      */
     public static SubsetBrowseResult browseRows(Connection conn, DbTable table, String whereFragment,
             Integer pageSize, Integer page, TableQuoter tableQuoter, ColumnQuoter columnQuoter, LimitStyle limitStyle)
             throws SQLException {
-        requirePrimaryKey(table);
+        if (CommonHelpers.isEmptyOrNull(table.getPkColumnNames())) {
+            return browseRowsNoPrimaryKey(conn, table, whereFragment, pageSize, page, tableQuoter, limitStyle);
+        }
         if (!StringUtils.isEmptyOrNull(whereFragment)) {
             SubsetPredicateValidator.validate(whereFragment);
         }
@@ -549,6 +552,60 @@ public final class SqlSubsetSupport {
                     values.add(v == null ? "" : canonicalPkPart(v));
                 }
                 rows.add(SubsetBrowseResult.BrowseRow.builder().pkKey(pkKey).values(values).build());
+            }
+        }
+        return SubsetBrowseResult.builder()
+            .columns(displayCols)
+            .rows(rows)
+            .totalCount(total)
+            .page(pageNum)
+            .pageSize(size)
+            .build();
+    }
+
+    /**
+     * Sample rows for views / tables without a modeled primary key.
+     * Uses {@code SELECT t.* … ORDER BY 1} so OFFSET/FETCH works on SQL Server and Oracle.
+     */
+    public static SubsetBrowseResult browseRowsNoPrimaryKey(Connection conn, DbTable table, String whereFragment,
+            Integer pageSize, Integer page, TableQuoter tableQuoter, LimitStyle limitStyle) throws SQLException {
+        if (!StringUtils.isEmptyOrNull(whereFragment)) {
+            SubsetPredicateValidator.validate(whereFragment);
+        }
+        int size = normalizeBrowseLimit(pageSize);
+        int pageNum = normalizeBrowsePage(page);
+        long total = countRows(conn, table, whereFragment, tableQuoter);
+        String from = tableQuoter.quote(table) + " " + SubsetPredicateValidator.TABLE_ALIAS;
+        String where = whereClause(whereFragment);
+        int offset = pageNum * size;
+        String selectList = SubsetPredicateValidator.TABLE_ALIAS + ".*";
+        String sql = buildPagedSelectSql(selectList, from, where, "1", size, offset, limitStyle);
+
+        List<String> displayCols = new ArrayList<>();
+        List<SubsetBrowseResult.BrowseRow> rows = new ArrayList<>();
+        try (PreparedStatement ps = conn.prepareStatement(sql);
+             ResultSet rs = ps.executeQuery()) {
+            int colCount = rs.getMetaData().getColumnCount();
+            int take = Math.min(colCount, 1 + BROWSE_EXTRA_COLUMNS);
+            for (int i = 1; i <= take; i++) {
+                String label = rs.getMetaData().getColumnLabel(i);
+                if (label == null || label.isBlank()) {
+                    label = rs.getMetaData().getColumnName(i);
+                }
+                displayCols.add(label != null ? label : ("col" + i));
+            }
+            int rowIndex = 0;
+            while (rs.next()) {
+                List<String> values = new ArrayList<>(take);
+                for (int i = 1; i <= take; i++) {
+                    Object v = rs.getObject(i);
+                    values.add(v == null ? "" : canonicalPkPart(v));
+                }
+                rows.add(SubsetBrowseResult.BrowseRow.builder()
+                    .pkKey(String.valueOf(offset + rowIndex))
+                    .values(values)
+                    .build());
+                rowIndex++;
             }
         }
         return SubsetBrowseResult.builder()
