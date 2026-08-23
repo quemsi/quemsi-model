@@ -2,6 +2,7 @@ package com.quemsi.model.flow.db.mongodb;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -13,11 +14,15 @@ import com.mongodb.client.MongoDatabase;
 import com.mongodb.client.model.InsertManyOptions;
 import com.mongodb.client.model.Sorts;
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DMLService;
+import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
 import com.quemsi.model.flow.in.TableDataPage.Request;
+import com.quemsi.model.flow.subset.SqlSubsetSupport;
+import com.quemsi.model.flow.subset.SubsetBrowseResult;
 
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
@@ -140,6 +145,123 @@ public class DMLServiceMongo implements DMLService {
     @Override
     public Long getMaxColumnValue(String tableName, String columnName) {
         return null;
+    }
+
+    @Override
+    public SubsetBrowseResult browseRows(DbTable table, String whereFragment, Integer pageSize, Integer page) {
+        try {
+            int size = SqlSubsetSupport.normalizeBrowseLimit(pageSize);
+            int pageNum = SqlSubsetSupport.normalizeBrowsePage(page);
+            Document filter = parseBrowseFilter(whereFragment);
+            MongoCollection<Document> col = collection(table);
+            long total = col.countDocuments(filter);
+            FindIterable<Document> find = col.find(filter)
+                    .sort(Sorts.ascending("_id"))
+                    .skip(pageNum * size)
+                    .limit(size);
+
+            List<Document> docs = new ArrayList<>();
+            for (Document doc : find) {
+                docs.add(doc);
+            }
+
+            List<String> displayCols = buildBrowseColumns(table, docs);
+            List<SubsetBrowseResult.BrowseRow> rows = new ArrayList<>(docs.size());
+            for (Document doc : docs) {
+                Object idObj = MongoTypeMapper.idKey(doc.get("_id"));
+                String pkKey = idObj == null ? "" : String.valueOf(idObj);
+                List<String> values = new ArrayList<>(displayCols.size());
+                for (String colName : displayCols) {
+                    values.add(displayCell(doc.get(colName)));
+                }
+                rows.add(SubsetBrowseResult.BrowseRow.builder().pkKey(pkKey).values(values).build());
+            }
+            return SubsetBrowseResult.builder()
+                    .columns(displayCols)
+                    .rows(rows)
+                    .totalCount(total)
+                    .page(pageNum)
+                    .pageSize(size)
+                    .build();
+        } catch (com.quemsi.commons.util.BaseRuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw Exceptions.server("unable-to-browse-rows")
+                    .withExtra("table", table != null ? table.qualifiedName() : null)
+                    .withCause(e)
+                    .get();
+        }
+    }
+
+    /**
+     * Empty filter = all documents. Non-empty must be a MongoDB JSON query document, e.g. {@code {"status":"A"}}.
+     */
+    private static Document parseBrowseFilter(String whereFragment) {
+        if (StringUtils.isEmptyOrNull(whereFragment)) {
+            return new Document();
+        }
+        String trimmed = whereFragment.trim();
+        if (!trimmed.startsWith("{")) {
+            throw Exceptions.badRequest("mongo-browse-filter-must-be-json")
+                    .withExtra("hint", "Use a MongoDB filter document, e.g. {\"status\":\"ACTIVE\"}")
+                    .get();
+        }
+        try {
+            return Document.parse(trimmed);
+        } catch (Exception e) {
+            throw Exceptions.badRequest("mongo-browse-filter-invalid")
+                    .withExtra("hint", "Use a MongoDB filter document, e.g. {\"status\":\"ACTIVE\"}")
+                    .withCause(e)
+                    .get();
+        }
+    }
+
+    private static List<String> buildBrowseColumns(DbTable table, List<Document> docs) {
+        LinkedHashSet<String> cols = new LinkedHashSet<>();
+        cols.add("_id");
+        if (table != null) {
+            for (DbColumn col : table.orderedColumns()) {
+                if (col != null && col.getName() != null && !"_id".equals(col.getName())) {
+                    cols.add(col.getName());
+                }
+                if (cols.size() >= 1 + SqlSubsetSupport.BROWSE_EXTRA_COLUMNS) {
+                    break;
+                }
+            }
+        }
+        if (cols.size() < 1 + SqlSubsetSupport.BROWSE_EXTRA_COLUMNS) {
+            for (Document doc : docs) {
+                if (doc == null) {
+                    continue;
+                }
+                for (String key : doc.keySet()) {
+                    if (key != null && !key.isBlank()) {
+                        cols.add(key);
+                    }
+                    if (cols.size() >= 1 + SqlSubsetSupport.BROWSE_EXTRA_COLUMNS) {
+                        break;
+                    }
+                }
+                if (cols.size() >= 1 + SqlSubsetSupport.BROWSE_EXTRA_COLUMNS) {
+                    break;
+                }
+            }
+        }
+        return new ArrayList<>(cols);
+    }
+
+    private static String displayCell(Object value) {
+        if (value == null) {
+            return "";
+        }
+        if (value instanceof org.bson.types.ObjectId oid) {
+            return oid.toHexString();
+        }
+        if (value instanceof Document doc) {
+            return doc.toJson();
+        }
+        Object jsonish = MongoTypeMapper.toJsonValue(value);
+        return jsonish == null ? "" : String.valueOf(jsonish);
     }
 
     @Override
