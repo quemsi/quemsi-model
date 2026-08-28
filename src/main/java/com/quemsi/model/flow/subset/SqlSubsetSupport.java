@@ -377,7 +377,7 @@ public final class SqlSubsetSupport {
     }
 
     /** Stable string form for set membership; must round-trip via {@link #coercePkValue}. */
-    static String canonicalPkPart(Object v) {
+    public static String canonicalPkPart(Object v) {
         if (v == null) {
             return "";
         }

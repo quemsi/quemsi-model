@@ -13,6 +13,7 @@ import com.quemsi.commons.util.FileNameUtil;
 import com.quemsi.commons.util.JsonUtils;
 import com.quemsi.model.dto.MaskColumn;
 import com.quemsi.model.dto.UpdateSchemaConfig;
+import com.quemsi.model.dto.UpsertConfig;
 import com.quemsi.model.dto.ClearRedisConfig;
 import com.quemsi.model.flow.From;
 import com.quemsi.model.flow.Step;
@@ -31,6 +32,7 @@ import com.quemsi.model.flow.process.MaskColumns;
 import com.quemsi.model.flow.process.SchemaMapping;
 import com.quemsi.model.flow.process.UpdateSchema;
 import com.quemsi.model.flow.process.UpdateSequences;
+import com.quemsi.model.flow.process.Upsert;
 import com.quemsi.model.flow.redis.ClearRedis;
 
 import lombok.Getter;
@@ -157,6 +159,19 @@ public class StepFactory extends AbstractFactory<Step>{
 					updateSchema.setConfig(config);
 				}
 				return updateSchema;
+			}),
+			Map.entry("Upsert", (Function<JsonNode, Step>) node -> {
+				Upsert upsert = new Upsert();
+				ObjectMapper objectMapper = context.getBean(ObjectMapper.class);
+				upsert.setObjectMapper(objectMapper);
+				String datasource = node.findValue("datasource").asText(null);
+				upsert.setDatasourceFactory(context.getBean(datasource, DataSourceFactory.class));
+				JsonNode configNode = node.get("config");
+				if(configNode != null) {
+					UpsertConfig config = objectMapper.convertValue(configNode, UpsertConfig.class);
+					upsert.setConfig(config);
+				}
+				return upsert;
 			}),
 			Map.entry("ClearRedis", (Function<JsonNode, Step>) node -> {
 				ClearRedis clearRedis = new ClearRedis();
