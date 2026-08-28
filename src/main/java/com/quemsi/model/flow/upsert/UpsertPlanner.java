@@ -1,11 +1,13 @@
 package com.quemsi.model.flow.upsert;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -16,6 +18,7 @@ import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
+import com.quemsi.model.flow.subset.SqlSubsetSupport;
 import com.quemsi.model.util.CommonHelpers;
 
 public class UpsertPlanner {
@@ -98,20 +101,25 @@ public class UpsertPlanner {
             }
             Set<String> sourceKeys = sourceRows.stream().map(UpsertRow::getKey)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-            Set<String> existing = lookup.existingKeys(table, matchKey.getColumns(), sourceKeys);
+            Map<String, Object[]> existingRows = lookup.existingRows(table, matchKey.getColumns(), sourceKeys);
 
+            List<String> compareColumns = compareColumns(table, omitColumns, matchKey.getColumns());
             List<UpsertRow> inserts = new ArrayList<>();
             List<UpsertRow> updates = new ArrayList<>();
             List<UpsertRow> skips = new ArrayList<>();
             for (UpsertRow row : sourceRows) {
-                if (existing.contains(row.getKey())) {
-                    if (onExisting == OnExisting.SKIP) {
-                        skips.add(row);
-                    } else {
-                        updates.add(row);
-                    }
-                } else {
+                if (!existingRows.containsKey(row.getKey())) {
                     inserts.add(row);
+                    continue;
+                }
+                if (onExisting == OnExisting.SKIP) {
+                    skips.add(row);
+                    continue;
+                }
+                if (rowChanged(table, row, existingRows.get(row.getKey()), compareColumns)) {
+                    updates.add(row);
+                } else {
+                    skips.add(row);
                 }
             }
 
@@ -234,6 +242,57 @@ public class UpsertPlanner {
                     "FK " + fk.getConstraintName() + " parent key " + fkKey + " not found"));
             }
         }
+    }
+
+    static boolean rowChanged(DbTable table, UpsertRow source, Object[] targetValues, List<String> compareColumns) {
+        if (compareColumns == null || compareColumns.isEmpty()) {
+            return false;
+        }
+        if (source == null || source.getValues() == null || targetValues == null) {
+            return true;
+        }
+        for (String columnName : compareColumns) {
+            int idx = columnIndex(table, columnName);
+            Object left = idx >= 0 && idx < source.getValues().length ? source.getValues()[idx] : null;
+            Object right = idx >= 0 && idx < targetValues.length ? targetValues[idx] : null;
+            if (!valuesEqual(left, right)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static boolean valuesEqual(Object left, Object right) {
+        if (left == null && right == null) {
+            return true;
+        }
+        if (left == null || right == null) {
+            return false;
+        }
+        if (left instanceof byte[] leftBytes && right instanceof byte[] rightBytes) {
+            return Arrays.equals(leftBytes, rightBytes);
+        }
+        if (Objects.equals(left, right)) {
+            return true;
+        }
+        return Objects.equals(SqlSubsetSupport.canonicalPkPart(left), SqlSubsetSupport.canonicalPkPart(right));
+    }
+
+    static List<String> compareColumns(DbTable table, List<String> omitColumns, List<String> matchColumns) {
+        Set<String> skip = new LinkedHashSet<>();
+        if (omitColumns != null) {
+            skip.addAll(omitColumns);
+        }
+        if (matchColumns != null) {
+            skip.addAll(matchColumns);
+        }
+        List<String> columns = new ArrayList<>();
+        for (DbColumn column : table.orderedColumns()) {
+            if (!skip.contains(column.getName())) {
+                columns.add(column.getName());
+            }
+        }
+        return columns;
     }
 
     static String encodeColumns(DbTable table, Object[] values, List<String> columns) {

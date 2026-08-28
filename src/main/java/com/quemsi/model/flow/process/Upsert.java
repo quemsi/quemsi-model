@@ -92,8 +92,17 @@ public class Upsert extends AbstractStep {
                         .get();
                 }
                 if (effective.isDryRun()) {
-                    context.logStepInfo(context.getCurrentStep(),
-                        LogMessage.info("DRY RUN: upsert plan is valid, no rows written"));
+                    List<String> statements = SqlUpsertSupport.previewPlan(plan, tableQuoter, columnQuoter);
+                    if (statements.isEmpty()) {
+                        context.logStepInfo(context.getCurrentStep(),
+                            LogMessage.info("DRY RUN: upsert plan is valid, no rows written"));
+                    } else {
+                        context.logStepInfo(context.getCurrentStep(), LogMessage.info(
+                            "DRY RUN: would execute {} SQL statement(s), no rows written", statements.size()));
+                        context.logStepInfo(context.getCurrentStep(), LogMessage.info(
+                            "DRY RUN: SQL statements:\n{}",
+                            statements.stream().collect(Collectors.joining(System.lineSeparator()))));
+                    }
                     return;
                 }
                 SqlUpsertSupport.runInTransaction(conn,

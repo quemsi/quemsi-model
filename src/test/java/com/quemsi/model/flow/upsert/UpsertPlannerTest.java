@@ -63,6 +63,54 @@ class UpsertPlannerTest {
     }
 
     @Test
+    void unchangedExistingRowsAreSkipped() {
+        DbModel source = messageModel();
+        DbModel target = messageModel();
+        Map<String, List<Object[]>> rows = new HashMap<>();
+        rows.put("validation_message", List.<Object[]>of(
+            new Object[] { "new-key", "New" },
+            new Object[] { "same", "Same" },
+            new Object[] { "changed", "New value" }
+        ));
+        FakeLookup lookup = new FakeLookup();
+        lookup.rows.put("validation_message|message_key", Map.of(
+            "same", new Object[] { "same", "Same" },
+            "changed", new Object[] { "changed", "Old value" }
+        ));
+
+        UpsertPlan plan = planner.plan(source, target,
+            config(OnExisting.UPDATE, "validation_message"),
+            rows::get, lookup);
+        UpsertTablePlan table = plan.getTables().get(0);
+        assertThat(table.getInserts(), hasSize(1));
+        assertThat(table.getInserts().get(0).getKey(), equalTo("new-key"));
+        assertThat(table.getUpdates(), hasSize(1));
+        assertThat(table.getUpdates().get(0).getKey(), equalTo("changed"));
+        assertThat(table.getSkips(), hasSize(1));
+        assertThat(table.getSkips().get(0).getKey(), equalTo("same"));
+    }
+
+    @Test
+    void numericCanonicalEqualityIsUnchanged() {
+        DbModel source = messageModel();
+        source.getTables().get("validation_message").column("message_value").setDataType("int");
+        DbModel target = messageModel();
+        target.getTables().get("validation_message").column("message_value").setDataType("int");
+        Map<String, List<Object[]>> rows = new HashMap<>();
+        rows.put("validation_message", List.<Object[]>of(new Object[] { "k", 10 }));
+        FakeLookup lookup = new FakeLookup();
+        lookup.rows.put("validation_message|message_key", Map.of(
+            "k", new Object[] { "k", new java.math.BigDecimal("10.00") }
+        ));
+
+        UpsertPlan plan = planner.plan(source, target,
+            config(OnExisting.UPDATE, "validation_message"),
+            rows::get, lookup);
+        assertThat(plan.getTables().get(0).getUpdates(), empty());
+        assertThat(plan.getTables().get(0).getSkips(), hasSize(1));
+    }
+
+    @Test
     void uniqueNotMatchCollisionFails() {
         DbModel source = countryModel();
         DbModel target = countryModel();
@@ -175,6 +223,7 @@ class UpsertPlannerTest {
 
     private static final class FakeLookup implements UpsertTargetLookup {
         private final Map<String, Set<String>> existing = new HashMap<>();
+        private final Map<String, Map<String, Object[]>> rows = new HashMap<>();
         private final Map<String, Map<String, String>> uniqueToMatch = new HashMap<>();
 
         @Override
@@ -194,6 +243,24 @@ class UpsertPlannerTest {
             for (String key : uniqueKeys) {
                 if (mapped.containsKey(key)) {
                     result.put(key, mapped.get(key));
+                }
+            }
+            return result;
+        }
+
+        @Override
+        public Map<String, Object[]> existingRows(DbTable table, List<String> keyColumns,
+                Collection<String> candidateKeys) {
+            Map<String, Object[]> stored = rows.getOrDefault(
+                table.qualifiedName() + "|" + String.join(",", keyColumns), Map.of());
+            Set<String> keys = existing.getOrDefault(
+                table.qualifiedName() + "|" + String.join(",", keyColumns), Set.of());
+            Map<String, Object[]> result = new HashMap<>();
+            for (String candidate : candidateKeys) {
+                if (stored.containsKey(candidate)) {
+                    result.put(candidate, stored.get(candidate));
+                } else if (keys.contains(candidate)) {
+                    result.put(candidate, null);
                 }
             }
             return result;

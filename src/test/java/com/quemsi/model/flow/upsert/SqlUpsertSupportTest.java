@@ -4,6 +4,7 @@ import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Method;
@@ -77,6 +78,35 @@ class SqlUpsertSupportTest {
         assertThat(SqlUpsertSupport.encodeKey(1, "TR"),
             equalTo("1" + com.quemsi.model.flow.db.DataSourceFactory.PK_VALUES_SEPERATOR + "TR"));
         assertThat(SqlUpsertSupport.encodeKey(10), equalTo("10"));
+    }
+
+    @Test
+    void previewPlanRendersInsertAndUpdateSql() {
+        DbTable table = messageTable();
+        UpsertMatchKey matchKey = UpsertMatchKey.builder()
+            .columns(List.of("message_key"))
+            .primaryKey(true)
+            .source("PRIMARY KEY")
+            .build();
+        UpsertPlan plan = UpsertPlan.builder()
+            .tables(List.of(UpsertTablePlan.builder()
+                .qualifiedName("validation_message")
+                .table(table)
+                .matchKey(matchKey)
+                .inserts(List.of(new UpsertRow("new-key", new Object[] { "new-key", "New" })))
+                .updates(List.of(new UpsertRow("existing", new Object[] { "existing", "O'Reilly" })))
+                .build()))
+            .build();
+
+        List<String> sql = SqlUpsertSupport.previewPlan(plan,
+            SqlUpsertSupport.tableQuoter(DatasourceType.POSTGRES),
+            SqlUpsertSupport.columnQuoter(DatasourceType.POSTGRES));
+
+        assertThat(sql, hasSize(2));
+        assertThat(sql.get(0), equalTo(
+            "INSERT INTO \"validation_message\" (\"message_key\", \"message_value\") VALUES ('new-key', 'New')"));
+        assertThat(sql.get(1), equalTo(
+            "UPDATE \"validation_message\" SET \"message_value\"='O''Reilly' WHERE \"message_key\"='existing'"));
     }
 
     private static DbTable messageTable() {

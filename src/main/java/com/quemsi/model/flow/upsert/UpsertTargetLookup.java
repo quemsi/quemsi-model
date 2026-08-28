@@ -15,4 +15,10 @@ public interface UpsertTargetLookup {
      */
     Map<String, String> uniqueToMatchKey(DbTable table, List<String> uniqueColumns, List<String> matchColumns,
             Collection<String> uniqueKeys);
+
+    /**
+     * Existing target rows keyed by match-key string. Values are aligned to {@link DbTable#orderedColumns()}.
+     * A {@code null} value array means the row exists but column values were not loaded.
+     */
+    Map<String, Object[]> existingRows(DbTable table, List<String> keyColumns, Collection<String> candidateKeys);
 }

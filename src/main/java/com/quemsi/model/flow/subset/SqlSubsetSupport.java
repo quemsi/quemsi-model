@@ -679,7 +679,14 @@ public final class SqlSubsetSupport {
         return predicate;
     }
 
-    static String sqlLiteral(String canonicalPart, DbColumn column) {
+    public static String sqlLiteral(Object value, DbColumn column) {
+        if (value == null) {
+            return "NULL";
+        }
+        return sqlLiteral(canonicalPkPart(value), column);
+    }
+
+    public static String sqlLiteral(String canonicalPart, DbColumn column) {
         Object typed = coercePkValue(canonicalPart, column);
         if (typed == null) {
             return "NULL";
