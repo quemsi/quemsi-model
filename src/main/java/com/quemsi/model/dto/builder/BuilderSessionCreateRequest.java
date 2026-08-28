@@ -17,7 +17,7 @@ public class BuilderSessionCreateRequest implements Serializable {
     /** Defaults to DATASOURCE when null (Clear/Drop/UpdateSequences). */
     private BuilderSchemaSource schemaSource;
     private String datasourceName;
-    /** Present when schemaSource is DATA_VERSION (MaskColumns / Browse from StoredData). */
+    /** Present when schemaSource is DATA_VERSION (MaskColumns / Browse / Upsert from StoredData). */
     private String dataName;
     private String storageName;
     private Long versionId;
