@@ -2,6 +2,7 @@ package com.quemsi.model.util;
 
 import java.io.IOException;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -25,7 +26,9 @@ import com.quemsi.model.dto.agent.UpdateAgentModel;
 public final class CredentialLogSanitizer {
     private static final ObjectMapper MAPPER = new ObjectMapper()
         .registerModule(new JavaTimeModule())
-        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+        .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+        .disable(SerializationFeature.FAIL_ON_EMPTY_BEANS)
+        .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
 
     private CredentialLogSanitizer() {
     }
@@ -38,8 +41,8 @@ public final class CredentialLogSanitizer {
             AgentModel copy = MAPPER.readValue(MAPPER.writeValueAsBytes(source), AgentModel.class);
             maskAgentModelInPlace(copy);
             return copy;
-        } catch (IOException e) {
-            throw new IllegalStateException("Failed to copy AgentModel for logging", e);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to copy AgentModel for logging: " + e.getMessage(), e);
         }
     }
 
