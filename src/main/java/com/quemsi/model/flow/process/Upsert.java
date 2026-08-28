@@ -91,18 +91,9 @@ public class Upsert extends AbstractStep {
                             .toList())
                         .get();
                 }
+                List<String> statements = SqlUpsertSupport.previewPlan(plan, tableQuoter, columnQuoter);
+                logStatements(context, statements, effective.isDryRun());
                 if (effective.isDryRun()) {
-                    List<String> statements = SqlUpsertSupport.previewPlan(plan, tableQuoter, columnQuoter);
-                    if (statements.isEmpty()) {
-                        context.logStepInfo(context.getCurrentStep(),
-                            LogMessage.info("DRY RUN: upsert plan is valid, no rows written"));
-                    } else {
-                        context.logStepInfo(context.getCurrentStep(), LogMessage.info(
-                            "DRY RUN: would execute {} SQL statement(s), no rows written", statements.size()));
-                        context.logStepInfo(context.getCurrentStep(), LogMessage.info(
-                            "DRY RUN: SQL statements:\n{}",
-                            statements.stream().collect(Collectors.joining(System.lineSeparator()))));
-                    }
                     return;
                 }
                 SqlUpsertSupport.runInTransaction(conn,
@@ -136,6 +127,21 @@ public class Upsert extends AbstractStep {
                     prefix + failure.getTable() + "[" + failure.getKey() + "]: " + failure.getReason());
             }
         }
+    }
+
+    private void logStatements(FlowContext context, List<String> statements, boolean dryRun) {
+        String prefix = dryRun ? "DRY RUN: " : "";
+        if (statements == null || statements.isEmpty()) {
+            context.logStepInfo(context.getCurrentStep(),
+                LogMessage.info(prefix + (dryRun ? "upsert plan is valid, no rows written" : "no SQL statements to execute")));
+            return;
+        }
+        context.logStepInfo(context.getCurrentStep(), LogMessage.info(
+            prefix + (dryRun ? "would execute {} SQL statement(s), no rows written" : "executing {} SQL statement(s)"),
+            statements.size()));
+        context.logStepInfo(context.getCurrentStep(), LogMessage.info(
+            prefix + "SQL statements:\n{}",
+            statements.stream().collect(Collectors.joining(System.lineSeparator()))));
     }
 
     private BackupArchive openArchive(FlowContext context) {
