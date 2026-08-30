@@ -11,6 +11,8 @@ import static org.hamcrest.Matchers.nullValue;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
@@ -27,6 +29,7 @@ import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -158,6 +161,92 @@ public class DDLServicePostgresRuntimeTest {
 	}
 
 	@Test
+	public void uniqueConstraintNamesForTable_collectsNames() {
+		DbModel model = new DbModel();
+		model.getContraintInfos().add(ContraintInfo.builder()
+			.schema("bookings")
+			.tableName("boarding_passes")
+			.constraintName("boarding_passes_flight_id_boarding_no_key")
+			.columnName("flight_id")
+			.build());
+		model.getContraintInfos().add(ContraintInfo.builder()
+			.schema("bookings")
+			.tableName("other")
+			.constraintName("other_key")
+			.columnName("x")
+			.build());
+		assertThat(DDLServicePostgres.uniqueConstraintNamesForTable(model, "bookings.boarding_passes"),
+			equalTo(Set.of("boarding_passes_flight_id_boarding_no_key")));
+	}
+
+	@Test
+	public void createTables_skipsUniqueConstraintBackingIndex() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			DbModel dbModel = new DbModel();
+			dbModel.setSchemas(new HashSet<>());
+			DbTable table = dbModel.addTable("boarding_passes", "bookings");
+			table.addColumn(DbColumn.builder().name("flight_id").dataType("int").columnType("int")
+				.ordinalPosition(1).nullable(false).build());
+			table.addColumn(DbColumn.builder().name("boarding_no").dataType("int").columnType("int")
+				.ordinalPosition(2).nullable(false).build());
+			table.getPkColumnNames().add("flight_id");
+			table.setPkConstraintName("boarding_passes_pkey");
+
+			IndexInfo uniqueIndex = new IndexInfo("bookings", "boarding_passes",
+				"boarding_passes_flight_id_boarding_no_key", true, "btree");
+			uniqueIndex.getColumns().add("flight_id");
+			uniqueIndex.getColumns().add("boarding_no");
+			dbModel.getIndexes().computeIfAbsent("bookings.boarding_passes", k -> new HashMap<>())
+				.put(uniqueIndex.getIndexName(), uniqueIndex);
+
+			dbModel.getContraintInfos().add(ContraintInfo.builder()
+				.schema("bookings")
+				.tableName("boarding_passes")
+				.constraintName("boarding_passes_flight_id_boarding_no_key")
+				.columnName("flight_id")
+				.columnName("boarding_no")
+				.build());
+
+			ddl.createTables(dbModel);
+		}
+
+		assertThat(recording.batchedSql.stream().anyMatch(s ->
+			s.contains("ADD CONSTRAINT \"boarding_passes_flight_id_boarding_no_key\"")
+				&& s.contains("UNIQUE")), equalTo(true));
+		assertThat(recording.batchedSql.stream().anyMatch(s ->
+			s.contains("CREATE UNIQUE INDEX")
+				&& s.contains("boarding_passes_flight_id_boarding_no_key")), equalTo(false));
+	}
+
+	@Test
+	public void createTables_skipsExistingTableAndItsUniqueConstraint() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		recording.existingTables.add(new String[] { "bookings", "boarding_passes" });
+		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
+			DbModel dbModel = new DbModel();
+			dbModel.setSchemas(Set.of("bookings"));
+			DbTable table = dbModel.addTable("boarding_passes", "bookings");
+			table.addColumn(DbColumn.builder().name("flight_id").dataType("int").columnType("int")
+				.ordinalPosition(1).nullable(false).build());
+			table.getPkColumnNames().add("flight_id");
+			table.setPkConstraintName("boarding_passes_pkey");
+			dbModel.getContraintInfos().add(ContraintInfo.builder()
+				.schema("bookings")
+				.tableName("boarding_passes")
+				.constraintName("boarding_passes_flight_id_boarding_no_key")
+				.columnName("flight_id")
+				.build());
+
+			ddl.createTables(dbModel);
+		}
+
+		assertThat(recording.batchedSql.stream().anyMatch(s -> s.contains("CREATE TABLE")), equalTo(false));
+		assertThat(recording.batchedSql.stream().anyMatch(s ->
+			s.contains("boarding_passes_flight_id_boarding_no_key")), equalTo(false));
+	}
+
+	@Test
 	public void disableConstraints_batchesDropConstraint() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
 		try (DDLServicePostgres ddl = new DDLServicePostgres(recording.connection)) {
@@ -206,6 +295,7 @@ public class DDLServicePostgresRuntimeTest {
 	private static final class RecordingJdbc {
 		final List<String> executedSql = new ArrayList<>();
 		final List<String> batchedSql = new ArrayList<>();
+		final List<String[]> existingTables = new ArrayList<>();
 		final AtomicInteger executeBatchCalls = new AtomicInteger();
 		final Connection connection;
 
@@ -221,12 +311,51 @@ public class DDLServicePostgresRuntimeTest {
 			switch (name) {
 				case "createStatement":
 					return statementProxy();
+				case "prepareStatement":
+					return preparedStatementProxy();
 				case "close":
 				case "isClosed":
 					return "isClosed".equals(name) ? false : null;
 				default:
 					return defaultObjectMethod(proxy, method, args);
 			}
+		}
+
+		private PreparedStatement preparedStatementProxy() {
+			return (PreparedStatement) Proxy.newProxyInstance(
+				PreparedStatement.class.getClassLoader(),
+				new Class<?>[] { PreparedStatement.class },
+				(proxy, method, args) -> {
+					String name = method.getName();
+					if ("executeQuery".equals(name)) {
+						return existingTablesResultSet();
+					}
+					if (name.startsWith("set") || "close".equals(name) || "isClosed".equals(name)) {
+						return "isClosed".equals(name) ? false : null;
+					}
+					return defaultObjectMethod(proxy, method, args);
+				});
+		}
+
+		private ResultSet existingTablesResultSet() {
+			AtomicInteger row = new AtomicInteger(-1);
+			return (ResultSet) Proxy.newProxyInstance(
+				ResultSet.class.getClassLoader(),
+				new Class<?>[] { ResultSet.class },
+				(proxy, method, args) -> {
+					String name = method.getName();
+					if ("next".equals(name)) {
+						return row.incrementAndGet() < existingTables.size();
+					}
+					if ("getString".equals(name) && args != null && args[0] instanceof Integer col) {
+						int i = row.get();
+						return existingTables.get(i)[col - 1];
+					}
+					if ("close".equals(name) || "isClosed".equals(name)) {
+						return "isClosed".equals(name) ? false : null;
+					}
+					return defaultObjectMethod(proxy, method, args);
+				});
 		}
 
 		private Statement statementProxy() {

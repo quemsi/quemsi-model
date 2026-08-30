@@ -17,6 +17,15 @@ public interface DMLService extends AutoCloseable{
 	TableDataPage getTableDataPage(TableDataPage.Request request);
 	int writePageData(DbTable table, DataPage dataPage);
 	boolean clearTables(String... tableNames);
+
+	/**
+	 * Empty tables quickly for restore prep. Default falls back to {@link #clearTables}.
+	 * Implementations should {@code TRUNCATE} and fall back to {@code DELETE} if truncate is blocked.
+	 */
+	default boolean truncateTables(String... tableNames) {
+		return clearTables(tableNames);
+	}
+
 	void updateSequence(String qualifiedSequenceName, Long newValue);
 	Long getMaxColumnValue(String tableName, String columnName);
 

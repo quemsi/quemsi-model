@@ -33,6 +33,12 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServiceSqlserverWritePageDataTest {
 
 	@Test
+	public void truncateTableSql_usesBracketQuotedName() {
+		assertThat(DMLServiceSqlserver.truncateTableSql("dbo.Employees"),
+			equalTo("truncate table [dbo].[Employees]"));
+	}
+
+	@Test
 	public void writePageData_identityTable_runsIdentityInsertOutsidePreparedStatement() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
 		DbTable table = new DbTable("dbo", "Employees");

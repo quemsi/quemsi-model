@@ -7,6 +7,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -223,9 +224,51 @@ public class DDLServicePostgres implements DDLService{
 		}
 	}
 
+	static Set<String> uniqueConstraintNamesForTable(DbModel dbModel, String qualifiedTableName) {
+		Set<String> names = new HashSet<>();
+		if (dbModel.getContraintInfos() == null) {
+			return names;
+		}
+		for (ContraintInfo info : dbModel.getContraintInfos()) {
+			if (qualifiedTableName.equals(info.qualifiedTableName()) && info.getConstraintName() != null) {
+				names.add(info.getConstraintName());
+			}
+		}
+		return names;
+	}
+
+	Set<String> existingQualifiedTables(Set<String> schemas) throws SQLException {
+		Set<String> result = new HashSet<>();
+		if (schemas == null || schemas.isEmpty()) {
+			return result;
+		}
+		List<String> schemaList = new ArrayList<>(schemas);
+		String placeholders = schemaList.stream().map(s -> "?").collect(Collectors.joining(", "));
+		String sql = "select n.nspname, c.relname from pg_catalog.pg_class c "
+			+ "inner join pg_catalog.pg_namespace n on n.oid = c.relnamespace "
+			+ "where c.relkind = 'r' and n.nspname in (" + placeholders + ")";
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			for (int i = 0; i < schemaList.size(); i++) {
+				ps.setString(i + 1, schemaList.get(i));
+			}
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					result.add(CommonHelpers.qualifiedName(rs.getString(1), rs.getString(2)));
+				}
+			}
+		}
+		return result;
+	}
+
     @Override
     public void createTables(DbModel dbModel) {
         LinkedList<StringBuilder> scripts = new LinkedList<>();
+		Set<String> existingTables;
+		try {
+			existingTables = existingQualifiedTables(dbModel.getSchemas());
+		} catch (SQLException e) {
+			throw Exceptions.server("failed-to-create-tables").withCause(e).get();
+		}
         for(DbSequence seq : dbModel.getSequences()){
             StringBuilder seqStringBuilder = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ")
 				.append(CommonHelpers.doubleQuotedQualified(seq.getSchema(), seq.getName()));
@@ -258,6 +301,10 @@ public class DDLServicePostgres implements DDLService{
         }
 		/* FKs are applied after data load via enableContraints — omit from CREATE for faster DDL */
 		for(String tableName : dbModel.orderedTableNames()){
+			if (existingTables.contains(tableName)) {
+				log.info("table {} already exists, skipping create", tableName);
+				continue;
+			}
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
 			String quotedTable = CommonHelpers.doubleQuotedQualified(table.getSchema(), table.getName());
 			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(quotedTable).append(" (").append(System.lineSeparator());
@@ -305,8 +352,13 @@ public class DDLServicePostgres implements DDLService{
 			log.info("create script for {} : {}", tableName, sb.toString());
 			scripts.add(sb);
             Map<String, IndexInfo> indexes = dbModel.indexesForTable(tableName);
+			Set<String> uniqueConstraintNames = uniqueConstraintNamesForTable(dbModel, tableName);
             for (Map.Entry<String, IndexInfo> entry : indexes.entrySet()) {
                 String indName = entry.getKey();
+				if (indName != null && uniqueConstraintNames.contains(indName)) {
+					log.info("skipping unique-constraint index {} on {}", indName, tableName);
+					continue;
+				}
                 IndexInfo indCols = entry.getValue();
                 StringBuilder indBuilder = new StringBuilder("CREATE ");
                 if(indCols.isUnique()){
@@ -329,6 +381,11 @@ public class DDLServicePostgres implements DDLService{
 			
 		}
         for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
+			if (existingTables.contains(contraintInfo.qualifiedTableName())) {
+				log.info("unique constraint {} on {} skipped, table already exists",
+					contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
+				continue;
+			}
             StringBuilder sb = new StringBuilder("ALTER TABLE ONLY ")
 				.append(CommonHelpers.doubleQuotedQualified(contraintInfo.qualifiedTableName()))
 				.append(" ADD CONSTRAINT ").append(CommonHelpers.doubleQuoted(contraintInfo.getConstraintName())).append(" UNIQUE").append(" (");
@@ -345,6 +402,11 @@ public class DDLServicePostgres implements DDLService{
             scripts.add(sb);
         }
         for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
+			if (existingTables.contains(checkConstraint.qualifiedTableName())) {
+				log.info("check constraint {} on {} skipped, table already exists",
+					checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName());
+				continue;
+			}
             StringBuilder sb = new StringBuilder("ALTER TABLE ")
 				.append(CommonHelpers.doubleQuotedQualified(checkConstraint.qualifiedTableName()))
 				.append(" ADD CONSTRAINT ").append(CommonHelpers.doubleQuoted(checkConstraint.getConstraintName())).append(" ").append(checkConstraint.getCondef()).append(";");

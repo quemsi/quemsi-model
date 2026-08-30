@@ -30,6 +30,11 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServiceMysqlWritePageDataTest {
 
 	@Test
+	public void truncateTableSql_usesUnquotedName() {
+		assertThat(DMLServiceMysql.truncateTableSql("offices"), equalTo("truncate table offices"));
+	}
+
+	@Test
 	public void writePageData_disablesChecks_commitsBatch_andRestoresSession() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
 		try (DMLServiceMysql dml = new DMLServiceMysql(dataSource(recording.connection))) {

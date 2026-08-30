@@ -302,6 +302,28 @@ public class DMLServiceMysql implements DMLService{
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
 	}
+
+	static String truncateTableSql(String tableName) {
+		return "truncate table " + tableName;
+	}
+
+	@Override
+	public boolean truncateTables(String... tableNames) {
+		if (tableNames == null || tableNames.length == 0) {
+			return true;
+		}
+		try (Connection conn = dataSource.getConnection()) {
+			Statement s = conn.createStatement();
+			for (String tableName : tableNames) {
+				s.addBatch(truncateTableSql(tableName));
+			}
+			s.executeBatch();
+			return true;
+		} catch (Exception e) {
+			log.warn("TRUNCATE failed, falling back to DELETE", e);
+			return clearTables(tableNames);
+		}
+	}
 	@Override
 	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {
 		String sql = String.format(GET_MAX_COLUMN_VALUE_SQL, columnName, qualifiedTableName);

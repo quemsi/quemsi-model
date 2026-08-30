@@ -25,6 +25,11 @@ import com.quemsi.model.flow.in.TableData.DataPage;
 public class DMLServiceOracleWritePageDataTest {
 
 	@Test
+	public void truncateTableSql_usesUnquotedName() {
+		assertThat(DMLServiceOracle.truncateTableSql("HR.EMPLOYEES"), equalTo("truncate table HR.EMPLOYEES"));
+	}
+
+	@Test
 	public void writePageData_commitsBatch_andRestoresAutocommit() throws Exception {
 		RecordingConnection recording = new RecordingConnection(false);
 		try (DMLServiceOracle dml = new DMLServiceOracle(dataSource(recording.connection), null)) {

@@ -5,6 +5,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -328,6 +329,34 @@ public class DMLServicePostgres implements DMLService{
 			throw Exceptions.server("failed-to-clear-tables").withCause(e).get();
 		}
     }
+
+	/** One-statement truncate; returns null when there are no names. */
+	static String buildMultiTableTruncateSql(String... tableNames) {
+		if (tableNames == null || tableNames.length == 0) {
+			return null;
+		}
+		String quoted = Arrays.stream(tableNames)
+			.map(CommonHelpers::doubleQuotedQualified)
+			.collect(Collectors.joining(", "));
+		return "TRUNCATE TABLE " + quoted + " RESTART IDENTITY CASCADE";
+	}
+
+	@Override
+	public boolean truncateTables(String... tableNames) {
+		String sql = buildMultiTableTruncateSql(tableNames);
+		if (sql == null) {
+			return true;
+		}
+		try (Connection conn = dataSource.getConnection();
+			 Statement s = conn.createStatement()) {
+			log.info("truncate tables sql :{}", sql);
+			s.executeUpdate(sql);
+			return true;
+		} catch (Exception e) {
+			log.warn("TRUNCATE failed, falling back to DELETE", e);
+			return clearTables(tableNames);
+		}
+	}
 
 	@Override
 	public Long getMaxColumnValue(String qualifiedTableName, String columnName) {

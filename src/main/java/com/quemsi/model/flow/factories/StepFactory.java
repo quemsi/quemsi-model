@@ -20,6 +20,7 @@ import com.quemsi.model.flow.Step;
 import com.quemsi.model.flow.To;
 import com.quemsi.model.flow.db.ClearTables;
 import com.quemsi.model.flow.db.DataSourceFactory;
+import com.quemsi.model.flow.db.DropOrClear;
 import com.quemsi.model.flow.db.DropTables;
 import com.quemsi.model.flow.db.mysql.MySqlScript;
 import com.quemsi.model.flow.db.mysql.StartReplica;
@@ -116,6 +117,15 @@ public class StepFactory extends AbstractFactory<Step>{
 				dropTables.setTables(tables);
 				dropTables.setSqlParser(context.getBean(SqlParser.class));
 				return dropTables;
+			}),
+			Map.entry("DropOrClear", (Function<JsonNode, Step>) node -> {
+				DropOrClear dropOrClear = new DropOrClear();
+				String datasource = node.findValue("datasource").asText(null);
+				dropOrClear.setDatasource(context.getBean(datasource, DataSourceFactory.class));
+				boolean all = jsonUtils.asBoolean(node.findValue("all"), true);
+				dropOrClear.setAll(all);
+				dropOrClear.setObjectMapper(context.getBean(ObjectMapper.class));
+				return dropOrClear;
 			}),
 			Map.entry("SchemaMapping", (Function<JsonNode, Step>) node -> {
 				SchemaMapping schemaMapping = new SchemaMapping();
