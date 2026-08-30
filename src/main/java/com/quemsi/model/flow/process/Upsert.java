@@ -97,7 +97,8 @@ public class Upsert extends AbstractStep {
                     return;
                 }
                 SqlUpsertSupport.runInTransaction(conn,
-                    () -> SqlUpsertSupport.applyPlan(conn, plan, tableQuoter, columnQuoter));
+                    () -> SqlUpsertSupport.applyPlan(conn, plan, tableQuoter, columnQuoter,
+                        datasourceFactory.type()));
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("Upsert applied successfully"));
             }

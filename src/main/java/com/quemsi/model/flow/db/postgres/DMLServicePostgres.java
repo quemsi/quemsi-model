@@ -1,12 +1,10 @@
 package com.quemsi.model.flow.db.postgres;
 
-import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
@@ -287,27 +285,8 @@ public class DMLServicePostgres implements DMLService{
 				PreparedStatement ps = conn.prepareStatement(insertSql);
 				dataPage.getData().entrySet().forEach(Exceptions.wrapConsumer(e -> {
 					for(int i=0; i < orderedColumns.length; i++){
-						if(e.getValue()[i] == null){
-							ps.setNull(i + 1, java.sql.Types.NULL);
-						} else if(e.getValue()[i] instanceof List listVal){
-							Array arrVal = conn.createArrayOf("varchar", listVal.toArray());
-							ps.setArray(i + 1, arrVal);
-						} else if(e.getValue()[i] instanceof Map mapVal){
-							if("tsvector".equals(mapVal.get("type"))){
-								ps.setString(i + 1, (String)mapVal.get("value"));
-							} else if("oid".equals(mapVal.get("dbType"))){
-								String encodedData = (String)mapVal.get("data");
-								byte[] binaryData = Base64.getDecoder().decode(encodedData);
-								ps.setBytes(i + 1, binaryData);
-							} else{
-								log.error("type {} is not a valid map type", mapVal.get("type"));
-								throw Exceptions.server("column-type-not-supported").withExtra("table", table.getName()).withExtra("columnIndex", i + 1).withExtra("column", table.column(orderedColumns[i].getName())).withExtra("value", mapVal).get();
-							}
-						} else if(e.getValue()[i] instanceof CustomSerializedColumn serializedColumn){
-							ps.setBytes(i + 1, serializedColumn.getData());
-						} else{
-							ps.setObject(i + 1, e.getValue()[i], java.sql.Types.OTHER);
-						}
+						PostgresArchiveBinder.bind(ps, conn, i + 1, table.getName(),
+							orderedColumns[i], e.getValue()[i]);
 					}
 					ps.addBatch();
 				}));

@@ -3,6 +3,7 @@ package com.quemsi.model.flow.upsert;
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
+import static org.hamcrest.Matchers.everyItem;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -14,6 +15,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -42,10 +44,12 @@ class SqlUpsertSupportTest {
         SqlUpsertSupport.runInTransaction(recording.connection, () -> {
             SqlUpsertSupport.insertRows(recording.connection, table, inserts, List.of(),
                 SqlUpsertSupport.tableQuoter(DatasourceType.MYSQL),
-                SqlUpsertSupport.columnQuoter(DatasourceType.MYSQL));
+                SqlUpsertSupport.columnQuoter(DatasourceType.MYSQL),
+                DatasourceType.MYSQL);
             SqlUpsertSupport.updateRows(recording.connection, table, updates, matchKey, List.of(),
                 SqlUpsertSupport.tableQuoter(DatasourceType.MYSQL),
-                SqlUpsertSupport.columnQuoter(DatasourceType.MYSQL));
+                SqlUpsertSupport.columnQuoter(DatasourceType.MYSQL),
+                DatasourceType.MYSQL);
         });
 
         assertThat(recording.preparedSql, hasItem(containsString("INSERT INTO")));
@@ -65,11 +69,39 @@ class SqlUpsertSupportTest {
         assertThrows(SQLException.class, () -> SqlUpsertSupport.runInTransaction(recording.connection, () ->
             SqlUpsertSupport.insertRows(recording.connection, table, inserts, List.of(),
                 SqlUpsertSupport.tableQuoter(DatasourceType.MYSQL),
-                SqlUpsertSupport.columnQuoter(DatasourceType.MYSQL))));
+                SqlUpsertSupport.columnQuoter(DatasourceType.MYSQL),
+                DatasourceType.MYSQL)));
 
         assertThat(recording.rollbackCalls.get(), equalTo(1));
         assertThat(recording.commitCalls.get(), equalTo(0));
         assertThat(recording.autoCommit.get(), equalTo(true));
+    }
+
+    @Test
+    void postgresBindsJsonbAndPointAsOther() throws Exception {
+        RecordingConnection recording = new RecordingConnection(false);
+        DbTable table = airportsTable();
+        UpsertMatchKey matchKey = UpsertMatchKey.builder()
+            .columns(List.of("airport_code"))
+            .primaryKey(true)
+            .source("PRIMARY KEY")
+            .build();
+        List<UpsertRow> updates = List.of(new UpsertRow("YKS", new Object[] {
+            "YKS",
+            "{\"en\": \"Yakutsk Airport\", \"ru\": \"Якутск\"}",
+            "{\"en\": \"Yakutsk\", \"ru\": \"Якутск\"}",
+            "(129.77099609375,62.093299865722656)",
+            "Asia/Yakutsk"
+        }));
+
+        SqlUpsertSupport.updateRows(recording.connection, table, updates, matchKey, List.of(),
+            SqlUpsertSupport.tableQuoter(DatasourceType.POSTGRES),
+            SqlUpsertSupport.columnQuoter(DatasourceType.POSTGRES),
+            DatasourceType.POSTGRES);
+
+        assertThat(recording.setObjectWithSqlType, hasSize(5));
+        assertThat(recording.setObjectWithSqlType, everyItem(equalTo(Types.OTHER)));
+        assertThat(recording.setObjectWithoutSqlType, hasSize(0));
     }
 
     @Test
@@ -109,6 +141,22 @@ class SqlUpsertSupportTest {
             "UPDATE \"validation_message\" SET \"message_value\"='O''Reilly' WHERE \"message_key\"='existing'"));
     }
 
+    private static DbTable airportsTable() {
+        DbTable table = new DbTable("bookings", "airports_data");
+        table.addColumn(DbColumn.builder().name("airport_code").dataType("bpchar").columnType("character(3)")
+            .ordinalPosition(1).nullable(false).build());
+        table.addColumn(DbColumn.builder().name("airport_name").dataType("jsonb").columnType("jsonb")
+            .ordinalPosition(2).nullable(false).build());
+        table.addColumn(DbColumn.builder().name("city").dataType("jsonb").columnType("jsonb")
+            .ordinalPosition(3).nullable(false).build());
+        table.addColumn(DbColumn.builder().name("coordinates").dataType("point").columnType("point")
+            .ordinalPosition(4).nullable(false).build());
+        table.addColumn(DbColumn.builder().name("timezone").dataType("text").columnType("text")
+            .ordinalPosition(5).nullable(false).build());
+        table.getPkColumnNames().add("airport_code");
+        return table;
+    }
+
     private static DbTable messageTable() {
         DbTable table = new DbTable(null, "validation_message");
         table.addColumn(DbColumn.builder().name("message_key").dataType("varchar").columnType("varchar(100)")
@@ -121,6 +169,8 @@ class SqlUpsertSupportTest {
 
     private static final class RecordingConnection {
         final List<String> preparedSql = new ArrayList<>();
+        final List<Integer> setObjectWithSqlType = new ArrayList<>();
+        final List<Object> setObjectWithoutSqlType = new ArrayList<>();
         final AtomicInteger commitCalls = new AtomicInteger();
         final AtomicInteger rollbackCalls = new AtomicInteger();
         final AtomicInteger executeBatchCalls = new AtomicInteger();
@@ -185,6 +235,14 @@ class SqlUpsertSupportTest {
                 new Class<?>[] { PreparedStatement.class },
                 (proxy, method, args) -> {
                     String name = method.getName();
+                    if ("setObject".equals(name)) {
+                        if (args != null && args.length >= 3 && args[2] instanceof Integer sqlType) {
+                            setObjectWithSqlType.add(sqlType);
+                        } else if (args != null && args.length >= 2) {
+                            setObjectWithoutSqlType.add(args[1]);
+                        }
+                        return null;
+                    }
                     if (name.startsWith("set") || "addBatch".equals(name) || "close".equals(name)) {
                         return null;
                     }

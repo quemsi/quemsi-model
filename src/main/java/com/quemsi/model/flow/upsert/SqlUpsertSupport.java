@@ -16,6 +16,7 @@ import java.util.Set;
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DataSourceFactory;
+import com.quemsi.model.flow.db.postgres.PostgresArchiveBinder;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.subset.SqlSubsetSupport;
@@ -227,7 +228,7 @@ public final class SqlUpsertSupport {
     }
 
     public static int insertRows(Connection conn, DbTable table, List<UpsertRow> rows, List<String> omitColumns,
-            TableQuoter tableQuoter, ColumnQuoter columnQuoter) throws SQLException {
+            TableQuoter tableQuoter, ColumnQuoter columnQuoter, DatasourceType type) throws SQLException {
         if (rows == null || rows.isEmpty()) {
             return 0;
         }
@@ -249,7 +250,7 @@ public final class SqlUpsertSupport {
         try (PreparedStatement ps = conn.prepareStatement(sql.toString())) {
             for (UpsertRow row : rows) {
                 for (int i = 0; i < writeColumns.size(); i++) {
-                    bindColumn(ps, i + 1, table, writeColumns.get(i), row.getValues());
+                    bindColumn(ps, conn, type, i + 1, table, writeColumns.get(i), row.getValues());
                 }
                 ps.addBatch();
             }
@@ -258,7 +259,8 @@ public final class SqlUpsertSupport {
     }
 
     public static int updateRows(Connection conn, DbTable table, List<UpsertRow> rows, UpsertMatchKey matchKey,
-            List<String> omitColumns, TableQuoter tableQuoter, ColumnQuoter columnQuoter) throws SQLException {
+            List<String> omitColumns, TableQuoter tableQuoter, ColumnQuoter columnQuoter, DatasourceType type)
+            throws SQLException {
         if (rows == null || rows.isEmpty()) {
             return 0;
         }
@@ -290,17 +292,14 @@ public final class SqlUpsertSupport {
             for (UpsertRow row : rows) {
                 int idx = 1;
                 for (DbColumn column : setColumns) {
-                    bindColumn(ps, idx++, table, column, row.getValues());
+                    bindColumn(ps, conn, type, idx++, table, column, row.getValues());
                 }
                 for (String matchCol : matchCols) {
                     int colIdx = UpsertPlanner.columnIndex(table, matchCol);
                     Object value = colIdx >= 0 && colIdx < row.getValues().length ? row.getValues()[colIdx] : null;
-                    if (value == null) {
-                        ps.setNull(idx++, Types.NULL);
-                    } else {
-                        ps.setObject(idx++, SqlSubsetSupport.coercePkValue(
-                            SqlSubsetSupport.canonicalPkPart(value), table.column(matchCol)));
-                    }
+                    Object typed = value == null ? null : SqlSubsetSupport.coercePkValue(
+                        SqlSubsetSupport.canonicalPkPart(value), table.column(matchCol));
+                    bindValue(ps, conn, type, idx++, table, table.column(matchCol), typed);
                 }
                 ps.addBatch();
             }
@@ -403,16 +402,16 @@ public final class SqlUpsertSupport {
         return SqlSubsetSupport.sqlLiteral(value, column);
     }
 
-    public static void applyPlan(Connection conn, UpsertPlan plan, TableQuoter tableQuoter, ColumnQuoter columnQuoter)
-            throws SQLException {
+    public static void applyPlan(Connection conn, UpsertPlan plan, TableQuoter tableQuoter, ColumnQuoter columnQuoter,
+            DatasourceType type) throws SQLException {
         if (plan.getTables() == null) {
             return;
         }
         for (UpsertTablePlan tablePlan : plan.getTables()) {
             insertRows(conn, tablePlan.getTable(), tablePlan.getInserts(), tablePlan.getOmitColumns(),
-                tableQuoter, columnQuoter);
+                tableQuoter, columnQuoter, type);
             updateRows(conn, tablePlan.getTable(), tablePlan.getUpdates(), tablePlan.getMatchKey(),
-                tablePlan.getOmitColumns(), tableQuoter, columnQuoter);
+                tablePlan.getOmitColumns(), tableQuoter, columnQuoter, type);
         }
     }
 
@@ -488,10 +487,20 @@ public final class SqlUpsertSupport {
         return columns;
     }
 
-    private static void bindColumn(PreparedStatement ps, int parameterIndex, DbTable table, DbColumn column,
-            Object[] values) throws SQLException {
+    private static void bindColumn(PreparedStatement ps, Connection conn, DatasourceType type, int parameterIndex,
+            DbTable table, DbColumn column, Object[] values) throws SQLException {
         int colIdx = UpsertPlanner.columnIndex(table, column.getName());
         Object value = colIdx >= 0 && values != null && colIdx < values.length ? values[colIdx] : null;
+        bindValue(ps, conn, type, parameterIndex, table, column, value);
+    }
+
+    private static void bindValue(PreparedStatement ps, Connection conn, DatasourceType type, int parameterIndex,
+            DbTable table, DbColumn column, Object value) throws SQLException {
+        if (type == DatasourceType.POSTGRES) {
+            PostgresArchiveBinder.bind(ps, conn, parameterIndex,
+                table != null ? table.getName() : null, column, value);
+            return;
+        }
         if (value == null) {
             ps.setNull(parameterIndex, Types.NULL);
         } else {
