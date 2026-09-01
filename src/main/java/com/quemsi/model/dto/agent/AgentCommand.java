@@ -5,6 +5,7 @@ import java.io.Serializable;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.quemsi.model.dto.agent.onapi.NotifyError;
+import com.quemsi.model.dto.agent.onapi.NotifyFlowReady;
 import com.quemsi.model.dto.agent.onapi.PreviewSubsetResult;
 import com.quemsi.model.dto.agent.onapi.RetentionCompleted;
 import com.quemsi.model.dto.agent.onapi.TestAWSS3DriveResult;
@@ -38,6 +39,7 @@ import lombok.NoArgsConstructor;
     @JsonSubTypes.Type(value = TestRedis.class, name = "TestRedis"),
 
     @JsonSubTypes.Type(value = NotifyError.class, name = "NotifyError"),
+    @JsonSubTypes.Type(value = NotifyFlowReady.class, name = "NotifyFlowReady"),
     @JsonSubTypes.Type(value = RetentionCompleted.class, name = "RetentionCompleted"),
     @JsonSubTypes.Type(value = VersionDeleted.class, name = "VersionDeleted"),
     @JsonSubTypes.Type(value = TestDatasourceResult.class, name = "TestDatasourceResult"),

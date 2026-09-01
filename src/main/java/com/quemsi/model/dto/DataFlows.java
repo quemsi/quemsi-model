@@ -39,5 +39,6 @@ public class DataFlows extends BaseDto<Long>{
         private LocalDateTime lastExecutionTime;
         private FlowExecutionStatus status;
         private AgentReference agent;
+        private boolean inerror;
     }
 }

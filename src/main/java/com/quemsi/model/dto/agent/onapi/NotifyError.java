@@ -16,6 +16,9 @@ import lombok.NoArgsConstructor;
 @EqualsAndHashCode(callSuper = true)
 @NoArgsConstructor
 public class NotifyError extends AgentCommand{
+    public static final String EXTRA_PHASE = "phase";
+    public static final String PHASE_INIT = "init";
+
     private String entityType;
     private String entityName;
     private String messageId;
@@ -35,8 +38,12 @@ public class NotifyError extends AgentCommand{
     public NotifyError exception(BaseRuntimeException exception){
         this.messageId = exception.getMessageId();
         this.extra = exception.getExtra();
-        this.entityType = exception.getEntityType();
-        this.entityName = exception.getEntityName();
+        if (exception.getEntityType() != null) {
+            this.entityType = exception.getEntityType();
+        }
+        if (exception.getEntityName() != null) {
+            this.entityName = exception.getEntityName();
+        }
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
         exception.printStackTrace(pw);

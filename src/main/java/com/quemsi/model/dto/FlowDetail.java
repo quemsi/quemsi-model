@@ -36,4 +36,6 @@ public class FlowDetail extends BaseDto<Long>{
 	@NotNull
 	private AgentReference agent;
 	private int displayOrder;
+	/** True when the agent failed to initialize this flow. Execute is blocked until init succeeds. */
+	private boolean inerror;
 }
