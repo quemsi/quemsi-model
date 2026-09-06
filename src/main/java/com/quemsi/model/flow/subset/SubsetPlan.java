@@ -32,6 +32,15 @@ public class SubsetPlan {
         return keysFor(qualifiedTable).size();
     }
 
+    /** First-inclusion reason for a planned key, e.g. {@code from driver} or {@code via FK (public.child)}. */
+    public String sourceFor(String qualifiedTable, String key) {
+        SubsetTableProvenance prov = provenanceByTable.get(qualifiedTable);
+        if (prov == null || prov.getKeySources() == null || key == null) {
+            return null;
+        }
+        return prov.getKeySources().get(key);
+    }
+
     public List<SubsetTableSummary> summaries() {
         List<SubsetTableSummary> list = new ArrayList<>();
         for (Map.Entry<String, Set<String>> e : primaryKeysByTable.entrySet()) {
@@ -58,6 +67,12 @@ public class SubsetPlan {
         private long requiredByFkCount = 0;
         @Builder.Default
         private Set<String> requiredByTables = new LinkedHashSet<>();
+        /**
+         * Canonical PK → inclusion reason for the first time the key entered the plan
+         * ({@code from driver} or {@code via FK (child.table)}).
+         */
+        @Builder.Default
+        private Map<String, String> keySources = new LinkedHashMap<>();
 
         public static SubsetTableProvenance empty() {
             return SubsetTableProvenance.builder().build();

@@ -102,6 +102,9 @@ class SubsetPlannerTest {
         assertThat(plan.keysFor("B"), containsInAnyOrder("BR1", "BR2", "BR9"));
         assertThat(plan.getProvenanceByTable().get("B").getDriverCount(), equalTo(2L)); // BR2, BR9
         assertThat(plan.getProvenanceByTable().get("B").getRequiredByFkCount(), equalTo(1L)); // BR1
+        assertThat(plan.sourceFor("B", "BR2"), equalTo("from driver"));
+        assertThat(plan.sourceFor("B", "BR9"), equalTo("from driver"));
+        assertThat(plan.sourceFor("B", "BR1"), equalTo("via FK (A)"));
     }
 
     @Test

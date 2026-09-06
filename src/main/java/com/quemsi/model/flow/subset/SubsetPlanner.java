@@ -126,19 +126,23 @@ public class SubsetPlanner {
         long newlyFromDriver = 0;
         long newlyRequired = 0;
         boolean grew = false;
+        SubsetTableProvenance prov = provenance.computeIfAbsent(table, t -> SubsetTableProvenance.builder()
+            .requiredByTables(new LinkedHashSet<>())
+            .keySources(new LinkedHashMap<>())
+            .build());
         for (String key : keys) {
             if (existing.add(key)) {
                 grew = true;
                 if (fromDriver) {
                     newlyFromDriver++;
+                    prov.getKeySources().put(key, "from driver");
                 } else {
                     newlyRequired++;
+                    prov.getKeySources().put(key,
+                        requiredBy != null ? "via FK (" + requiredBy + ")" : "via FK");
                 }
             }
         }
-        SubsetTableProvenance prov = provenance.computeIfAbsent(table, t -> SubsetTableProvenance.builder()
-            .requiredByTables(new LinkedHashSet<>())
-            .build());
         prov.setDriverCount(prov.getDriverCount() + newlyFromDriver);
         prov.setRequiredByFkCount(prov.getRequiredByFkCount() + newlyRequired);
         if (requiredBy != null) {
