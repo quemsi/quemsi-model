@@ -25,6 +25,12 @@ class SubsetPredicateValidatorTest {
     }
 
     @Test
+    void rejectsMongoJsonFilter() {
+        assertThrows(BaseRuntimeException.class,
+            () -> SubsetPredicateValidator.validate("{\"status\":\"ACTIVE\"}"));
+    }
+
+    @Test
     void rejectsEmptyIsOk() {
         assertDoesNotThrow(() -> SubsetPredicateValidator.validate(null));
         assertDoesNotThrow(() -> SubsetPredicateValidator.validate(""));

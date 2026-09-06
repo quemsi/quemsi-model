@@ -179,6 +179,48 @@ class SubsetPlannerTest {
         assertThat(plan.getProvenanceByTable().get("HR.DEPARTMENTS").getRequiredByTables(), hasItem("HR.EMPLOYEES"));
     }
 
+    @Test
+    void mongoAcceptsJsonFilterWithoutParentClosure() {
+        DbModel mongo = new DbModel();
+        mongo.setSourceType("MONGODB");
+        DbTable orders = mongo.addTable("orders", "demo");
+        orders.getPkColumnNames().add("_id");
+        orders.addColumn(col("_id", 1));
+        orders.addColumn(col("status", 2));
+        mongo.build();
+
+        FakeDml mongoDml = new FakeDml();
+        String filter = "{\"status\":\"ACTIVE\"}";
+        mongoDml.whereToSeedKey.put(filter, "mongo-active");
+        mongoDml.seedKeys.put("mongo-active", Set.of("oid1", "oid2"));
+
+        SubsetConfig config = SubsetConfig.builder()
+            .enabled(true)
+            .drivers(List.of(SubsetDriver.builder().table("orders").where(filter).build()))
+            .build();
+
+        SubsetPlan plan = new SubsetPlanner().plan(mongo, mongoDml, config);
+        assertThat(plan.keysFor(orders.qualifiedName()), containsInAnyOrder("oid1", "oid2"));
+        assertThat(plan.getPrimaryKeysByTable().size(), equalTo(1));
+    }
+
+    @Test
+    void mongoRejectsSqlWhereFragment() {
+        DbModel mongo = new DbModel();
+        mongo.setSourceType("MONGODB");
+        DbTable orders = mongo.addTable("orders", "demo");
+        orders.getPkColumnNames().add("_id");
+        orders.addColumn(col("_id", 1));
+        mongo.build();
+
+        SubsetConfig config = SubsetConfig.builder()
+            .enabled(true)
+            .drivers(List.of(SubsetDriver.builder().table("orders").where("t.status = 'A'").build()))
+            .build();
+
+        assertThrows(BaseRuntimeException.class, () -> new SubsetPlanner().plan(mongo, dml, config));
+    }
+
     static class FakeDml implements DMLService {
         Map<String, String> whereToSeedKey = new HashMap<>();
         Map<String, Set<String>> seedKeys = new HashMap<>();

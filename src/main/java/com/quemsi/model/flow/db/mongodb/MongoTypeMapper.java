@@ -170,10 +170,6 @@ public final class MongoTypeMapper {
     }
 
     public static Object idKey(Object id) {
-        Object json = toJsonValue(id);
-        if (json instanceof Map || json instanceof List) {
-            return String.valueOf(json);
-        }
-        return json;
+        return MongoSubsetSupport.encodeIdKey(id);
     }
 }

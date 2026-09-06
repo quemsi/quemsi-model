@@ -12,7 +12,9 @@ import java.util.Set;
 
 import com.quemsi.commons.util.Exceptions;
 import com.quemsi.commons.util.StringUtils;
+import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.DMLService;
+import com.quemsi.model.flow.db.mongodb.MongoSubsetSupport;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -53,7 +55,11 @@ public class SubsetPlanner {
                         .withExtra("table", driver.getTable())
                         .get();
                 }
-                SubsetPredicateValidator.validate(where);
+                if (isMongo(dbModel)) {
+                    MongoSubsetSupport.validateFilter(where);
+                } else {
+                    SubsetPredicateValidator.validate(where);
+                }
             }
 
             Set<String> seedKeys = dml.selectPrimaryKeys(table, where, driver.getLimit());
@@ -178,5 +184,10 @@ public class SubsetPlanner {
             }
         }
         return Optional.empty();
+    }
+
+    private static boolean isMongo(DbModel dbModel) {
+        return dbModel != null
+            && DatasourceType.MONGODB.name().equalsIgnoreCase(dbModel.getSourceType());
     }
 }

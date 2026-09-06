@@ -1,20 +1,24 @@
 package com.quemsi.model.flow.db.mongodb;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.bson.Document;
+import org.bson.conversions.Bson;
 
 import com.mongodb.client.FindIterable;
 import com.mongodb.client.MongoCollection;
 import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
 import com.mongodb.client.model.InsertManyOptions;
+import com.mongodb.client.model.Projections;
 import com.mongodb.client.model.Sorts;
 import com.quemsi.commons.util.Exceptions;
-import com.quemsi.commons.util.StringUtils;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -58,6 +62,11 @@ public class DMLServiceMongo implements DMLService {
     }
 
     @Override
+    public boolean supportsSubset() {
+        return true;
+    }
+
+    @Override
     public int getTablePageSize(Integer expectedPageSize, DbTable table) {
         return expectedPageSize != null && expectedPageSize > 0 ? expectedPageSize : 1000;
     }
@@ -68,14 +77,77 @@ public class DMLServiceMongo implements DMLService {
     }
 
     @Override
+    public long countRows(DbTable table, String whereFragment) {
+        try {
+            Document filter = MongoSubsetSupport.parseFilter(whereFragment);
+            return collection(table).countDocuments(filter);
+        } catch (com.quemsi.commons.util.BaseRuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw Exceptions.server("unable-to-count-rows")
+                    .withExtra("table", table != null ? table.qualifiedName() : null)
+                    .withCause(e)
+                    .get();
+        }
+    }
+
+    @Override
+    public Set<String> selectPrimaryKeys(DbTable table, String whereFragment, Integer limit) {
+        SqlSubsetSupport.requirePrimaryKey(table);
+        try {
+            Document filter = MongoSubsetSupport.parseFilter(whereFragment);
+            FindIterable<Document> find = collection(table).find(filter)
+                    .projection(Projections.include("_id"))
+                    .sort(Sorts.ascending("_id"));
+            if (limit != null && limit > 0) {
+                find = find.limit(limit);
+            }
+            Set<String> keys = new LinkedHashSet<>();
+            for (Document doc : find) {
+                keys.add(MongoSubsetSupport.encodeIdKey(doc.get("_id")));
+            }
+            return keys;
+        } catch (com.quemsi.commons.util.BaseRuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw Exceptions.server("unable-to-select-primary-keys")
+                    .withExtra("table", table != null ? table.qualifiedName() : null)
+                    .withCause(e)
+                    .get();
+        }
+    }
+
+    @Override
+    public Set<String> selectParentPrimaryKeys(DbTable child, DbTable parent,
+            List<String> childFkColumns, List<String> parentRefColumns, Collection<String> childPkKeys) {
+        // Mongo DbModel has no FK references; parent closure is unused until references exist.
+        return Set.of();
+    }
+
+    @Override
     public TableDataPage getTableDataPage(Request request) {
         try {
             MongoCollection<Document> col = collection(request.getTable());
-            int skip = request.getPageNum() * request.getPageSize();
-            FindIterable<Document> find = col.find()
-                    .sort(Sorts.ascending("_id"))
-                    .skip(skip)
-                    .limit(request.getPageSize());
+            List<String> primaryKeys = request.getPrimaryKeys();
+            FindIterable<Document> find;
+            if (primaryKeys != null && !primaryKeys.isEmpty()) {
+                List<Object> ids = new ArrayList<>(primaryKeys.size());
+                for (String key : primaryKeys) {
+                    Object decoded = MongoSubsetSupport.decodeIdKey(key);
+                    if (decoded != null) {
+                        ids.add(decoded);
+                    }
+                }
+                Bson filter = ids.isEmpty() ? Filters.eq("_id", null) : Filters.in("_id", ids);
+                find = col.find(filter).sort(Sorts.ascending("_id"));
+                log.info("subset page for {} keys={}", request.getTable().getName(), primaryKeys.size());
+            } else {
+                int skip = request.getPageNum() * request.getPageSize();
+                find = col.find()
+                        .sort(Sorts.ascending("_id"))
+                        .skip(skip)
+                        .limit(request.getPageSize());
+            }
 
             TableDataPage page = new TableDataPage();
             page.setRequest(request);
@@ -83,14 +155,18 @@ public class DMLServiceMongo implements DMLService {
             int count = 0;
             for (Document doc : find) {
                 Map<String, Object> jsonDoc = MongoTypeMapper.documentToMap(doc);
-                Object idKey = MongoTypeMapper.idKey(doc.get("_id"));
+                String idKey = MongoSubsetSupport.encodeIdKey(doc.get("_id"));
                 documents.put(idKey, jsonDoc);
                 count++;
             }
             page.setDocuments(documents);
-            page.setHasMorePage(count >= request.getPageSize());
+            page.setHasMorePage(primaryKeys != null && !primaryKeys.isEmpty()
+                    ? false
+                    : count >= request.getPageSize());
             log.info("{} page for {} created ({} docs)", request.getPageNum(), request.getTable().getName(), count);
             return page;
+        } catch (com.quemsi.commons.util.BaseRuntimeException e) {
+            throw e;
         } catch (Exception e) {
             throw Exceptions.server("unable-to-read-data").withExtra("request", request).withCause(e).get();
         }
@@ -152,7 +228,7 @@ public class DMLServiceMongo implements DMLService {
         try {
             int size = SqlSubsetSupport.normalizeBrowseLimit(pageSize);
             int pageNum = SqlSubsetSupport.normalizeBrowsePage(page);
-            Document filter = parseBrowseFilter(whereFragment);
+            Document filter = MongoSubsetSupport.parseFilter(whereFragment);
             MongoCollection<Document> col = collection(table);
             long total = col.countDocuments(filter);
             FindIterable<Document> find = col.find(filter)
@@ -168,8 +244,7 @@ public class DMLServiceMongo implements DMLService {
             List<String> displayCols = buildBrowseColumns(table, docs);
             List<SubsetBrowseResult.BrowseRow> rows = new ArrayList<>(docs.size());
             for (Document doc : docs) {
-                Object idObj = MongoTypeMapper.idKey(doc.get("_id"));
-                String pkKey = idObj == null ? "" : String.valueOf(idObj);
+                String pkKey = MongoSubsetSupport.encodeIdKey(doc.get("_id"));
                 List<String> values = new ArrayList<>(displayCols.size());
                 for (String colName : displayCols) {
                     values.add(displayCell(doc.get(colName)));
@@ -188,29 +263,6 @@ public class DMLServiceMongo implements DMLService {
         } catch (Exception e) {
             throw Exceptions.server("unable-to-browse-rows")
                     .withExtra("table", table != null ? table.qualifiedName() : null)
-                    .withCause(e)
-                    .get();
-        }
-    }
-
-    /**
-     * Empty filter = all documents. Non-empty must be a MongoDB JSON query document, e.g. {@code {"status":"A"}}.
-     */
-    private static Document parseBrowseFilter(String whereFragment) {
-        if (StringUtils.isEmptyOrNull(whereFragment)) {
-            return new Document();
-        }
-        String trimmed = whereFragment.trim();
-        if (!trimmed.startsWith("{")) {
-            throw Exceptions.badRequest("mongo-browse-filter-must-be-json")
-                    .withExtra("hint", "Use a MongoDB filter document, e.g. {\"status\":\"ACTIVE\"}")
-                    .get();
-        }
-        try {
-            return Document.parse(trimmed);
-        } catch (Exception e) {
-            throw Exceptions.badRequest("mongo-browse-filter-invalid")
-                    .withExtra("hint", "Use a MongoDB filter document, e.g. {\"status\":\"ACTIVE\"}")
                     .withCause(e)
                     .get();
         }
