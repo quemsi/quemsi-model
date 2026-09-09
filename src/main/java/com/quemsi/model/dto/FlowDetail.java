@@ -38,4 +38,8 @@ public class FlowDetail extends BaseDto<Long>{
 	private int displayOrder;
 	/** True when the agent failed to initialize this flow. Execute is blocked until init succeeds. */
 	private boolean inerror;
+	/** Hidden restore-owned flow; never installed into the standing agent model. */
+	private boolean ephemeral;
+	private String restoreTagName;
+	private String restoreTagValue;
 }

@@ -27,6 +27,7 @@ import lombok.NoArgsConstructor;
 )
 @JsonSubTypes({
     @JsonSubTypes.Type(value = ExecuteFlow.class, name = "ExecuteFlow"),
+    @JsonSubTypes.Type(value = ExecuteEphemeralFlow.class, name = "ExecuteEphemeralFlow"),
     @JsonSubTypes.Type(value = DelayAgentCommand.class, name = "DelayAgentCommand"),
     @JsonSubTypes.Type(value = UpdateAgentModel.class, name = "UpdateAgentModel"),
     @JsonSubTypes.Type(value = RetentionExecute.class, name = "RetentionExecute"),
