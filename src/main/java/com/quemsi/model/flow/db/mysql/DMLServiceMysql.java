@@ -346,6 +346,11 @@ public class DMLServiceMysql implements DMLService{
 	public void updateSequence(String qualifiedSequenceName, Long newValue) {
 		throw Exceptions.server("not-supported-implemented").get();
 	}
+
+	@Override
+	public void reseedIdentity(DbTable table, DbColumn column) {
+		/* Explicit inserts advance AUTO_INCREMENT. */
+	}
     @Override
     public void close() throws Exception {
         

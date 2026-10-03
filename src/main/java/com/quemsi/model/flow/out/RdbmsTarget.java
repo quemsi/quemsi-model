@@ -30,6 +30,10 @@ import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.postgres.PostgresEnumSupport;
+import com.quemsi.model.flow.db.cross.CrossDbPlan;
+import com.quemsi.model.flow.db.cross.CrossDbTranslator;
+import com.quemsi.model.flow.db.cross.ValueAdapter;
+import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -58,6 +62,7 @@ public class RdbmsTarget extends AbstractStorage {
     private Semaphore inFlightRows;
     private int rowBudget;
     private ExecutorService pageWritePool;
+    private CrossDbPlan crossDbPlan;
 
     @Override
     public boolean recordFiles() {
@@ -97,6 +102,7 @@ public class RdbmsTarget extends AbstractStorage {
         globalCancellationFlag.set(false);
         firstFailure.set(null);
         taskRegistry.clear();
+        crossDbPlan = null;
         pageWritePool = Executors.newFixedThreadPool(Math.max(1, parallelism));
 
         try (DDLService ddlService = datasourceFactory.ddlService()) {
@@ -105,21 +111,25 @@ public class RdbmsTarget extends AbstractStorage {
                 dbModel = objectMapper.readValue(in, DbModel.class);
             }
 
-            if (!datasourceFactory.type().equals(DatasourceType.valueOf(dbModel.getSourceType()))) {
-                throw Exceptions.badRequest("unsupported-source-type-for-rdbms-target")
-                    .withExtra("sourceType", dbModel.getSourceType())
-                    .withExtra("targetType", datasourceFactory.getName())
-                    .get();
-            }
-
             context.getDbModelProcessors().forEach(p -> p.process(dbModel));
+            DatasourceType sourceType = DatasourceType.valueOf(dbModel.getSourceType());
+            if (!datasourceFactory.type().equals(sourceType)) {
+                if (!CrossDbTranslator.isSql(sourceType) || !CrossDbTranslator.isSql(datasourceFactory.type())) {
+                    throw Exceptions.badRequest("unsupported-source-type-for-rdbms-target")
+                        .withExtra("sourceType", dbModel.getSourceType())
+                        .withExtra("targetType", datasourceFactory.type())
+                        .get();
+                }
+                crossDbPlan = CrossDbTranslator.translate(dbModel, datasourceFactory.type());
+                for (String warning : crossDbPlan.report().warnings()) {
+                    context.logStepWarn(context.getCurrentStep(), warning);
+                }
+            } else if (DatasourceType.POSTGRES == sourceType) {
+                PostgresEnumSupport.ensureEnumTypes(dbModel);
+            }
             // Rebuild FK graph after JSON deserialize / schema processors so restore waits
             // and circularIgnore are recalculated from referenceInfos.
             dbModel.build();
-
-            if (DatasourceType.POSTGRES.name().equals(dbModel.getSourceType())) {
-                PostgresEnumSupport.ensureEnumTypes(dbModel);
-            }
 
             rowBudget = deriveRowBudget(dbModel.getBatchSize(), parallelism);
             inFlightRows = new Semaphore(rowBudget);
@@ -166,6 +176,9 @@ public class RdbmsTarget extends AbstractStorage {
                     ddlService.createFunctions(dbModel);
                     ddlService.createViews(dbModel);
                     ddlService.createTriggers(dbModel);
+                    if (crossDbPlan != null) {
+                        reseedIdentities(dbModel);
+                    }
                     context.logStepInfo(context.getCurrentStep(),
                         LogMessage.info("all data is restored successfully"));
                 } else {
@@ -193,6 +206,7 @@ public class RdbmsTarget extends AbstractStorage {
             }
             throw Exceptions.server("exception-in-rdbms-restore").withCause(e).get();
         } finally {
+            crossDbPlan = null;
             pageWritePool.shutdown();
             try {
                 pageWritePool.awaitTermination(1, TimeUnit.HOURS);
@@ -221,6 +235,20 @@ public class RdbmsTarget extends AbstractStorage {
     public void fillDetails(Map<String, Object> props) {
         props.put("type", RdbmsTarget.class.getSimpleName());
         props.put("datasource", datasourceFactory.getName());
+    }
+
+    private void reseedIdentities(DbModel dbModel) {
+        try (DMLService dmlService = datasourceFactory.dmlService()) {
+            for (DbTable table : dbModel.orderedTables()) {
+                for (DbColumn column : table.orderedColumns()) {
+                    if (column.isIdentity()) {
+                        dmlService.reseedIdentity(table, column);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw Exceptions.server("unable-to-reseed-identity").withCause(e).get();
+        }
     }
 
     public class RdmsRestoreTask implements Callable<Boolean> {
@@ -270,7 +298,10 @@ public class RdbmsTarget extends AbstractStorage {
                     }
                 }
 
-                String metaEntry = CommonHelpers.tableMetaEntryName(table.qualifiedName());
+                String archiveTable = crossDbPlan == null
+                    ? table.qualifiedName()
+                    : crossDbPlan.archiveName(table.qualifiedName());
+                String metaEntry = CommonHelpers.tableMetaEntryName(archiveTable);
                 if (!archive.exists(metaEntry)) {
                     context.logStepError(context.getCurrentStep(), "unable to find table meta " + metaEntry);
                     future.complete(false);
@@ -281,7 +312,7 @@ public class RdbmsTarget extends AbstractStorage {
                 try (InputStream metaIn = archive.open(metaEntry)) {
                     meta = objectMapper.readValue(metaIn, TableDataMeta.class);
                 }
-                List<String> pageEntries = archive.listPageEntries(table.qualifiedName());
+                List<String> pageEntries = archive.listPageEntries(archiveTable);
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restoring {} pages for {} (meta totalPages={})",
                         pageEntries.size(), table.qualifiedName(), meta.getTotalPages()));
@@ -371,7 +402,7 @@ public class RdbmsTarget extends AbstractStorage {
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restoring page {} of {} with {} records for {}",
                         page.getPageNum() + 1, totalPages, page.getSize(), table.getName()));
-                dmlService.writePageData(table, page);
+                dmlService.writePageData(table, crossDbPlan == null ? page : ValueAdapter.project(table, page, crossDbPlan));
                 context.logStepInfo(context.getCurrentStep(),
                     LogMessage.info("restored page {} of {} records for {}",
                         page.getPageNum() + 1, totalPages, page.getSize(), table.getName()));

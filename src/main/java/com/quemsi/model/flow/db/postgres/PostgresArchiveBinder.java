@@ -55,6 +55,10 @@ public final class PostgresArchiveBinder {
             ps.setBytes(parameterIndex, serializedColumn.getData());
             return;
         }
+        if (value instanceof byte[] bytes) {
+            ps.setBytes(parameterIndex, bytes);
+            return;
+        }
         ps.setObject(parameterIndex, value, Types.OTHER);
     }
 }

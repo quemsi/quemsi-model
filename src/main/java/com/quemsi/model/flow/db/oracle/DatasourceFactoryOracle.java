@@ -30,6 +30,7 @@ import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
+import com.quemsi.model.flow.db.cross.IdentityFlags;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbFunction;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -88,7 +89,7 @@ select
 	case when c.DATA_TYPE = 'NUMBER' then null else c.CHAR_LENGTH end as character_maximum_length,
 	c.DATA_TYPE as column_type, c.DATA_TYPE as data_type,
 	c.DATA_LENGTH as character_octet_length, c.DATA_PRECISION as numeric_precision, c.DATA_SCALE as numeric_scale,
-	c.DATA_DEFAULT as column_default, c.NULLABLE as is_nullable
+	c.DATA_DEFAULT as column_default, c.NULLABLE as is_nullable, c.IDENTITY_COLUMN as identity_column
 from ALL_TAB_COLUMNS c
 where c.OWNER in {inValues}
   and c.COLUMN_NAME not like 'SYS_NC%%'
@@ -445,6 +446,7 @@ where tc.OWNER in {inValues}
 				}
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
+				String identityColumn = rs.getString("IDENTITY_COLUMN");
 
 				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
 				table.addColumn(DbColumn.builder()
@@ -457,7 +459,7 @@ where tc.OWNER in {inValues}
 					.numScale(numScale)
 					.columnDefault(columnDefault)
 					.nullable("Y".equalsIgnoreCase(nullable))
-					.identity(false)
+					.identity(IdentityFlags.oracle(identityColumn))
 					.build());
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));

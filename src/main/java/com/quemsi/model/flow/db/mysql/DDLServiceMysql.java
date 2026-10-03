@@ -111,6 +111,16 @@ public class DDLServiceMysql implements DDLService{
 		return columnDefault;
 	}
 
+	static void appendAutoIncrement(StringBuilder sb, DbColumn column) {
+		if (!column.isIdentity()) {
+			return;
+		}
+		String type = column.getColumnType() == null ? "" : column.getColumnType().toUpperCase(java.util.Locale.ROOT);
+		if (!type.contains("AUTO_INCREMENT")) {
+			sb.append(" AUTO_INCREMENT");
+		}
+	}
+
 	private static String mysqlBaseType(String columnType) {
 		if (columnType == null || columnType.isBlank()) {
 			return "";
@@ -254,10 +264,13 @@ public class DDLServiceMysql implements DDLService{
 			int index = 0;
             for(DbColumn c : columns){
 				sb.append("  ").append("`").append(c.getName()).append("`").append(" ").append(c.getColumnType());
+				appendAutoIncrement(sb, c);
 				if(!c.isNullable()){
 					sb.append(" NOT NULL");
 				}
-				appendColumnDefault(sb, c);
+				if (!c.isIdentity()) {
+					appendColumnDefault(sb, c);
+				}
                 if(index < columns.length - 1){
                     sb.append(",").append(System.lineSeparator());
                 }
@@ -593,11 +606,13 @@ public class DDLServiceMysql implements DDLService{
         
         for (DbColumn c : columns) {
             sb.append("  `").append(c.getName()).append("` ").append(c.getColumnType());
-            
+            appendAutoIncrement(sb, c);
             if (!c.isNullable()) {
                 sb.append(" NOT NULL");
             }
-			appendColumnDefault(sb, c);
+			if (!c.isIdentity()) {
+				appendColumnDefault(sb, c);
+			}
             
             if (index < columns.length - 1) {
                 sb.append(",").append(System.lineSeparator());
@@ -650,11 +665,14 @@ public class DDLServiceMysql implements DDLService{
     private String generateAddColumnSql(String tableName, DbColumn column) {
         StringBuilder sb = new StringBuilder("ALTER TABLE ").append(tableName).append(" ADD COLUMN `").append(column.getName()).append("` ");
         sb.append(column.getColumnType());
+        appendAutoIncrement(sb, column);
         
         if (!column.isNullable()) {
             sb.append(" NOT NULL");
         }
-		appendColumnDefault(sb, column);
+		if (!column.isIdentity()) {
+			appendColumnDefault(sb, column);
+		}
         
         sb.append(";");
         return sb.toString();

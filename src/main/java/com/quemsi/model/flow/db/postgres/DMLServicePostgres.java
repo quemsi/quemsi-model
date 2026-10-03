@@ -393,6 +393,24 @@ public class DMLServicePostgres implements DMLService{
 		}
     }
 
+	@Override
+	public void reseedIdentity(DbTable table, DbColumn column) {
+		Long max = getMaxColumnValue(table.qualifiedName(), column.getName());
+		if (max == null) {
+			return;
+		}
+		String sql = "SELECT setval(pg_get_serial_sequence(?, ?), ?, true)";
+		try (Connection conn = dataSource.getConnection();
+			 PreparedStatement ps = conn.prepareStatement(sql)) {
+			ps.setString(1, CommonHelpers.doubleQuotedQualified(table.getSchema(), table.getName()));
+			ps.setString(2, column.getName());
+			ps.setLong(3, max);
+			ps.executeQuery();
+		} catch (SQLException e) {
+			log.warn("Error reseeding identity {}.{} to {}", table.qualifiedName(), column.getName(), max, e);
+		}
+	}
+
     @Override
     public void close() throws Exception {
     }

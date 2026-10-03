@@ -26,6 +26,7 @@ import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
+import com.quemsi.model.flow.db.cross.IdentityFlags;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
 import com.quemsi.model.flow.db.sql.DbModel.CheckConstraint;
@@ -46,7 +47,7 @@ public class DataSourceFactoryMySql implements DataSourceFactory {
 	private static final String SQL_FOR_COLUMNS = """
 SELECT cols.TABLE_NAME, cols.COLUMN_NAME, cols.ORDINAL_POSITION,
     cols.CHARACTER_MAXIMUM_LENGTH, cols.COLUMN_TYPE, cols.DATA_TYPE, cols.CHARACTER_OCTET_LENGTH, cols.NUMERIC_PRECISION, cols.NUMERIC_SCALE,
-    cols.COLUMN_KEY, cols.COLUMN_DEFAULT, cols.IS_NULLABLE
+    cols.COLUMN_KEY, cols.COLUMN_DEFAULT, cols.IS_NULLABLE, cols.EXTRA
 FROM INFORMATION_SCHEMA.`COLUMNS` as cols
 where cols.TABLE_SCHEMA = ?
   and not exists (
@@ -228,9 +229,9 @@ WHERE vtu.VIEW_SCHEMA = ?
 				Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
-				String isIdentity = "FALSE";
+				String extra = rs.getString("EXTRA");
 				DbTable table = dbModel.crateIfAbsent(tableName);
-				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(IdentityFlags.mysql(extra)).build());
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 			reportProgress(progress, LogMessage.info("Loading constraints..."));

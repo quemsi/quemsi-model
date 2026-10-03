@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbTable;
 import com.quemsi.model.flow.in.TableData.DataPage;
 import com.quemsi.model.flow.in.TableDataPage;
@@ -28,6 +29,13 @@ public interface DMLService extends AutoCloseable{
 
 	void updateSequence(String qualifiedSequenceName, Long newValue);
 	Long getMaxColumnValue(String tableName, String columnName);
+
+	/**
+	 * Move an identity or auto-increment counter past the loaded maximum.
+	 * MySQL advances {@code AUTO_INCREMENT} when explicit values are inserted, so its implementation is a no-op.
+	 */
+	default void reseedIdentity(DbTable table, DbColumn column) {
+	}
 
 	/** Filtered count for subset drivers. Default: unsupported. */
 	default long countRows(DbTable table, String whereFragment) {

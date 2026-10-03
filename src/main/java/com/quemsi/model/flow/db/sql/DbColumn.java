@@ -4,6 +4,7 @@ import java.util.Locale;
 import java.util.Set;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.quemsi.model.flow.db.cross.PortableColumn;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -58,6 +59,16 @@ public class DbColumn {
     @Getter
     @Setter
     private String xmlSchemaCollection;
+    /** In-memory cross-database mapping. Not written to backups. */
+    @JsonIgnore
+    @Getter
+    @Setter
+    private PortableColumn portable;
+    /** In-memory flag set when a cross-database restore drops this column. */
+    @JsonIgnore
+    @Getter
+    @Setter
+    private boolean omitted;
 
     /**
      * Columns that cannot appear in {@code ORDER BY} (LOB / long / xml-like types).

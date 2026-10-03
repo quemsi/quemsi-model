@@ -23,6 +23,7 @@ import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.DMLService;
 import com.quemsi.model.flow.db.DataSourceFactory;
 import com.quemsi.model.flow.db.RsHelper;
+import com.quemsi.model.flow.db.cross.IdentityFlags;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbDomainType;
 import com.quemsi.model.flow.db.sql.DbEnumType;
@@ -50,7 +51,7 @@ public class DatasourceFactoryPostgres implements DataSourceFactory{
 select 
 	c.table_schema as table_schema, c.table_name, c.column_name, c.ordinal_position,
 	c.character_maximum_length, c.udt_name as column_type, c.udt_name as data_type, c.character_octet_length, c.numeric_precision, c.numeric_scale,
-	c.column_default, c.is_nullable
+	c.column_default, c.is_nullable, c.is_identity
 from information_schema.columns c
 where c.table_schema in {inValues}
 	and not exists (
@@ -453,9 +454,9 @@ order by table_schema, table_name, trigger_name
 				Integer numScale = rsHelper.getInt("NUMERIC_SCALE");
 				String columnDefault = rs.getString("COLUMN_DEFAULT");
 				String nullable = rs.getString("IS_NULLABLE");
-				String isIdentity = "FALSE";
+				String isIdentity = rs.getString("IS_IDENTITY");
 				DbTable table = dbModel.crateIfAbsent(tableName, schemaName);
-				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(CommonOps.isTrue(isIdentity)).build());
+				table.addColumn(DbColumn.builder().name(columnName).dataType(dataType).ordinalPosition(ordinalPosition).columnType(columnType).maxLength(maxLength).numPrecision(numPrecision).numScale(numScale).columnDefault(columnDefault).nullable(CommonOps.isTrue(nullable)).identity(IdentityFlags.postgres(isIdentity, columnDefault)).build());
 			}
 			reportProgress(progress, LogMessage.info("Loaded {} tables", dbModel.getTables().size()));
 

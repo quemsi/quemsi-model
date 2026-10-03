@@ -1048,6 +1048,22 @@ select * from (
 		}
     }
 
+	@Override
+	public void reseedIdentity(DbTable table, DbColumn column) {
+		Long max = getMaxColumnValue(table.qualifiedName(), column.getName());
+		if (max == null) {
+			return;
+		}
+		String literal = table.qualifiedName().replace("'", "''");
+		String sql = "DBCC CHECKIDENT ('" + literal + "', RESEED, " + max + ")";
+		try (Connection conn = dataSource.getConnection();
+			 Statement statement = conn.createStatement()) {
+			statement.execute(sql);
+		} catch (SQLException e) {
+			log.warn("Error reseeding identity {}.{} to {}", table.qualifiedName(), column.getName(), max, e);
+		}
+	}
+
     @Override
     public void close() throws Exception {
     }
