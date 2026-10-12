@@ -1,6 +1,7 @@
 package com.quemsi.model.flow.db.oracle;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -44,6 +45,21 @@ public class DMLServiceOracleWritePageDataTest {
 		assertThat(recording.rollbackCalls.get(), equalTo(0));
 		assertThat(recording.autoCommitAfterClose.get(), equalTo(true));
 		assertThat(recording.addBatchCalls.get(), equalTo(2));
+	}
+
+	@Test
+	public void writePageData_quotesLowercaseColumnNames() throws Exception {
+		RecordingConnection recording = new RecordingConnection(false);
+		DbTable table = new DbTable("QUEMSI", "flyway_schema_history");
+		table.addColumn(DbColumn.builder().name("installed_rank").dataType("NUMBER").columnType("NUMBER")
+			.ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("success").dataType("NUMBER").columnType("NUMBER")
+			.ordinalPosition(2).nullable(false).build());
+		try (DMLServiceOracle dml = new DMLServiceOracle(dataSource(recording.connection), null)) {
+			dml.writePageData(table, new DataPage(0, Map.of(1, new Object[] { 1L, 1 })));
+		}
+		assertThat(recording.sql, containsString("\"installed_rank\""));
+		assertThat(recording.sql, containsString("\"success\""));
 	}
 
 	@Test
@@ -99,6 +115,7 @@ public class DMLServiceOracleWritePageDataTest {
 		final AtomicInteger addBatchCalls = new AtomicInteger();
 		final AtomicBoolean autoCommit = new AtomicBoolean(true);
 		final AtomicBoolean autoCommitAfterClose = new AtomicBoolean();
+		volatile String sql;
 		final boolean failOnExecuteBatch;
 		final Connection connection;
 
@@ -127,6 +144,7 @@ public class DMLServiceOracleWritePageDataTest {
 					}
 					return null;
 				case "prepareStatement":
+					sql = (String) args[0];
 					return preparedStatementProxy();
 				case "close":
 					autoCommitAfterClose.set(autoCommit.get());

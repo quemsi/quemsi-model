@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +63,22 @@ public class DatasourceFactoryOracle implements DataSourceFactory {
 		"SMALLINT", "START", "SUCCESSFUL", "SYNONYM", "SYSDATE", "TABLE", "THEN", "TO", "TRIGGER", "UID", "UNION", "UNIQUE",
 		"UPDATE", "USER", "VALIDATE", "VALUES", "VARCHAR", "VARCHAR2", "VIEW", "WHENEVER", "WHERE", "WITH"
 	);
+
+	/** Quote a name that is reserved or not already uppercase, matching {@code CREATE TABLE}. */
+	public static boolean needsQuoting(String name) {
+		if (name == null || name.isEmpty()) {
+			return false;
+		}
+		String upper = name.toUpperCase(Locale.ROOT);
+		return RESERVED_KEYS.contains(upper) || !name.equals(upper);
+	}
+
+	public static String quoteIfNeeded(String name) {
+		if (!needsQuoting(name)) {
+			return name;
+		}
+		return "\"" + name.replace("\"", "\"\"") + "\"";
+	}
 
 	protected static final String SQL_FOR_TABLES = """
 select t.OWNER as schema_name, t.TABLE_NAME as table_name

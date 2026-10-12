@@ -383,6 +383,40 @@ public class DDLServiceOracleTest {
 		assertThat(statements.get(0), containsString("MINVALUE 1"));
 		assertThat(statements.get(0), containsString("MAXVALUE 1000"));
 		assertThat(statements.get(0), containsString("NOCYCLE"));
+		assertThat(statements.get(0), containsString("CACHE 20"));
+	}
+
+	@Test
+	public void cacheOfOneIsNoCache() {
+		DbSequence seq = DbSequence.builder()
+			.schema("QUEMSI")
+			.name("FLOW_ID_SEQ")
+			.incrementBy(1L)
+			.startValue(1L)
+			.cycle(false)
+			.cacheSize(1L)
+			.build();
+		StringBuilder sql = new StringBuilder();
+		DDLServiceOracle.appendSequenceCache(sql, seq.getCacheSize());
+		assertThat(sql.toString(), equalTo(" NOCACHE"));
+		sql.setLength(0);
+		DDLServiceOracle.appendSequenceCache(sql, 20L);
+		assertThat(sql.toString(), equalTo(" CACHE 20"));
+	}
+
+	@Test
+	public void nullableUniqueIndexOmitsNullKeys() {
+		IndexInfo index = new IndexInfo("QUEMSIAPI", "flow", "uk_flow_restore_action", true, "NORMAL");
+		index.getColumns().add("data_id");
+		index.getColumns().add("restore_tag_name");
+		index.getColumns().add("restore_tag_value");
+		index.setFilter("\"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL");
+		StringBuilder sql = new StringBuilder();
+		DDLServiceOracle.appendNullDistinctIndexColumns(sql, index);
+		assertThat(sql.toString(), equalTo(
+			"CASE WHEN \"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL THEN \"data_id\" END, "
+			+ "CASE WHEN \"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL THEN \"restore_tag_name\" END, "
+			+ "CASE WHEN \"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL THEN \"restore_tag_value\" END"));
 	}
 
 	@Test

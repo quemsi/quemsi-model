@@ -144,6 +144,31 @@ public class CrossDbTranslatorTest {
 	}
 
 	@Test
+	public void nullableUniqueKeysBecomeOracleFunctionIndexes() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		model.setSchemas(Set.of("public"));
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("data_id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("restore_tag_name").dataType("varchar").columnType("varchar")
+			.ordinalPosition(2).maxLength(255).nullable(true).build());
+		table.addColumn(DbColumn.builder().name("restore_tag_value").dataType("varchar").columnType("varchar")
+			.ordinalPosition(3).maxLength(255).nullable(true).build());
+		IndexInfo partial = new IndexInfo("public", "flow", "uk_flow_restore_action", true, "btree");
+		partial.getColumns().add("data_id");
+		partial.getColumns().add("restore_tag_name");
+		partial.getColumns().add("restore_tag_value");
+		model.getIndexes().computeIfAbsent("public.flow", key -> new LinkedHashMap<>()).put(partial.getIndexName(), partial);
+
+		CrossDbTranslator.translate(model, DatasourceType.ORACLE, "quemsiapi");
+
+		IndexInfo restored = model.indexesForTable("QUEMSIAPI.flow").get("uk_flow_restore_action");
+		assertThat(restored.getFilter(), equalTo("\"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL"));
+		assertThat(restored.isUnique(), is(true));
+	}
+
+	@Test
 	public void postgresOidLargeObjectRestoresAsSqlServerVarbinary() {
 		DbModel model = new DbModel();
 		model.setSourceType(DatasourceType.POSTGRES.name());
@@ -362,6 +387,39 @@ public class CrossDbTranslatorTest {
 		assertThat(model.getSequences().get(0).getName(), equalTo("flow_id_seq"));
 		assertThat(joined(plan), containsString("nextval('public.flow_id_seq'::regclass)"));
 		assertThat(joined(plan), org.hamcrest.Matchers.not(containsString("omitted sequence")));
+	}
+
+	@Test
+	public void postgresPublicSchemaUsesOracleLogin() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		model.setSchemas(Set.of("public"));
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).build());
+		model.getSequences().add(DbSequence.builder().schema("public").name("flow_id_seq")
+			.startValue(1L).incrementBy(1L).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.ORACLE, "quemsi");
+
+		assertThat(model.findTable("QUEMSI.flow").isPresent(), is(true));
+		assertThat(model.getSchemas(), org.hamcrest.Matchers.contains("QUEMSI"));
+		assertThat(model.getSequences().get(0).getSchema(), equalTo("QUEMSI"));
+		assertThat(joined(plan), containsString("schema public was written as QUEMSI"));
+	}
+
+	@Test
+	public void oracleTargetRequiresLoginWhenSchemaIsPublic() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		model.setSchemas(Set.of("public"));
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).build());
+
+		BaseRuntimeException ex = assertThrows(BaseRuntimeException.class,
+			() -> CrossDbTranslator.translate(model, DatasourceType.ORACLE));
+		assertThat(ex.getMessage(), containsString("oracle-schema-required"));
 	}
 
 	@Test

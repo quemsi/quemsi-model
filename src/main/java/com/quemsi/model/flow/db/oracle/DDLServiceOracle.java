@@ -233,8 +233,7 @@ public class DDLServiceOracle implements DDLService {
 	}
 
 	private boolean needsQuoting(String name) {
-		return DatasourceFactoryOracle.RESERVED_KEYS.contains(name.toUpperCase())
-			|| !name.equals(name.toUpperCase());
+		return DatasourceFactoryOracle.needsQuoting(name);
 	}
 
 	private static void appendQuoted(StringBuilder sb, String name) {
@@ -359,11 +358,7 @@ public class DDLServiceOracle implements DDLService {
 				} else {
 					seqBuilder.append(" NOCYCLE");
 				}
-				if (seq.getCacheSize() != null && seq.getCacheSize() > 0L) {
-					seqBuilder.append(" CACHE ").append(seq.getCacheSize());
-				} else {
-					seqBuilder.append(" NOCACHE");
-				}
+				appendSequenceCache(seqBuilder, seq.getCacheSize());
 				seqBuilder.append(";");
 				log.info("sequence sql : {}", seqBuilder);
 				scripts.add(seqBuilder);
@@ -389,7 +384,7 @@ public class DDLServiceOracle implements DDLService {
 				appendQuoted(indBuilder, indCols.getIndexName());
 				indBuilder.append(" ON ");
 				indBuilder.append(tableName).append(" (");
-				appendColumnList(indBuilder, indCols.getColumns());
+				appendIndexKey(indBuilder, indCols);
 				indBuilder.append(")");
 				log.info("index sql : {}", indBuilder);
 				scripts.add(indBuilder);
@@ -697,6 +692,30 @@ public class DDLServiceOracle implements DDLService {
 		return sb.toString();
 	}
 
+	private void appendIndexKey(StringBuilder sb, IndexInfo index) {
+		if (index.getFilter() != null && !index.getFilter().isBlank()) {
+			appendNullDistinctIndexColumns(sb, index);
+			return;
+		}
+		appendColumnList(sb, index.getColumns());
+	}
+
+	/**
+	 * Oracle has no filtered indexes. An all-null function key is not indexed, so rows with a null
+	 * unique-key column do not collide.
+	 */
+	static void appendNullDistinctIndexColumns(StringBuilder sb, IndexInfo index) {
+		boolean first = true;
+		for (String column : index.getColumns()) {
+			if (!first) {
+				sb.append(", ");
+			}
+			first = false;
+			sb.append("CASE WHEN ").append(index.getFilter()).append(" THEN ")
+				.append(DatasourceFactoryOracle.quoteIfNeeded(column)).append(" END");
+		}
+	}
+
 	private void appendColumnList(StringBuilder sb, Iterable<String> columnNames) {
 		Iterator<String> cIt = columnNames.iterator();
 		while (cIt.hasNext()) {
@@ -932,7 +951,7 @@ public class DDLServiceOracle implements DDLService {
 			sb.append("UNIQUE ");
 		}
 		sb.append("INDEX ").append(quoted(index.getIndexName())).append(" ON ").append(tableQualifiedName).append(" (");
-		appendColumnList(sb, index.getColumns());
+		appendIndexKey(sb, index);
 		sb.append(")");
 		return sb.toString();
 	}
@@ -961,6 +980,15 @@ public class DDLServiceOracle implements DDLService {
 		return statements;
 	}
 
+	/** Oracle rejects {@code CACHE 1}; a cache of one value is {@code NOCACHE}. */
+	static void appendSequenceCache(StringBuilder sb, Long cacheSize) {
+		if (cacheSize != null && cacheSize > 1L) {
+			sb.append(" CACHE ").append(cacheSize);
+		} else {
+			sb.append(" NOCACHE");
+		}
+	}
+
 	private String generateCreateSequenceSql(DbSequence seq) {
 		StringBuilder sb = new StringBuilder("CREATE SEQUENCE ");
 		sb.append(seq.qualifiedName());
@@ -982,11 +1010,7 @@ public class DDLServiceOracle implements DDLService {
 		} else {
 			sb.append(" NOCYCLE");
 		}
-		if (seq.getCacheSize() != null && seq.getCacheSize() > 0L) {
-			sb.append(" CACHE ").append(seq.getCacheSize());
-		} else {
-			sb.append(" NOCACHE");
-		}
+		appendSequenceCache(sb, seq.getCacheSize());
 		return sb.toString();
 	}
 
@@ -1012,11 +1036,7 @@ public class DDLServiceOracle implements DDLService {
 		}
 		// Do not RESTART on lastValue/startValue — counters are handled by UpdateSequences.
 		if (!Objects.equals(oldSeq.getCacheSize(), newSeq.getCacheSize())) {
-			if (newSeq.getCacheSize() != null && newSeq.getCacheSize() > 0L) {
-				sb.append(" CACHE ").append(newSeq.getCacheSize());
-			} else {
-				sb.append(" NOCACHE");
-			}
+			appendSequenceCache(sb, newSeq.getCacheSize());
 			hasChanges = true;
 		}
 		if (oldSeq.isCycle() != newSeq.isCycle()) {

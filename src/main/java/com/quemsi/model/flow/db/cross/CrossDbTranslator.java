@@ -67,6 +67,10 @@ public final class CrossDbTranslator {
 	}
 
 	public static CrossDbPlan translate(DbModel model, DatasourceType target) {
+		return translate(model, target, null);
+	}
+
+	public static CrossDbPlan translate(DbModel model, DatasourceType target, String targetSchema) {
 		DatasourceType source = DatasourceType.valueOf(model.getSourceType());
 		if (!isSql(source) || !isSql(target) || source == target) {
 			throw Exceptions.badRequest("unsupported-source-type-for-rdbms-target")
@@ -80,7 +84,7 @@ public final class CrossDbTranslator {
 			report.warnOnce("postgres-case", "Quoted identifiers are case-sensitive on Postgres");
 		}
 		IdentityHashMap<DbTable, String> archiveNames = snapshotArchiveNames(model);
-		layoutSchemas(model, source, target, report);
+		layoutSchemas(model, source, target, targetSchema, report);
 		SourceTypeReader reader = reader(source);
 		TargetTypeWriter writer = writer(target);
 		List<DbTable> empty = new ArrayList<>();
@@ -271,11 +275,11 @@ public final class CrossDbTranslator {
 	}
 
 	/**
-	 * Postgres, Oracle, and MySQL treat nulls as distinct in a unique index. SQL Server allows only
-	 * one null key, so nullable unique keys are created as filtered unique indexes.
+	 * Postgres and MySQL treat nulls as distinct in a unique index. SQL Server and Oracle allow only
+	 * one key when any indexed column is not null, so nullable unique keys omit those null rows.
 	 */
 	private static void filterNullDistinctUniqueKeys(DbModel model, DatasourceType target, CrossDbReport report) {
-		if (target != DatasourceType.SQLSERVER) {
+		if (target != DatasourceType.SQLSERVER && target != DatasourceType.ORACLE) {
 			return;
 		}
 		boolean filtered = false;
@@ -288,10 +292,12 @@ public final class CrossDbTranslator {
 					if (index == null || !index.isUnique()) {
 						continue;
 					}
-					String filter = nullDistinctFilter(model, index.getSchemaName(), index.getTableName(), index.getColumns());
+					String filter = nullDistinctFilter(model, target, index.getSchemaName(), index.getTableName(), index.getColumns());
 					if (filter != null) {
 						index.setFilter(filter);
-						index.setIndexType("NONCLUSTERED");
+						if (target == DatasourceType.SQLSERVER) {
+							index.setIndexType("NONCLUSTERED");
+						}
 						filtered = true;
 					}
 				}
@@ -304,7 +310,7 @@ public final class CrossDbTranslator {
 			Iterator<ContraintInfo> it = model.getContraintInfos().iterator();
 			while (it.hasNext()) {
 				ContraintInfo info = it.next();
-				String filter = nullDistinctFilter(model, info.getSchema(), info.getTableName(), info.getColumnNames());
+				String filter = nullDistinctFilter(model, target, info.getSchema(), info.getTableName(), info.getColumnNames());
 				if (filter == null) {
 					continue;
 				}
@@ -312,26 +318,29 @@ public final class CrossDbTranslator {
 					.computeIfAbsent(qualified(info.getSchema(), info.getTableName()), key -> new LinkedHashMap<>());
 				IndexInfo index = byName.get(info.getConstraintName());
 				if (index == null) {
-					index = new IndexInfo(info.getSchema(), info.getTableName(), info.getConstraintName(), true, "NONCLUSTERED");
+					String indexType = target == DatasourceType.SQLSERVER ? "NONCLUSTERED" : "NORMAL";
+					index = new IndexInfo(info.getSchema(), info.getTableName(), info.getConstraintName(), true, indexType);
 					if (info.getColumnNames() != null) {
 						index.getColumns().addAll(info.getColumnNames());
 					}
 					byName.put(index.getIndexName(), index);
 				}
 				index.setUnique(true);
-				index.setIndexType("NONCLUSTERED");
+				if (target == DatasourceType.SQLSERVER) {
+					index.setIndexType("NONCLUSTERED");
+				}
 				index.setFilter(filter);
 				it.remove();
 				filtered = true;
 			}
 		}
 		if (filtered) {
-			report.warnOnce("sqlserver-null-distinct-unique",
-				"unique indexes on nullable columns were filtered with IS NOT NULL so multiple null keys are allowed");
+			report.warnOnce("null-distinct-unique",
+				"unique indexes on nullable columns omit null keys so multiple null keys are allowed");
 		}
 	}
 
-	private static String nullDistinctFilter(DbModel model, String schema, String tableName, List<String> columns) {
+	private static String nullDistinctFilter(DbModel model, DatasourceType target, String schema, String tableName, List<String> columns) {
 		if (columns == null || columns.isEmpty()) {
 			return null;
 		}
@@ -343,7 +352,10 @@ public final class CrossDbTranslator {
 		for (String name : columns) {
 			DbColumn column = table.findColumn(name).orElse(null);
 			if (column != null && column.isNullable()) {
-				terms.add(CommonHelpers.bracketQuoted(name) + " IS NOT NULL");
+				String quoted = target == DatasourceType.ORACLE
+					? com.quemsi.model.flow.db.oracle.DatasourceFactoryOracle.quoteIfNeeded(name)
+					: CommonHelpers.bracketQuoted(name);
+				terms.add(quoted + " IS NOT NULL");
 			}
 		}
 		if (terms.isEmpty()) {
@@ -410,7 +422,7 @@ public final class CrossDbTranslator {
 		}
 	}
 
-	private static void layoutSchemas(DbModel model, DatasourceType source, DatasourceType target, CrossDbReport report) {
+	private static void layoutSchemas(DbModel model, DatasourceType source, DatasourceType target, String targetSchema, CrossDbReport report) {
 		if (target == DatasourceType.MYSQL) {
 			flattenSchemas(model);
 			return;
@@ -426,7 +438,19 @@ public final class CrossDbTranslator {
 			}
 		}
 		if (target == DatasourceType.SQLSERVER) {
-			renameSchema(model, "public", "dbo", report);
+			renameSchema(model, "public", "dbo", report, "sqlserver-public-role",
+				"SQL Server reserves public for the built-in database role, so schema public was written as dbo");
+		}
+		if (target == DatasourceType.ORACLE && containsSchema(model, "public")) {
+			String schema = targetSchema == null ? "" : targetSchema.trim();
+			if (schema.isEmpty()) {
+				throw Exceptions.badRequest("oracle-schema-required")
+					.withExtra("hint", "Connect as the Oracle user that should own the restored tables")
+					.get();
+			}
+			schema = schema.toUpperCase(Locale.ROOT);
+			renameSchema(model, "public", schema, report, "oracle-public-schema",
+				"Oracle has no schema public, so schema public was written as " + schema);
 		}
 	}
 
@@ -434,7 +458,7 @@ public final class CrossDbTranslator {
 	 * SQL Server has a built-in database role named {@code public}. That name is not a schema, so it
 	 * does not appear in {@code INFORMATION_SCHEMA.SCHEMATA}, and {@code CREATE SCHEMA [public]} fails.
 	 */
-	private static void renameSchema(DbModel model, String from, String to, CrossDbReport report) {
+	private static void renameSchema(DbModel model, String from, String to, CrossDbReport report, String warningKey, String warning) {
 		boolean renamed = false;
 		if (model.getTables() != null) {
 			for (DbTable table : model.getTables().values()) {
@@ -502,8 +526,32 @@ public final class CrossDbTranslator {
 		}
 		rekeyTables(model);
 		rekeyIndexes(model);
-		report.warnOnce("sqlserver-public-role",
-			"SQL Server reserves public for the built-in database role, so schema public was written as dbo");
+		report.warnOnce(warningKey, warning);
+	}
+
+	private static boolean containsSchema(DbModel model, String name) {
+		if (model.getSchemas() != null) {
+			for (String schema : model.getSchemas()) {
+				if (sameSchema(schema, name)) {
+					return true;
+				}
+			}
+		}
+		if (model.getTables() != null) {
+			for (DbTable table : model.getTables().values()) {
+				if (sameSchema(table.getSchema(), name)) {
+					return true;
+				}
+			}
+		}
+		if (model.getSequences() != null) {
+			for (var sequence : model.getSequences()) {
+				if (sequence != null && sameSchema(sequence.getSchema(), name)) {
+					return true;
+				}
+			}
+		}
+		return false;
 	}
 
 	private static boolean sameSchema(String schema, String name) {

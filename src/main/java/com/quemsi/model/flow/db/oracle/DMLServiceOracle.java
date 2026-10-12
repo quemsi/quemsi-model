@@ -515,10 +515,7 @@ offset ? rows fetch next ? rows only
 	}
 
 	private String quoteIdentifier(String columnName) {
-		if (DatasourceFactoryOracle.RESERVED_KEYS.contains(columnName.toUpperCase())) {
-			return "\"" + columnName + "\"";
-		}
-		return columnName;
+		return DatasourceFactoryOracle.quoteIfNeeded(columnName);
 	}
 
 	@Override

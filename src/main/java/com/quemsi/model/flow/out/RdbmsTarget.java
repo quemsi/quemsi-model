@@ -120,7 +120,7 @@ public class RdbmsTarget extends AbstractStorage {
                         .withExtra("targetType", datasourceFactory.type())
                         .get();
                 }
-                crossDbPlan = CrossDbTranslator.translate(dbModel, datasourceFactory.type());
+                crossDbPlan = CrossDbTranslator.translate(dbModel, datasourceFactory.type(), datasourceFactory.getUsername());
                 for (String warning : crossDbPlan.report().warnings()) {
                     context.logStepWarn(context.getCurrentStep(), warning);
                 }
