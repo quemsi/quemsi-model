@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.junit.jupiter.api.Test;
@@ -139,6 +140,22 @@ public class CrossDbTranslatorTest {
 		assertThat(tag.isUnique(), is(true));
 		assertThat(tag.getFilter(), equalTo("[restore_tag_name] IS NOT NULL"));
 		assertThat(joined(plan), containsString("multiple null keys are allowed"));
+	}
+
+	@Test
+	public void postgresOidLargeObjectRestoresAsSqlServerVarbinary() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		DbTable table = model.addTable("flow_execution", "public");
+		table.addColumn(DbColumn.builder().name("logs").dataType("oid").columnType("oid")
+			.ordinalPosition(1).nullable(true).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.SQLSERVER);
+		DbColumn logs = model.findTable("dbo.flow_execution").orElseThrow().column("logs");
+
+		assertThat(logs.getDataType(), equalTo("varbinary"));
+		assertThat(logs.getMaxLength(), equalTo(-1));
+		assertThat(joined(plan), containsString("oid large objects were written as binary"));
 	}
 
 	@Test
@@ -314,6 +331,9 @@ public class CrossDbTranslatorTest {
 		String zoned = (String) ValueAdapter.convert(PortableType.TIMESTAMPTZ, List.of(2020, 1, 2, 3, 4, 5), DatasourceType.POSTGRES);
 		assertThat(zoned, equalTo("2020-01-02T03:04:05Z"));
 		assertThat(ValueAdapter.convert(PortableType.DATE, "2020-05-06", DatasourceType.MYSQL), equalTo("2020-05-06"));
+		Map<String, String> oid = Map.of("dbType", "oid", "data", "YWE=");
+		byte[] logs = (byte[]) ValueAdapter.convert(PortableType.BINARY, oid, DatasourceType.SQLSERVER);
+		assertThat(new String(logs), equalTo("aa"));
 	}
 
 	@Test

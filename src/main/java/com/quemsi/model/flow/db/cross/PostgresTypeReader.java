@@ -89,13 +89,12 @@ public final class PostgresTypeReader implements SourceTypeReader {
 			case "bpchar", "char", "character" -> PortableType.CHAR;
 			case "varchar", "character varying" -> PortableType.VARCHAR;
 			case "text", "json", "jsonb", "xml", "name", "inet", "cidr", "macaddr", "macaddr8" -> PortableType.TEXT;
-			case "bytea" -> PortableType.BINARY;
+			case "bytea", "oid" -> PortableType.BINARY;
 			case "uuid" -> PortableType.UUID;
 			case "date" -> PortableType.DATE;
 			case "time", "timetz" -> PortableType.TIME;
 			case "timestamp" -> PortableType.TIMESTAMP;
 			case "timestamptz" -> PortableType.TIMESTAMPTZ;
-			case "oid" -> PortableType.BIGINT;
 			default -> null;
 		};
 		if (portable == null) {
@@ -109,6 +108,9 @@ public final class PostgresTypeReader implements SourceTypeReader {
 		}
 		if ("timetz".equals(type)) {
 			report.warnOnce("postgres-timetz", "time with time zone was stored as time");
+		}
+		if ("oid".equals(type)) {
+			report.warnOnce("postgres-oid", "oid large objects were written as binary");
 		}
 		boolean identity = column.isIdentity() || type.equals("serial") || type.equals("bigserial") || type.equals("smallserial");
 		Integer precision = null;
