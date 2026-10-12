@@ -439,6 +439,32 @@ public class CrossDbTranslatorTest {
 	}
 
 	@Test
+	public void mysqlShortensUniqueIndexThatExceedsKeyLength() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("data_id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("restore_tag_name").dataType("varchar").columnType("varchar")
+			.ordinalPosition(2).maxLength(512).nullable(true).build());
+		table.addColumn(DbColumn.builder().name("restore_tag_value").dataType("varchar").columnType("varchar")
+			.ordinalPosition(3).maxLength(1024).nullable(true).build());
+		IndexInfo partial = new IndexInfo("public", "flow", "uk_flow_restore_action", true, "btree");
+		partial.getColumns().add("data_id");
+		partial.getColumns().add("restore_tag_name");
+		partial.getColumns().add("restore_tag_value");
+		model.getIndexes().computeIfAbsent("public.flow", key -> new LinkedHashMap<>()).put(partial.getIndexName(), partial);
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.MYSQL);
+		IndexInfo restored = model.indexesForTable("flow").get("uk_flow_restore_action");
+
+		assertThat(restored.getColumnPrefixLengths().get(0), equalTo(null));
+		assertThat(restored.getColumnPrefixLengths().get(1), equalTo(null));
+		assertThat(restored.getColumnPrefixLengths().get(2), equalTo(254));
+		assertThat(joined(plan), containsString("3072-byte limit"));
+	}
+
+	@Test
 	public void identityFlags() {
 		assertThat(IdentityFlags.postgres("YES", null), is(true));
 		assertThat(IdentityFlags.postgres("NO", "nextval('public.t_id_seq'::regclass)"), is(true));

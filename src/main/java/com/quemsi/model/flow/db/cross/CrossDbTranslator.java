@@ -104,6 +104,9 @@ public final class CrossDbTranslator {
 		dropBrokenKeys(model, report);
 		rewriteIndexes(model, writer, report);
 		filterNullDistinctUniqueKeys(model, target, report);
+		if (target == DatasourceType.MYSQL) {
+			fitMysqlKeyLengths(model, report);
+		}
 		clearEngineObjects(model, target, report);
 		int details = report.size();
 		report.warn("cross-db restore completed with " + details + " warning(s)");
@@ -362,6 +365,225 @@ public final class CrossDbTranslator {
 			return null;
 		}
 		return String.join(" AND ", terms);
+	}
+
+	/** InnoDB refuses an index key longer than this. utf8mb4 uses 4 bytes per character. */
+	private static final int MYSQL_MAX_KEY_BYTES = 3072;
+	private static final int MYSQL_CHAR_BYTES = 4;
+
+	/**
+	 * Shorten character and binary columns in MySQL index keys that would exceed {@code 3072} bytes.
+	 * A prefix keeps the leading characters. Columns that cannot be prefixed and still overflow are omitted.
+	 */
+	private static void fitMysqlKeyLengths(DbModel model, CrossDbReport report) {
+		if (model.getIndexes() != null) {
+			for (Map<String, IndexInfo> byName : model.getIndexes().values()) {
+				if (byName == null) {
+					continue;
+				}
+				List<String> drop = new ArrayList<>();
+				for (IndexInfo index : byName.values()) {
+					if (index == null || index.getColumns() == null || index.getColumns().isEmpty()) {
+						continue;
+					}
+					List<Integer> prefixes = new ArrayList<>();
+					MysqlKeyFit fit = assignMysqlPrefixes(model, index.getSchemaName(), index.getTableName(), index.getColumns(), prefixes);
+					if (fit == MysqlKeyFit.IMPOSSIBLE) {
+						report.warn("omitted index " + index.getIndexName() + " because its key is longer than MySQL allows");
+						drop.add(index.getIndexName());
+					} else if (fit == MysqlKeyFit.PREFIXED) {
+						index.setColumnPrefixLengths(new java.util.LinkedList<>(prefixes));
+						report.warnOnce("mysql-key-length",
+							"index prefixes were shortened so keys fit MySQL's 3072-byte limit");
+					}
+				}
+				drop.forEach(byName::remove);
+			}
+		}
+		if (model.getContraintInfos() == null) {
+			return;
+		}
+		if (model.getIndexes() == null) {
+			model.setIndexes(new LinkedHashMap<>());
+		}
+		Iterator<ContraintInfo> constraints = model.getContraintInfos().iterator();
+		while (constraints.hasNext()) {
+			ContraintInfo info = constraints.next();
+			if (info.getColumnNames() == null || info.getColumnNames().isEmpty()) {
+				continue;
+			}
+			List<Integer> prefixes = new ArrayList<>();
+			MysqlKeyFit fit = assignMysqlPrefixes(model, info.getSchema(), info.getTableName(), info.getColumnNames(), prefixes);
+			if (fit == MysqlKeyFit.UNCHANGED) {
+				continue;
+			}
+			constraints.remove();
+			if (fit == MysqlKeyFit.IMPOSSIBLE) {
+				report.warn("omitted unique constraint " + info.getConstraintName() + " because its key is longer than MySQL allows");
+				continue;
+			}
+			Map<String, IndexInfo> byName = model.getIndexes()
+				.computeIfAbsent(qualified(info.getSchema(), info.getTableName()), key -> new LinkedHashMap<>());
+			IndexInfo index = byName.get(info.getConstraintName());
+			if (index == null) {
+				index = new IndexInfo(info.getSchema(), info.getTableName(), info.getConstraintName(), true, "BTREE");
+				index.getColumns().addAll(info.getColumnNames());
+				byName.put(index.getIndexName(), index);
+			}
+			index.setUnique(true);
+			index.setColumnPrefixLengths(new java.util.LinkedList<>(prefixes));
+			report.warnOnce("mysql-key-length",
+				"index prefixes were shortened so keys fit MySQL's 3072-byte limit");
+		}
+	}
+
+	private enum MysqlKeyFit {
+		UNCHANGED, PREFIXED, IMPOSSIBLE
+	}
+
+	private static MysqlKeyFit assignMysqlPrefixes(DbModel model, String schema, String tableName, List<String> columns, List<Integer> prefixesOut) {
+		DbTable table = model.findTable(qualified(schema, tableName)).orElse(null);
+		if (table == null) {
+			return MysqlKeyFit.UNCHANGED;
+		}
+		List<MysqlKeyPart> parts = new ArrayList<>();
+		int fixed = 0;
+		for (String name : columns) {
+			MysqlKeyPart part = mysqlKeyPart(table.findColumn(name).orElse(null));
+			parts.add(part);
+			if (!part.prefixable()) {
+				fixed += (int) part.fullBytes();
+			}
+		}
+		if (fixed > MYSQL_MAX_KEY_BYTES) {
+			return MysqlKeyFit.IMPOSSIBLE;
+		}
+		int budget = MYSQL_MAX_KEY_BYTES - fixed;
+		boolean overflow = false;
+		for (MysqlKeyPart part : parts) {
+			if (part.prefixable() && (part.forcePrefix() || part.fullBytes() > budget)) {
+				overflow = true;
+				break;
+			}
+		}
+		long full = fixed;
+		for (MysqlKeyPart part : parts) {
+			if (part.prefixable()) {
+				full += part.forcePrefix() ? (long) MYSQL_MAX_KEY_BYTES + 1 : part.fullBytes();
+			}
+		}
+		if (!overflow && full <= MYSQL_MAX_KEY_BYTES) {
+			return MysqlKeyFit.UNCHANGED;
+		}
+		int[] desired = new int[parts.size()];
+		for (int i = 0; i < parts.size(); i++) {
+			MysqlKeyPart part = parts.get(i);
+			if (!part.prefixable()) {
+				continue;
+			}
+			long cap = part.forcePrefix() ? budget : Math.min(part.fullBytes(), budget);
+			desired[i] = (int) ((cap / part.unitBytes()) * part.unitBytes());
+			if (desired[i] == 0 && budget >= part.unitBytes()) {
+				desired[i] = part.unitBytes();
+			}
+		}
+		while (sum(desired) > budget) {
+			int victim = -1;
+			for (int i = 0; i < desired.length; i++) {
+				MysqlKeyPart part = parts.get(i);
+				if (!part.prefixable() || desired[i] <= part.unitBytes()) {
+					continue;
+				}
+				if (victim < 0 || part.fullBytes() > parts.get(victim).fullBytes()
+						|| (part.fullBytes() == parts.get(victim).fullBytes() && desired[i] > desired[victim])) {
+					victim = i;
+				}
+			}
+			if (victim < 0) {
+				return MysqlKeyFit.IMPOSSIBLE;
+			}
+			desired[victim] -= parts.get(victim).unitBytes();
+		}
+		boolean prefixed = false;
+		for (int i = 0; i < parts.size(); i++) {
+			MysqlKeyPart part = parts.get(i);
+			if (!part.prefixable()) {
+				prefixesOut.add(null);
+				continue;
+			}
+			int units = desired[i] / part.unitBytes();
+			if (units < 1 && (part.forcePrefix() || part.fullBytes() > budget)) {
+				return MysqlKeyFit.IMPOSSIBLE;
+			}
+			long fullUnits = part.forcePrefix() ? Long.MAX_VALUE : part.fullBytes() / part.unitBytes();
+			if (!part.forcePrefix() && units >= fullUnits) {
+				prefixesOut.add(null);
+			} else {
+				prefixesOut.add(units);
+				prefixed = true;
+			}
+		}
+		return prefixed ? MysqlKeyFit.PREFIXED : MysqlKeyFit.UNCHANGED;
+	}
+
+	private static int sum(int[] values) {
+		int total = 0;
+		for (int value : values) {
+			total += value;
+		}
+		return total;
+	}
+
+	private static MysqlKeyPart mysqlKeyPart(DbColumn column) {
+		if (column == null) {
+			return new MysqlKeyPart(false, false, 8, 1);
+		}
+		String type = column.getDataType() == null ? "" : column.getDataType().toLowerCase(Locale.ROOT);
+		Integer length = column.getMaxLength();
+		return switch (type) {
+			case "tinyint", "boolean", "bool", "bit", "year" -> new MysqlKeyPart(false, false, 1, 1);
+			case "smallint" -> new MysqlKeyPart(false, false, 2, 1);
+			case "mediumint" -> new MysqlKeyPart(false, false, 3, 1);
+			case "int", "integer" -> new MysqlKeyPart(false, false, 4, 1);
+			case "bigint" -> new MysqlKeyPart(false, false, 8, 1);
+			case "float" -> new MysqlKeyPart(false, false, 4, 1);
+			case "double", "real" -> new MysqlKeyPart(false, false, 8, 1);
+			case "date", "time" -> new MysqlKeyPart(false, false, 3, 1);
+			case "datetime", "timestamp" -> new MysqlKeyPart(false, false, 8, 1);
+			case "decimal", "numeric" -> new MysqlKeyPart(false, false, mysqlDecimalBytes(column), 1);
+			case "char", "varchar" -> charPart(length, MYSQL_CHAR_BYTES);
+			case "binary", "varbinary" -> charPart(length, 1);
+			case "tinytext", "text", "mediumtext", "longtext", "tinyblob", "blob", "mediumblob", "longblob" ->
+				new MysqlKeyPart(true, true, MYSQL_MAX_KEY_BYTES + 1, type.contains("blob") ? 1 : MYSQL_CHAR_BYTES);
+			default -> new MysqlKeyPart(false, false, 8, 1);
+		};
+	}
+
+	private static MysqlKeyPart charPart(Integer length, int unitBytes) {
+		if (length == null || length <= 0) {
+			return new MysqlKeyPart(true, true, MYSQL_MAX_KEY_BYTES + 1, unitBytes);
+		}
+		return new MysqlKeyPart(true, false, (long) length * unitBytes, unitBytes);
+	}
+
+	private static int mysqlDecimalBytes(DbColumn column) {
+		int precision = column.getNumPrecision() == null ? 10 : Math.max(column.getNumPrecision(), 1);
+		int bytes = 0;
+		int remaining = precision;
+		while (remaining > 0) {
+			int group = Math.min(9, remaining);
+			bytes += switch (group) {
+				case 1, 2 -> 1;
+				case 3, 4 -> 2;
+				case 5, 6 -> 3;
+				default -> 4;
+			};
+			remaining -= group;
+		}
+		return bytes;
+	}
+
+	private record MysqlKeyPart(boolean prefixable, boolean forcePrefix, long fullBytes, int unitBytes) {
 	}
 
 	private static boolean isBtree(String indexType) {

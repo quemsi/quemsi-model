@@ -16,6 +16,24 @@ public class RsHelper {
     }
 
     /**
+     * Reads a catalog integer that may exceed {@link Integer} range, such as MySQL
+     * {@code LONGTEXT} character length {@code 4294967295}.
+     */
+    public Integer getIntClamped(String columnName) throws SQLException {
+        BigDecimal value = rs.getBigDecimal(columnName);
+        if (value == null || rs.wasNull()) {
+            return null;
+        }
+        if (value.compareTo(BigDecimal.valueOf(Integer.MAX_VALUE)) > 0) {
+            return Integer.MAX_VALUE;
+        }
+        if (value.compareTo(BigDecimal.valueOf(Integer.MIN_VALUE)) < 0) {
+            return Integer.MIN_VALUE;
+        }
+        return value.intValue();
+    }
+
+    /**
      * Reads integer values from JDBC NUMBER/DECIMAL columns (common in Oracle catalog views).
      */
     public Integer getIntegerFromNumber(String columnName) throws SQLException {
