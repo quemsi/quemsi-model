@@ -47,7 +47,7 @@ public class CrossDbTranslatorTest {
 		assertThat(table.findColumn("geo").isPresent(), is(false));
 		assertThat(plan.sourceIndexes("dbo.Widget"), equalTo(new int[] { 0, 1, 2, 4 }));
 		assertThat(joined(plan), containsString("omitted column dbo.Widget.geo: geography"));
-		assertThat(joined(plan), containsString("omitted default on dbo.Widget.name: expression"));
+		assertThat(joined(plan), containsString("omitted default on dbo.Widget.name: (getdate())"));
 		assertThat(joined(plan), containsString("omitted view dbo.WidgetView"));
 		assertThat(model.getViews().size(), equalTo(0));
 	}

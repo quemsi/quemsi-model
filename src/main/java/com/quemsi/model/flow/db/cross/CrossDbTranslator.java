@@ -140,7 +140,8 @@ public final class CrossDbTranslator {
 				continue;
 			}
 			if (PortableColumns.expressionDefault(column)) {
-				report.warn("omitted default on " + table.qualifiedName() + "." + column.getName() + ": expression");
+				report.warn("omitted default on " + table.qualifiedName() + "." + column.getName() + ": "
+					+ column.getColumnDefault().replaceAll("\\s+", " ").trim());
 			}
 			writer.apply(column, mapping.column(), report);
 			applyCaseSensitiveCollation(column, source, target, report);
