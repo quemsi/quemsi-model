@@ -64,11 +64,16 @@ public class DbColumn {
     @Getter
     @Setter
     private PortableColumn portable;
-    /** In-memory flag set when a cross-database restore drops this column. */
-    @JsonIgnore
-    @Getter
-    @Setter
-    private boolean omitted;
+	/** In-memory flag set when a cross-database restore drops this column. */
+	@JsonIgnore
+	@Getter
+	@Setter
+	private boolean omitted;
+	/** In-memory SQL Server collation for a cross-database restore. Not written to backups. */
+	@JsonIgnore
+	@Getter
+	@Setter
+	private String collation;
 
     /**
      * Columns that cannot appear in {@code ORDER BY} (LOB / long / xml-like types).

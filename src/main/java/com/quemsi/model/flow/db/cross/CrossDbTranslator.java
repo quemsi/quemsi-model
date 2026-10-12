@@ -11,6 +11,7 @@ import java.util.Map;
 import java.util.Set;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.util.CommonHelpers;
 import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbFunction;
@@ -79,12 +80,12 @@ public final class CrossDbTranslator {
 			report.warnOnce("postgres-case", "Quoted identifiers are case-sensitive on Postgres");
 		}
 		IdentityHashMap<DbTable, String> archiveNames = snapshotArchiveNames(model);
-		layoutSchemas(model, source, target);
+		layoutSchemas(model, source, target, report);
 		SourceTypeReader reader = reader(source);
 		TargetTypeWriter writer = writer(target);
 		List<DbTable> empty = new ArrayList<>();
 		for (DbTable table : new ArrayList<>(model.getTables().values())) {
-			translateTable(model, table, reader, writer, plan, report);
+			translateTable(model, table, reader, writer, plan, report, source, target);
 			if (table.getColumns().isEmpty()) {
 				empty.add(table);
 			} else {
@@ -98,6 +99,7 @@ public final class CrossDbTranslator {
 		}
 		dropBrokenKeys(model, report);
 		rewriteIndexes(model, writer, report);
+		filterNullDistinctUniqueKeys(model, target, report);
 		clearEngineObjects(model, report);
 		int details = report.size();
 		report.warn("cross-db restore completed with " + details + " warning(s)");
@@ -115,7 +117,7 @@ public final class CrossDbTranslator {
 	}
 
 	private static void translateTable(DbModel model, DbTable table, SourceTypeReader reader, TargetTypeWriter writer,
-			CrossDbPlan plan, CrossDbReport report) {
+			CrossDbPlan plan, CrossDbReport report, DatasourceType source, DatasourceType target) {
 		DbColumn[] original = table.orderedColumns();
 		List<DbColumn> kept = new ArrayList<>();
 		List<Integer> indexes = new ArrayList<>();
@@ -141,6 +143,7 @@ public final class CrossDbTranslator {
 				report.warn("omitted default on " + table.qualifiedName() + "." + column.getName() + ": expression");
 			}
 			writer.apply(column, mapping.column(), report);
+			applyCaseSensitiveCollation(column, source, target, report);
 			kept.add(column);
 			indexes.add(i);
 		}
@@ -152,6 +155,23 @@ public final class CrossDbTranslator {
 		}
 		plan.putSourceIndexes(table.qualifiedName(), indexes.stream().mapToInt(Integer::intValue).toArray());
 		dropPartialPrimaryKey(table, report);
+	}
+
+	/**
+	 * Postgres and Oracle compare varchar as case-sensitive. SQL Server unique keys use the column
+	 * collation, so a case-insensitive database collation would reject values such as {@code oracle} and {@code ORACLE}.
+	 */
+	private static void applyCaseSensitiveCollation(DbColumn column, DatasourceType source, DatasourceType target, CrossDbReport report) {
+		if (target != DatasourceType.SQLSERVER || (source != DatasourceType.POSTGRES && source != DatasourceType.ORACLE)) {
+			return;
+		}
+		String type = column.getDataType() == null ? "" : column.getDataType().trim().toLowerCase(Locale.ROOT);
+		if (!type.equals("char") && !type.equals("nchar") && !type.equals("varchar") && !type.equals("nvarchar")) {
+			return;
+		}
+		column.setCollation("Latin1_General_100_BIN2");
+		report.warnOnce("sqlserver-case-sensitive",
+			"character columns were written with Latin1_General_100_BIN2 so values that differ only by case stay distinct");
 	}
 
 	private static void dropPartialPrimaryKey(DbTable table, CrossDbReport report) {
@@ -249,6 +269,88 @@ public final class CrossDbTranslator {
 		model.setIndexes(rewritten);
 	}
 
+	/**
+	 * Postgres, Oracle, and MySQL treat nulls as distinct in a unique index. SQL Server allows only
+	 * one null key, so nullable unique keys are created as filtered unique indexes.
+	 */
+	private static void filterNullDistinctUniqueKeys(DbModel model, DatasourceType target, CrossDbReport report) {
+		if (target != DatasourceType.SQLSERVER) {
+			return;
+		}
+		boolean filtered = false;
+		if (model.getIndexes() != null) {
+			for (Map<String, IndexInfo> byName : model.getIndexes().values()) {
+				if (byName == null) {
+					continue;
+				}
+				for (IndexInfo index : byName.values()) {
+					if (index == null || !index.isUnique()) {
+						continue;
+					}
+					String filter = nullDistinctFilter(model, index.getSchemaName(), index.getTableName(), index.getColumns());
+					if (filter != null) {
+						index.setFilter(filter);
+						index.setIndexType("NONCLUSTERED");
+						filtered = true;
+					}
+				}
+			}
+		}
+		if (model.getContraintInfos() != null) {
+			if (model.getIndexes() == null) {
+				model.setIndexes(new LinkedHashMap<>());
+			}
+			Iterator<ContraintInfo> it = model.getContraintInfos().iterator();
+			while (it.hasNext()) {
+				ContraintInfo info = it.next();
+				String filter = nullDistinctFilter(model, info.getSchema(), info.getTableName(), info.getColumnNames());
+				if (filter == null) {
+					continue;
+				}
+				Map<String, IndexInfo> byName = model.getIndexes()
+					.computeIfAbsent(qualified(info.getSchema(), info.getTableName()), key -> new LinkedHashMap<>());
+				IndexInfo index = byName.get(info.getConstraintName());
+				if (index == null) {
+					index = new IndexInfo(info.getSchema(), info.getTableName(), info.getConstraintName(), true, "NONCLUSTERED");
+					if (info.getColumnNames() != null) {
+						index.getColumns().addAll(info.getColumnNames());
+					}
+					byName.put(index.getIndexName(), index);
+				}
+				index.setUnique(true);
+				index.setIndexType("NONCLUSTERED");
+				index.setFilter(filter);
+				it.remove();
+				filtered = true;
+			}
+		}
+		if (filtered) {
+			report.warnOnce("sqlserver-null-distinct-unique",
+				"unique indexes on nullable columns were filtered with IS NOT NULL so multiple null keys are allowed");
+		}
+	}
+
+	private static String nullDistinctFilter(DbModel model, String schema, String tableName, List<String> columns) {
+		if (columns == null || columns.isEmpty()) {
+			return null;
+		}
+		DbTable table = model.findTable(qualified(schema, tableName)).orElse(null);
+		if (table == null) {
+			return null;
+		}
+		List<String> terms = new ArrayList<>();
+		for (String name : columns) {
+			DbColumn column = table.findColumn(name).orElse(null);
+			if (column != null && column.isNullable()) {
+				terms.add(CommonHelpers.bracketQuoted(name) + " IS NOT NULL");
+			}
+		}
+		if (terms.isEmpty()) {
+			return null;
+		}
+		return String.join(" AND ", terms);
+	}
+
 	private static boolean isBtree(String indexType) {
 		if (indexType == null || indexType.isBlank()) {
 			return true;
@@ -307,7 +409,7 @@ public final class CrossDbTranslator {
 		}
 	}
 
-	private static void layoutSchemas(DbModel model, DatasourceType source, DatasourceType target) {
+	private static void layoutSchemas(DbModel model, DatasourceType source, DatasourceType target, CrossDbReport report) {
 		if (target == DatasourceType.MYSQL) {
 			flattenSchemas(model);
 			return;
@@ -322,6 +424,81 @@ public final class CrossDbTranslator {
 				assignSchema(model, schema);
 			}
 		}
+		if (target == DatasourceType.SQLSERVER) {
+			renameSchema(model, "public", "dbo", report);
+		}
+	}
+
+	/**
+	 * SQL Server has a built-in database role named {@code public}. That name is not a schema, so it
+	 * does not appear in {@code INFORMATION_SCHEMA.SCHEMATA}, and {@code CREATE SCHEMA [public]} fails.
+	 */
+	private static void renameSchema(DbModel model, String from, String to, CrossDbReport report) {
+		boolean renamed = false;
+		if (model.getTables() != null) {
+			for (DbTable table : model.getTables().values()) {
+				if (sameSchema(table.getSchema(), from)) {
+					table.setSchema(to);
+					renamed = true;
+				}
+			}
+		}
+		if (model.getReferenceInfos() != null) {
+			for (ReferenceInfo info : model.getReferenceInfos()) {
+				if (sameSchema(info.getSrcSchema(), from)) {
+					info.setSrcSchema(to);
+					renamed = true;
+				}
+				if (sameSchema(info.getRefSchema(), from)) {
+					info.setRefSchema(to);
+					renamed = true;
+				}
+			}
+		}
+		if (model.getContraintInfos() != null) {
+			for (ContraintInfo info : model.getContraintInfos()) {
+				if (sameSchema(info.getSchema(), from)) {
+					info.setSchema(to);
+					renamed = true;
+				}
+			}
+		}
+		if (model.getIndexes() != null) {
+			for (Map<String, IndexInfo> byName : model.getIndexes().values()) {
+				if (byName == null) {
+					continue;
+				}
+				for (IndexInfo index : byName.values()) {
+					if (index != null && sameSchema(index.getSchemaName(), from)) {
+						index.setSchemaName(to);
+						renamed = true;
+					}
+				}
+			}
+		}
+		if (model.getSchemas() != null) {
+			Set<String> schemas = new LinkedHashSet<>();
+			for (String schema : model.getSchemas()) {
+				if (sameSchema(schema, from)) {
+					schemas.add(to);
+					renamed = true;
+				} else if (schema != null && !schema.isBlank()) {
+					schemas.add(schema);
+				}
+			}
+			model.setSchemas(schemas);
+		}
+		if (!renamed) {
+			return;
+		}
+		rekeyTables(model);
+		rekeyIndexes(model);
+		report.warnOnce("sqlserver-public-role",
+			"SQL Server reserves public for the built-in database role, so schema public was written as dbo");
+	}
+
+	private static boolean sameSchema(String schema, String name) {
+		return schema != null && schema.equalsIgnoreCase(name);
 	}
 
 	private static void flattenSchemas(DbModel model) {

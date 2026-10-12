@@ -452,8 +452,13 @@ public class DbModel {
          * Null for primary XML indexes and non-XML indexes.
          */
         private String xmlSecondaryType;
-        /** SQL Server primary XML index name referenced by a secondary XML index. */
-        private String usingXmlIndexName;
+		/** SQL Server primary XML index name referenced by a secondary XML index. */
+		private String usingXmlIndexName;
+		/**
+		 * Optional index filter, without the {@code WHERE} keyword.
+		 * Set during cross-database restore so SQL Server unique indexes allow multiple null keys.
+		 */
+		private String filter;
         public IndexInfo(String schemaName, String tableName, String indexName, boolean unique, String indexType){
             this.schemaName = schemaName;
             this.tableName = tableName;

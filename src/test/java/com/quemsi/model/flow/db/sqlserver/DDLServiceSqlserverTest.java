@@ -350,8 +350,19 @@ public class DDLServiceSqlserverTest {
         assertThat(statements.get(0), containsString("[email]"));
     }
 
-    @Test
-    public void givenClusteredColumnstoreIndex_whenCreateIndexSql_thenNoColumnList() {
+	@Test
+	public void createIndexSql_appendsNullDistinctFilter() {
+		IndexInfo index = new IndexInfo("dbo", "flow", "uk_flow_restore_action", true, "NONCLUSTERED");
+		index.getColumns().add("data_id");
+		index.getColumns().add("restore_tag_name");
+		index.setFilter("[restore_tag_name] IS NOT NULL");
+
+		assertThat(DDLServiceSqlserver.createIndexSql(index, "[dbo].[flow]"),
+			equalTo("CREATE UNIQUE NONCLUSTERED INDEX [uk_flow_restore_action] ON [dbo].[flow] ([data_id], [restore_tag_name]) WHERE [restore_tag_name] IS NOT NULL;"));
+	}
+
+	@Test
+	public void givenClusteredColumnstoreIndex_whenCreateIndexSql_thenNoColumnList() {
         IndexInfo index = new IndexInfo("dbo", "nyctaxi_sample", "nyc_cci", false, "CLUSTERED COLUMNSTORE");
         index.getExtraColumns().add("medallion");
         index.getExtraColumns().add("hack_license");
@@ -520,6 +531,12 @@ public class DDLServiceSqlserverTest {
             .build();
         return column;
     }
+
+	@Test
+	public void createSchemaSql_bracketsReservedName() {
+		assertThat(DDLServiceSqlserver.createSchemaSql("public"), equalTo("create schema [public];"));
+		assertThat(DDLServiceSqlserver.createSchemaSql("pub]lic"), equalTo("create schema [pub]]lic];"));
+	}
 
 	@Test
 	public void dropViewSql_bracketsSpacedViewName() {

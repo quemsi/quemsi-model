@@ -19,6 +19,7 @@ import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.DbTable;
@@ -72,6 +73,89 @@ public class CrossDbTranslatorTest {
 		assertThat(joined(plan), containsString("dropped index ix_geo"));
 		IndexInfo kept = model.indexesForTable("dbo.Widget").get("ix_name");
 		assertThat(kept.getIndexType(), equalTo("btree"));
+	}
+
+	@Test
+	public void postgresAndOracleTextUsesCaseSensitiveSqlServerCollation() {
+		DbModel postgres = new DbModel();
+		postgres.setSourceType(DatasourceType.POSTGRES.name());
+		DbTable tags = postgres.addTable("tag_value", "public");
+		tags.addColumn(DbColumn.builder().name("val").dataType("varchar").columnType("varchar")
+			.ordinalPosition(1).maxLength(255).nullable(false).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(postgres, DatasourceType.SQLSERVER);
+		DbColumn val = postgres.findTable("dbo.tag_value").orElseThrow().column("val");
+
+		assertThat(val.getDataType(), equalTo("nvarchar"));
+		assertThat(val.getCollation(), equalTo("Latin1_General_100_BIN2"));
+		assertThat(joined(plan), containsString("Latin1_General_100_BIN2"));
+
+		DbModel oracle = new DbModel();
+		oracle.setSourceType(DatasourceType.ORACLE.name());
+		DbTable names = oracle.addTable("TAG_VALUE", "HR");
+		names.addColumn(DbColumn.builder().name("VAL").dataType("VARCHAR2").columnType("VARCHAR2")
+			.ordinalPosition(1).maxLength(255).nullable(false).build());
+		CrossDbTranslator.translate(oracle, DatasourceType.SQLSERVER);
+		assertThat(oracle.findTable("HR.TAG_VALUE").orElseThrow().column("VAL").getCollation(),
+			equalTo("Latin1_General_100_BIN2"));
+
+		DbModel mysql = new DbModel();
+		mysql.setSourceType(DatasourceType.MYSQL.name());
+		DbTable item = mysql.addTable("item", null);
+		item.addColumn(DbColumn.builder().name("name").dataType("varchar").columnType("varchar(20)")
+			.ordinalPosition(1).maxLength(20).nullable(true).build());
+		CrossDbTranslator.translate(mysql, DatasourceType.SQLSERVER);
+		assertThat(mysql.findTable("dbo.item").orElseThrow().column("name").getCollation(), equalTo(null));
+	}
+
+	@Test
+	public void nullableUniqueKeysBecomeFilteredSqlServerIndexes() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("data_id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).build());
+		table.addColumn(DbColumn.builder().name("restore_tag_name").dataType("varchar").columnType("varchar")
+			.ordinalPosition(2).maxLength(255).nullable(true).build());
+		table.addColumn(DbColumn.builder().name("restore_tag_value").dataType("varchar").columnType("varchar")
+			.ordinalPosition(3).maxLength(255).nullable(true).build());
+		table.addColumn(DbColumn.builder().name("name").dataType("varchar").columnType("varchar")
+			.ordinalPosition(4).maxLength(50).nullable(false).build());
+		IndexInfo partial = new IndexInfo("public", "flow", "uk_flow_restore_action", true, "btree");
+		partial.getColumns().add("data_id");
+		partial.getColumns().add("restore_tag_name");
+		partial.getColumns().add("restore_tag_value");
+		model.getIndexes().computeIfAbsent("public.flow", key -> new LinkedHashMap<>()).put(partial.getIndexName(), partial);
+		model.getContraintInfos().add(new ContraintInfo("uk_name", "public", "flow", List.of("name")));
+		model.getContraintInfos().add(new ContraintInfo("uk_tag", "public", "flow", List.of("restore_tag_name")));
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.SQLSERVER);
+
+		IndexInfo restored = model.indexesForTable("dbo.flow").get("uk_flow_restore_action");
+		assertThat(restored.getFilter(), equalTo("[restore_tag_name] IS NOT NULL AND [restore_tag_value] IS NOT NULL"));
+		assertThat(model.getContraintInfos().stream().map(ContraintInfo::getConstraintName).toList(),
+			org.hamcrest.Matchers.contains("uk_name"));
+		IndexInfo tag = model.indexesForTable("dbo.flow").get("uk_tag");
+		assertThat(tag.isUnique(), is(true));
+		assertThat(tag.getFilter(), equalTo("[restore_tag_name] IS NOT NULL"));
+		assertThat(joined(plan), containsString("multiple null keys are allowed"));
+	}
+
+	@Test
+	public void postgresNumericWithoutPrecisionMapsToSqlServerDecimal() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		DbTable table = model.addTable("wide", "public");
+		table.addColumn(DbColumn.builder().name("amount").dataType("numeric").columnType("numeric")
+			.ordinalPosition(1).nullable(true).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.SQLSERVER);
+		DbColumn amount = model.findTable("dbo.wide").orElseThrow().column("amount");
+		assertThat(joined(plan), containsString("schema public was written as dbo"));
+
+		assertThat(amount.getColumnType(), equalTo("decimal"));
+		assertThat(amount.getNumPrecision(), equalTo(38));
+		assertThat(amount.getNumScale(), equalTo(0));
 	}
 
 	@Test

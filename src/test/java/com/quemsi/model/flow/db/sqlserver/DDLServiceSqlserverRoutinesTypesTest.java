@@ -116,6 +116,17 @@ public class DDLServiceSqlserverRoutinesTypesTest {
 	}
 
 	@Test
+	public void columnTypeSql_appendsCollation() {
+		DbColumn column = DbColumn.builder()
+			.name("val")
+			.dataType("nvarchar")
+			.maxLength(510)
+			.collation("Latin1_General_100_BIN2")
+			.build();
+		assertThat(DDLServiceSqlserver.columnTypeSql(column), equalTo("nvarchar(255) COLLATE Latin1_General_100_BIN2"));
+	}
+
+	@Test
 	public void columnTypeSql_emitsTypedXmlSchemaCollection() {
 		DbColumn column = DbColumn.builder()
 			.name("AdditionalContactInfo")

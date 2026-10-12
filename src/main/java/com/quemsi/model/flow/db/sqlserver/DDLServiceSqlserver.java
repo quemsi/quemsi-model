@@ -235,7 +235,16 @@ public class DDLServiceSqlserver implements DDLService{
 		if (StringUtils.hasText(column.getXmlSchemaCollection())) {
 			return "xml(" + CommonHelpers.bracketQuotedQualified(column.getXmlSchemaCollection()) + ")";
 		}
-		return columnType(column.getDataType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale());
+		String sql = columnType(column.getDataType(), column.getMaxLength(), column.getNumPrecision(), column.getNumScale());
+		if (StringUtils.hasText(column.getCollation())) {
+			return sql + " COLLATE " + column.getCollation();
+		}
+		return sql;
+	}
+
+	/** Bracket-quoted so reserved names such as {@code public} stay valid without a schema rename. */
+	static String createSchemaSql(String schema) {
+		return "create schema " + CommonHelpers.bracketQuoted(schema) + ";";
 	}
 
 	/** T-SQL bracket identifier; escape ] as ]]. */
@@ -414,7 +423,7 @@ public class DDLServiceSqlserver implements DDLService{
 		try{
 			for(String schema : dbModel.getSchemas()){
 				if(!checkSchema(schema)){
-				StringBuilder csSql = new StringBuilder("create schema ").append(schema).append(";");
+				StringBuilder csSql = new StringBuilder(createSchemaSql(schema));
 					Statement css = conn.createStatement();
 					css.execute(csSql.toString());
 				}
@@ -1373,6 +1382,9 @@ public class DDLServiceSqlserver implements DDLService{
 				}
 			}
 			sb.append(")");
+		}
+		if (!columnstore && index.getFilter() != null && !index.getFilter().isBlank()) {
+			sb.append(" WHERE ").append(index.getFilter());
 		}
 		sb.append(";");
 		return sb.toString();

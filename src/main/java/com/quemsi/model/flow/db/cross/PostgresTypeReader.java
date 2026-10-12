@@ -111,10 +111,17 @@ public final class PostgresTypeReader implements SourceTypeReader {
 			report.warnOnce("postgres-timetz", "time with time zone was stored as time");
 		}
 		boolean identity = column.isIdentity() || type.equals("serial") || type.equals("bigserial") || type.equals("smallserial");
-		Integer precision = portable == PortableType.NUMERIC
-			? ("money".equals(type) ? 19 : column.getNumPrecision()) : null;
-		Integer scale = portable == PortableType.NUMERIC
-			? ("money".equals(type) ? 2 : column.getNumScale()) : null;
+		Integer precision = null;
+		Integer scale = null;
+		if (portable == PortableType.NUMERIC) {
+			if ("money".equals(type)) {
+				precision = 19;
+				scale = 2;
+			} else {
+				precision = column.getNumPrecision();
+				scale = column.getNumScale();
+			}
+		}
 		Integer length = (portable == PortableType.CHAR || portable == PortableType.VARCHAR) ? column.getMaxLength() : null;
 		return ColumnMapping.mapped(PortableColumns.of(column, portable, length, precision, scale, identity));
 	}

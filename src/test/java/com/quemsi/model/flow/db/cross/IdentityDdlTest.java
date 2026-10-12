@@ -41,6 +41,7 @@ public class IdentityDdlTest {
 		assertThat(mysqlCreate(false), not(containsString("AUTO_INCREMENT")));
 	}
 
+	@SuppressWarnings("resource")
 	private static String postgresCreate(boolean identity) {
 		DbTable table = new DbTable("public", "t");
 		table.addColumn(DbColumn.builder().name("id").columnType("int4").dataType("int4")
@@ -48,6 +49,7 @@ public class IdentityDdlTest {
 		return createSql(new DDLServicePostgres().ddlFrom(diff(table), new DbModel()));
 	}
 
+	@SuppressWarnings("resource")
 	private static String oracleCreate(boolean identity) {
 		DbTable table = new DbTable("HR", "T");
 		table.addColumn(DbColumn.builder().name("ID").dataType("number").columnType("number")
@@ -55,6 +57,7 @@ public class IdentityDdlTest {
 		return createSql(new DDLServiceOracle().ddlFrom(diff(table), new DbModel()));
 	}
 
+	@SuppressWarnings("resource")
 	private static String mysqlCreate(boolean identity) {
 		DbTable table = new DbTable(null, "t");
 		table.addColumn(DbColumn.builder().name("id").columnType("bigint").dataType("bigint")
