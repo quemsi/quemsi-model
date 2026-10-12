@@ -20,6 +20,7 @@ import com.quemsi.model.dto.DatasourceType;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbEnumType;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.db.sql.DbSequence;
 import com.quemsi.model.flow.db.sql.DbModel.ContraintInfo;
 import com.quemsi.model.flow.db.sql.DbModel.IndexInfo;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
@@ -334,6 +335,49 @@ public class CrossDbTranslatorTest {
 		Map<String, String> oid = Map.of("dbType", "oid", "data", "YWE=");
 		byte[] logs = (byte[]) ValueAdapter.convert(PortableType.BINARY, oid, DatasourceType.SQLSERVER);
 		assertThat(new String(logs), equalTo("aa"));
+	}
+
+	@Test
+	public void nextvalColumnKeepsSequenceAndDoesNotBecomeIdentity() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		model.setSchemas(Set.of("public"));
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).identity(true)
+			.columnDefault("nextval('public.flow_id_seq'::regclass)").build());
+		table.addColumn(DbColumn.builder().name("real_id").dataType("int8").columnType("int8")
+			.ordinalPosition(2).nullable(false).identity(true).build());
+		model.getSequences().add(DbSequence.builder().schema("public").name("flow_id_seq")
+			.startValue(1L).lastValue(40L).incrementBy(1L).minValue(1L).maxValue(Long.MAX_VALUE).cycle(false).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.SQLSERVER);
+		DbTable restored = model.findTable("dbo.flow").orElseThrow();
+
+		assertThat(restored.column("id").isIdentity(), is(false));
+		assertThat(restored.column("id").getColumnDefault(), equalTo(null));
+		assertThat(restored.column("real_id").isIdentity(), is(true));
+		assertThat(model.getSequences(), org.hamcrest.Matchers.hasSize(1));
+		assertThat(model.getSequences().get(0).getSchema(), equalTo("dbo"));
+		assertThat(model.getSequences().get(0).getName(), equalTo("flow_id_seq"));
+		assertThat(joined(plan), containsString("nextval('public.flow_id_seq'::regclass)"));
+		assertThat(joined(plan), org.hamcrest.Matchers.not(containsString("omitted sequence")));
+	}
+
+	@Test
+	public void mysqlTargetOmitsSequences() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.POSTGRES.name());
+		DbTable table = model.addTable("flow", "public");
+		table.addColumn(DbColumn.builder().name("id").dataType("int8").columnType("int8")
+			.ordinalPosition(1).nullable(false).build());
+		model.getSequences().add(DbSequence.builder().schema("public").name("flow_id_seq")
+			.startValue(1L).incrementBy(1L).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.MYSQL);
+
+		assertThat(model.getSequences(), org.hamcrest.Matchers.empty());
+		assertThat(joined(plan), containsString("omitted sequence public.flow_id_seq"));
 	}
 
 	@Test

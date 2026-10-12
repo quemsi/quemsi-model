@@ -34,9 +34,6 @@ final class PortableColumns {
 		if (column.getColumnDefault() == null || column.getColumnDefault().isBlank()) {
 			return false;
 		}
-		if (column.isIdentity() && IdentityFlags.isNextvalDefault(column.getColumnDefault())) {
-			return false;
-		}
 		return literal(column) == null;
 	}
 }

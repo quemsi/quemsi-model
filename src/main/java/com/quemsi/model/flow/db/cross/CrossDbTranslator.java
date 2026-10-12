@@ -100,7 +100,7 @@ public final class CrossDbTranslator {
 		dropBrokenKeys(model, report);
 		rewriteIndexes(model, writer, report);
 		filterNullDistinctUniqueKeys(model, target, report);
-		clearEngineObjects(model, report);
+		clearEngineObjects(model, target, report);
 		int details = report.size();
 		report.warn("cross-db restore completed with " + details + " warning(s)");
 		return plan;
@@ -360,16 +360,17 @@ public final class CrossDbTranslator {
 		return type.equals("BTREE") || type.equals("CLUSTERED") || type.equals("NONCLUSTERED") || type.equals("NORMAL");
 	}
 
-	private static void clearEngineObjects(DbModel model, CrossDbReport report) {
+	private static void clearEngineObjects(DbModel model, DatasourceType target, CrossDbReport report) {
 		warnNames(report, "view", model.getViews() == null ? List.of() : model.getViews().stream().map(DbView::qualifiedName).toList());
 		warnNames(report, "routine", model.getFunctions() == null ? List.of() : model.getFunctions().stream().map(DbFunction::qualifiedName).toList());
 		warnNames(report, "trigger", model.getTriggers() == null ? List.of() : model.getTriggers().stream().map(DbTrigger::getName).toList());
 		warnNames(report, "check constraint", model.getCheckConstraints() == null ? List.of()
 			: model.getCheckConstraints().stream().map(CheckConstraint::getConstraintName).toList());
-		if (model.getSequences() != null) {
+		if (target == DatasourceType.MYSQL && model.getSequences() != null) {
 			for (var sequence : model.getSequences()) {
 				report.warn("omitted sequence " + sequence.qualifiedName());
 			}
+			model.setSequences(new java.util.LinkedList<>());
 		}
 		if (model.getFullTextIndexes() != null) {
 			for (var index : model.getFullTextIndexes()) {
@@ -390,7 +391,6 @@ public final class CrossDbTranslator {
 		model.setFunctions(new java.util.LinkedList<>());
 		model.setTriggers(new java.util.LinkedList<>());
 		model.setCheckConstraints(new java.util.LinkedList<>());
-		model.setSequences(new java.util.LinkedList<>());
 		model.setEnumTypes(new java.util.LinkedList<>());
 		model.setDomainTypes(new java.util.LinkedList<>());
 		model.setFullTextIndexes(new java.util.LinkedList<>());
@@ -474,6 +474,14 @@ public final class CrossDbTranslator {
 						index.setSchemaName(to);
 						renamed = true;
 					}
+				}
+			}
+		}
+		if (model.getSequences() != null) {
+			for (var sequence : model.getSequences()) {
+				if (sequence != null && sameSchema(sequence.getSchema(), from)) {
+					sequence.setSchema(to);
+					renamed = true;
 				}
 			}
 		}

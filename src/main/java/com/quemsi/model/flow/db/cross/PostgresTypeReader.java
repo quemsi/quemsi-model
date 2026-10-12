@@ -112,7 +112,9 @@ public final class PostgresTypeReader implements SourceTypeReader {
 		if ("oid".equals(type)) {
 			report.warnOnce("postgres-oid", "oid large objects were written as binary");
 		}
-		boolean identity = column.isIdentity() || type.equals("serial") || type.equals("bigserial") || type.equals("smallserial");
+		boolean sequenceBacked = IdentityFlags.isNextvalDefault(column.getColumnDefault())
+			|| "serial".equals(type) || "bigserial".equals(type) || "smallserial".equals(type);
+		boolean identity = !sequenceBacked && column.isIdentity();
 		Integer precision = null;
 		Integer scale = null;
 		if (portable == PortableType.NUMERIC) {

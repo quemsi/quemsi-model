@@ -457,7 +457,7 @@ public class DDLServiceSqlserverTest {
         List<String> statements = ddlService.ddlFrom(diff, dbModel);
         
         assertThat(statements, hasSize(1));
-        assertThat(statements.get(0), containsString("CREATE SEQUENCE dbo.seq_test"));
+        assertThat(statements.get(0), containsString("CREATE SEQUENCE [dbo].[seq_test]"));
         assertThat(statements.get(0), containsString("INCREMENT BY 1"));
         assertThat(statements.get(0), containsString("MINVALUE 1"));
         assertThat(statements.get(0), containsString("MAXVALUE 1000"));
