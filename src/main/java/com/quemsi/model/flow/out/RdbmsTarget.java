@@ -404,7 +404,7 @@ public class RdbmsTarget extends AbstractStorage {
                         page.getPageNum() + 1, totalPages, page.getSize(), table.getName()));
                 dmlService.writePageData(table, crossDbPlan == null ? page : ValueAdapter.project(table, page, crossDbPlan));
                 context.logStepInfo(context.getCurrentStep(),
-                    LogMessage.info("restored page {} of {} records for {}",
+                    LogMessage.info("restored page {} of {}, {} records, for {}",
                         page.getPageNum() + 1, totalPages, page.getSize(), table.getName()));
                 if (globalCancellationFlag.get()) {
                     return false;
