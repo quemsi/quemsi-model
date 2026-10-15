@@ -1,6 +1,8 @@
 package com.quemsi.model.flow;
 
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -59,12 +61,15 @@ public class Flow {
 		steps.forEach(s -> s.init(this));
 	}
 	
-	public FlowExecutionStep sendStepStarted(Long flowExecutionId, String type, Integer ord, LocalDateTime started){
+	public FlowExecutionStep sendStepStarted(Long flowExecutionId, String type, Integer ord){
+		long startedAtEpoch = System.currentTimeMillis();
+		LocalDateTime started = LocalDateTime.ofInstant(Instant.ofEpochMilli(startedAtEpoch), ZoneId.systemDefault());
 		FlowExecutionStep step = FlowExecutionStep.builder()
 			.active(true)
 			.flowExecutionId(flowExecutionId)
 			.status(FlowExecutionStatus.RUNNING)
 			.startedAt(started)
+			.startedAtEpoch(startedAtEpoch)
 			.ord(ord)
 			.type(type)
 			.build()
@@ -82,7 +87,9 @@ public class Flow {
 		try{
 			if(lock.tryLock()) {
 				FlowExecution execution = fc.getExecution();
-				execution.setStartedAt(LocalDateTime.now());
+				long startedAtEpoch = System.currentTimeMillis();
+				execution.setStartedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(startedAtEpoch), ZoneId.systemDefault()));
+				execution.setStartedAtEpoch(startedAtEpoch);
 				execution.setStatus(FlowExecutionStatus.RUNNING);
 				if(!this.back){
 					if(!fc.getTags().containsKey("date")){
@@ -106,7 +113,7 @@ public class Flow {
 						for(Step s : steps) {
 							FlowExecutionStep fes = null;
 							try {
-								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd() , LocalDateTime.now());
+								fes = sendStepStarted(fc.getExecution().getId(), s.getType(), s.getOrd());
 								fc.setCurrentStep(fes);
 								fc.logStepInfo(fes, LogMessage.info("step started"));
 								s.execute(fc);

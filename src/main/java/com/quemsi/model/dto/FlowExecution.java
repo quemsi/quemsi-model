@@ -22,6 +22,7 @@ public class FlowExecution extends BaseDto<Long>{
     @NotNull
     private FlowExecutionStatus status;
 	private LocalDateTime startedAt;
+	private Long startedAtEpoch;
 	private LocalDateTime finishedAt;
 	private Integer completedSteps;
     private Integer numberOfSteps;
@@ -38,17 +39,19 @@ public class FlowExecution extends BaseDto<Long>{
         private Integer ord;
         private FlowExecutionStatus status;
         private LocalDateTime startedAt;
+        private Long startedAtEpoch;
         private LocalDateTime finishedAt;
         private Duration duration;
         
         @Builder
-        private FlowExecutionStep(Long id, Boolean active, Long flowExecutionId, String type, Integer ord, FlowExecutionStatus status, LocalDateTime startedAt, LocalDateTime finishedAt, Duration duration, String logs){
+        private FlowExecutionStep(Long id, Boolean active, Long flowExecutionId, String type, Integer ord, FlowExecutionStatus status, LocalDateTime startedAt, Long startedAtEpoch, LocalDateTime finishedAt, Duration duration, String logs){
             super(id, active==null?true:active.booleanValue());
             this.flowExecutionId = flowExecutionId;
             this.type = type;
             this.ord = ord;
             this.status = status;
             this.startedAt = startedAt;
+            this.startedAtEpoch = startedAtEpoch;
             this.finishedAt = finishedAt;
             this.duration = duration;
         }
