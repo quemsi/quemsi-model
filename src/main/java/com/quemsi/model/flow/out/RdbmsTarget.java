@@ -86,6 +86,24 @@ public class RdbmsTarget extends AbstractStorage {
         return Math.max(1, restoreParallelism) * pageRows;
     }
 
+    /** The Oracle user that should own restored tables: the datasource schema when one is set, otherwise the login. */
+    static String oracleTargetSchema(DataSourceFactory factory) {
+        if (factory == null || factory.type() != DatasourceType.ORACLE) {
+            return null;
+        }
+        if (factory.getSchemas() != null) {
+            java.util.List<String> named = factory.getSchemas().stream()
+                .filter(schema -> schema != null && !schema.isBlank())
+                .map(String::trim)
+                .distinct()
+                .toList();
+            if (named.size() == 1) {
+                return named.get(0);
+            }
+        }
+        return factory.getUsername();
+    }
+
     @Override
     public void store(FlowContext context, String dataName, List<DataPackage> dataPackages, Long version) {
         BackupArchive archive = context.getBackupArchive();
@@ -120,7 +138,7 @@ public class RdbmsTarget extends AbstractStorage {
                         .withExtra("targetType", datasourceFactory.type())
                         .get();
                 }
-                crossDbPlan = CrossDbTranslator.translate(dbModel, datasourceFactory.type(), datasourceFactory.getUsername());
+                crossDbPlan = CrossDbTranslator.translate(dbModel, datasourceFactory.type(), oracleTargetSchema(datasourceFactory));
                 for (String warning : crossDbPlan.report().warnings()) {
                     context.logStepWarn(context.getCurrentStep(), warning);
                 }

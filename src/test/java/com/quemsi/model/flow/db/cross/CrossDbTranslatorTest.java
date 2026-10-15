@@ -465,6 +465,21 @@ public class CrossDbTranslatorTest {
 	}
 
 	@Test
+	public void mysqlTablesAreWrittenInTheOracleSchema() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.MYSQL.name());
+		DbTable table = model.addTable("productlines", null);
+		table.addColumn(DbColumn.builder().name("productLine").dataType("varchar").columnType("varchar")
+			.ordinalPosition(1).maxLength(50).nullable(false).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.ORACLE, "classicmodels");
+
+		assertThat(model.findTable("CLASSICMODELS.productlines").isPresent(), is(true));
+		assertThat(model.getSchemas(), org.hamcrest.Matchers.contains("CLASSICMODELS"));
+		assertThat(joined(plan), containsString("written in schema CLASSICMODELS"));
+	}
+
+	@Test
 	public void mysqlPrimaryAndRepeatedIndexNamesAreUniqueOnPostgres() {
 		DbModel model = new DbModel();
 		model.setSourceType(DatasourceType.MYSQL.name());

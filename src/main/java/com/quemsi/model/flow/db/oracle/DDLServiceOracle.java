@@ -329,6 +329,11 @@ public class DDLServiceOracle implements DDLService {
 
 	@Override
 	public void createTables(DbModel dbModel) {
+		if (dbModel.getSchemas() == null || dbModel.getSchemas().isEmpty()) {
+			throw Exceptions.badRequest("oracle-schema-required")
+				.withExtra("hint", "Set the Oracle datasource schema to the user that should own the restored tables")
+				.get();
+		}
 		LinkedList<StringBuilder> scripts = new LinkedList<>();
 		Set<String> existingTables = new HashSet<>(tables(dbModel.getSchemas()));
 		Set<String> existingConstraints = new HashSet<>(constraintNames(dbModel.getSchemas()));

@@ -834,10 +834,14 @@ public final class CrossDbTranslator {
 			String schema = switch (target) {
 				case POSTGRES -> "public";
 				case SQLSERVER -> "dbo";
+				case ORACLE -> requiredOracleSchema(targetSchema);
 				default -> null;
 			};
 			if (schema != null) {
 				assignSchema(model, schema);
+				if (target == DatasourceType.ORACLE) {
+					report.warnOnce("mysql-oracle-schema", "MySQL tables were written in schema " + schema);
+				}
 			}
 		}
 		if (target == DatasourceType.SQLSERVER) {
@@ -845,16 +849,20 @@ public final class CrossDbTranslator {
 				"SQL Server reserves public for the built-in database role, so schema public was written as dbo");
 		}
 		if (target == DatasourceType.ORACLE && containsSchema(model, "public")) {
-			String schema = targetSchema == null ? "" : targetSchema.trim();
-			if (schema.isEmpty()) {
-				throw Exceptions.badRequest("oracle-schema-required")
-					.withExtra("hint", "Connect as the Oracle user that should own the restored tables")
-					.get();
-			}
-			schema = schema.toUpperCase(Locale.ROOT);
+			String schema = requiredOracleSchema(targetSchema);
 			renameSchema(model, "public", schema, report, "oracle-public-schema",
 				"Oracle has no schema public, so schema public was written as " + schema);
 		}
+	}
+
+	private static String requiredOracleSchema(String targetSchema) {
+		String schema = targetSchema == null ? "" : targetSchema.trim();
+		if (schema.isEmpty()) {
+			throw Exceptions.badRequest("oracle-schema-required")
+				.withExtra("hint", "Set the Oracle datasource schema to the user that should own the restored tables")
+				.get();
+		}
+		return schema.toUpperCase(Locale.ROOT);
 	}
 
 	/**
