@@ -1,6 +1,8 @@
 package com.quemsi.model.flow.db.cross;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -107,6 +109,7 @@ public final class CrossDbTranslator {
 		if (target == DatasourceType.MYSQL) {
 			fitMysqlKeyLengths(model, report);
 		}
+		disambiguateSchemaObjectNames(model, target, report);
 		clearEngineObjects(model, target, report);
 		int details = report.size();
 		report.warn("cross-db restore completed with " + details + " warning(s)");
@@ -275,6 +278,184 @@ public final class CrossDbTranslator {
 			}
 		}
 		model.setIndexes(rewritten);
+	}
+
+	/**
+	 * MySQL names every primary key {@code PRIMARY}, and other index names only have to be unique
+	 * inside one table. Postgres, SQL Server, and Oracle require those names to be unique in the schema.
+	 */
+	private static void disambiguateSchemaObjectNames(DbModel model, DatasourceType target, CrossDbReport report) {
+		if (target == DatasourceType.MYSQL) {
+			return;
+		}
+		int maxBytes = target == DatasourceType.POSTGRES ? 63 : 128;
+		Set<String> taken = new HashSet<>();
+		dropMysqlPrimaryIndexes(model);
+		boolean renamedPrimary = false;
+		boolean prefixed = false;
+		if (model.getTables() != null) {
+			for (DbTable table : model.getTables().values()) {
+				String pk = table.getPkConstraintName();
+				if (pk == null || pk.isBlank()) {
+					continue;
+				}
+				boolean primary = "PRIMARY".equalsIgnoreCase(pk);
+				String renamed = claimName(table.getSchema(), table.getName(), primary ? "pkey" : pk, primary, taken, maxBytes);
+				if (!renamed.equals(pk)) {
+					if (primary) {
+						renamedPrimary = true;
+					} else {
+						prefixed = true;
+					}
+				}
+				table.setPkConstraintName(renamed);
+			}
+		}
+		Map<String, List<SchemaName>> groups = new LinkedHashMap<>();
+		if (model.getIndexes() != null) {
+			for (Map<String, IndexInfo> byName : model.getIndexes().values()) {
+				if (byName == null) {
+					continue;
+				}
+				for (IndexInfo index : byName.values()) {
+					if (index == null || index.getIndexName() == null || index.getIndexName().isBlank()) {
+						continue;
+					}
+					addSchemaName(groups, new SchemaName(index.getSchemaName(), index.getTableName(), index.getIndexName(), index, null, null));
+				}
+			}
+		}
+		if (model.getContraintInfos() != null) {
+			for (ContraintInfo info : model.getContraintInfos()) {
+				if (info.getConstraintName() == null || info.getConstraintName().isBlank()) {
+					continue;
+				}
+				addSchemaName(groups, new SchemaName(info.getSchema(), info.getTableName(), info.getConstraintName(), null, info, null));
+			}
+		}
+		if (model.getReferenceInfos() != null) {
+			for (ReferenceInfo info : model.getReferenceInfos()) {
+				if (info.getConstraintName() == null || info.getConstraintName().isBlank()) {
+					continue;
+				}
+				addSchemaName(groups, new SchemaName(info.getSrcSchema(), info.getSrcTableName(), info.getConstraintName(), null, null, info));
+			}
+		}
+		for (List<SchemaName> group : groups.values()) {
+			Set<String> tables = new LinkedHashSet<>();
+			for (SchemaName item : group) {
+				tables.add(item.table == null ? "" : item.table);
+			}
+			boolean collide = tables.size() > 1 || taken.contains(scope(group.get(0).schema, group.get(0).name));
+			if (!collide) {
+				claimName(group.get(0).schema, group.get(0).table, group.get(0).name, false, taken, maxBytes);
+				continue;
+			}
+			Map<String, String> renamedByTable = new LinkedHashMap<>();
+			for (String table : tables) {
+				SchemaName sample = group.stream().filter(item -> table.equals(item.table == null ? "" : item.table)).findFirst().orElseThrow();
+				String renamed = claimName(sample.schema, sample.table, sample.name, true, taken, maxBytes);
+				renamedByTable.put(table, renamed);
+				if (!renamed.equals(sample.name)) {
+					prefixed = true;
+				}
+			}
+			for (SchemaName item : group) {
+				String renamed = renamedByTable.get(item.table == null ? "" : item.table);
+				if (item.index != null) {
+					item.index.setIndexName(renamed);
+				}
+				if (item.constraint != null) {
+					item.constraint.setConstraintName(renamed);
+				}
+				if (item.reference != null) {
+					item.reference.setConstraintName(renamed);
+				}
+			}
+		}
+		rekeyIndexNames(model);
+		if (renamedPrimary) {
+			report.warnOnce("mysql-primary-key", "MySQL primary keys named PRIMARY were written as {table}_pkey");
+		}
+		if (prefixed) {
+			report.warnOnce("schema-object-names",
+				"constraint and index names that repeat in the schema were prefixed with the table name");
+		}
+	}
+
+	private static void dropMysqlPrimaryIndexes(DbModel model) {
+		if (model.getIndexes() == null) {
+			return;
+		}
+		for (Map<String, IndexInfo> byName : model.getIndexes().values()) {
+			if (byName == null) {
+				continue;
+			}
+			byName.entrySet().removeIf(entry -> "PRIMARY".equalsIgnoreCase(entry.getKey())
+				|| (entry.getValue() != null && "PRIMARY".equalsIgnoreCase(entry.getValue().getIndexName())));
+		}
+	}
+
+	private static void addSchemaName(Map<String, List<SchemaName>> groups, SchemaName item) {
+		groups.computeIfAbsent(scope(item.schema, item.name), key -> new ArrayList<>()).add(item);
+	}
+
+	private static void rekeyIndexNames(DbModel model) {
+		if (model.getIndexes() == null) {
+			return;
+		}
+		for (Map<String, IndexInfo> byName : model.getIndexes().values()) {
+			if (byName == null || byName.isEmpty()) {
+				continue;
+			}
+			List<IndexInfo> copy = new ArrayList<>(byName.values());
+			byName.clear();
+			for (IndexInfo index : copy) {
+				if (index != null && index.getIndexName() != null) {
+					byName.put(index.getIndexName(), index);
+				}
+			}
+		}
+	}
+
+	private static String claimName(String schema, String table, String name, boolean prefix, Set<String> taken, int maxBytes) {
+		String tableName = table == null || table.isBlank() ? "table" : table;
+		String preferred = prefix ? tableName + "_" + name : name;
+		String candidate = fitIdentifier(preferred, maxBytes);
+		int suffix = 2;
+		while (candidate.isEmpty() || taken.contains(scope(schema, candidate))) {
+			String extra = "_" + suffix++;
+			int room = maxBytes - extra.getBytes(StandardCharsets.UTF_8).length;
+			String stem = tableName + "_" + name;
+			candidate = fitIdentifier(fitIdentifier(stem, Math.max(1, room)) + extra, maxBytes);
+		}
+		taken.add(scope(schema, candidate));
+		return candidate;
+	}
+
+	private static String scope(String schema, String name) {
+		return (schema == null ? "" : schema) + "\0" + name;
+	}
+
+	static String fitIdentifier(String name, int maxBytes) {
+		if (name == null) {
+			return "";
+		}
+		byte[] bytes = name.getBytes(StandardCharsets.UTF_8);
+		if (bytes.length <= maxBytes) {
+			return name;
+		}
+		int end = maxBytes;
+		while (end > 0 && (bytes[end] & 0xC0) == 0x80) {
+			end--;
+		}
+		if (end <= 0) {
+			end = Math.min(maxBytes, bytes.length);
+		}
+		return new String(bytes, 0, end, StandardCharsets.UTF_8);
+	}
+
+	private record SchemaName(String schema, String table, String name, IndexInfo index, ContraintInfo constraint, ReferenceInfo reference) {
 	}
 
 	/**

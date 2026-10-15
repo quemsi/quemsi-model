@@ -465,6 +465,48 @@ public class CrossDbTranslatorTest {
 	}
 
 	@Test
+	public void mysqlPrimaryAndRepeatedIndexNamesAreUniqueOnPostgres() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.MYSQL.name());
+		DbTable lines = model.addTable("productlines", null);
+		lines.addColumn(DbColumn.builder().name("productLine").dataType("varchar").columnType("varchar")
+			.ordinalPosition(1).maxLength(50).nullable(false).build());
+		lines.getPkColumnNames().add("productLine");
+		lines.setPkConstraintName("PRIMARY");
+		DbTable products = model.addTable("products", null);
+		products.addColumn(DbColumn.builder().name("productCode").dataType("varchar").columnType("varchar")
+			.ordinalPosition(1).maxLength(15).nullable(false).build());
+		products.getPkColumnNames().add("productCode");
+		products.setPkConstraintName("PRIMARY");
+		IndexInfo linesPk = new IndexInfo(null, "productlines", "PRIMARY", true, "BTREE");
+		linesPk.getColumns().add("productLine");
+		IndexInfo productsPk = new IndexInfo(null, "products", "PRIMARY", true, "BTREE");
+		productsPk.getColumns().add("productCode");
+		IndexInfo linesIdx = new IndexInfo(null, "productlines", "idx_name", false, "BTREE");
+		linesIdx.getColumns().add("productLine");
+		IndexInfo productsIdx = new IndexInfo(null, "products", "idx_name", false, "BTREE");
+		productsIdx.getColumns().add("productCode");
+		IndexInfo once = new IndexInfo(null, "productlines", "idx_once", false, "BTREE");
+		once.getColumns().add("productLine");
+		model.getIndexes().computeIfAbsent("productlines", key -> new LinkedHashMap<>()).put("PRIMARY", linesPk);
+		model.getIndexes().get("productlines").put("idx_name", linesIdx);
+		model.getIndexes().get("productlines").put("idx_once", once);
+		model.getIndexes().computeIfAbsent("products", key -> new LinkedHashMap<>()).put("PRIMARY", productsPk);
+		model.getIndexes().get("products").put("idx_name", productsIdx);
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.POSTGRES);
+
+		assertThat(model.findTable("public.productlines").orElseThrow().getPkConstraintName(), equalTo("productlines_pkey"));
+		assertThat(model.findTable("public.products").orElseThrow().getPkConstraintName(), equalTo("products_pkey"));
+		assertThat(model.indexesForTable("public.productlines").containsKey("PRIMARY"), is(false));
+		assertThat(model.indexesForTable("public.productlines").containsKey("productlines_idx_name"), is(true));
+		assertThat(model.indexesForTable("public.productlines").containsKey("idx_once"), is(true));
+		assertThat(model.indexesForTable("public.products").containsKey("products_idx_name"), is(true));
+		assertThat(joined(plan), containsString("{table}_pkey"));
+		assertThat(joined(plan), containsString("prefixed with the table name"));
+	}
+
+	@Test
 	public void identityFlags() {
 		assertThat(IdentityFlags.postgres("YES", null), is(true));
 		assertThat(IdentityFlags.postgres("NO", "nextval('public.t_id_seq'::regclass)"), is(true));
