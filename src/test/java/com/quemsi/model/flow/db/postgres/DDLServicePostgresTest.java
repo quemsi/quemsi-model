@@ -451,6 +451,16 @@ public class DDLServicePostgresTest {
     }
 
     @Test
+    public void oracleNoCacheBecomesCacheOne() {
+        StringBuilder sql = new StringBuilder();
+        DDLServicePostgres.appendSequenceCache(sql, 0L);
+        assertThat(sql.toString(), equalTo(" CACHE 1"));
+        sql.setLength(0);
+        DDLServicePostgres.appendSequenceCache(sql, 20L);
+        assertThat(sql.toString(), equalTo(" CACHE 20"));
+    }
+
+    @Test
     public void givenSequenceDropOperation_whenDdlFrom_thenReturnDropSequenceStatement() {
         DbModelDiff diff = new DbModelDiff();
         DbSequence seq = DbSequence.builder()

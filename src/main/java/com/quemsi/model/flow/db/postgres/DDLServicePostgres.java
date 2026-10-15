@@ -294,9 +294,7 @@ public class DDLServicePostgres implements DDLService{
             }else if(seq.getStartValue() != null){
                 seqStringBuilder.append(" START WITH ").append(seq.getStartValue());
             }
-            if(seq.getCacheSize() != null){
-                seqStringBuilder.append(" CACHE ").append(seq.getCacheSize());
-            }
+            appendSequenceCache(seqStringBuilder, seq.getCacheSize());
             if(!seq.isCycle()){
                 seqStringBuilder.append(" NO");
             }
@@ -1123,6 +1121,14 @@ public class DDLServicePostgres implements DDLService{
         return statements;
     }
     
+    /** Postgres rejects {@code CACHE 0}. Oracle {@code NOCACHE} is stored as 0 and becomes {@code CACHE 1}. */
+    static void appendSequenceCache(StringBuilder sb, Long cacheSize) {
+        if (cacheSize == null) {
+            return;
+        }
+        sb.append(" CACHE ").append(cacheSize < 1L ? 1L : cacheSize);
+    }
+
     private String generateCreateSequenceSql(DbSequence seq) {
         StringBuilder sb = new StringBuilder("CREATE SEQUENCE IF NOT EXISTS ")
 			.append(CommonHelpers.doubleQuotedQualified(seq.getSchema(), seq.getName()));
@@ -1149,9 +1155,7 @@ public class DDLServicePostgres implements DDLService{
             sb.append(" START WITH ").append(seq.getStartValue());
         }
         
-        if (seq.getCacheSize() != null) {
-            sb.append(" CACHE ").append(seq.getCacheSize());
-        }
+        appendSequenceCache(sb, seq.getCacheSize());
         
         if (!seq.isCycle()) {
             sb.append(" NO");
@@ -1193,7 +1197,7 @@ public class DDLServicePostgres implements DDLService{
         // Do not alter startValue/lastValue — not treated as schema structure (UpdateSequences handles counters).
         
         if (!Objects.equals(oldSeq.getCacheSize(), newSeq.getCacheSize()) && newSeq.getCacheSize() != null) {
-            sb.append(" CACHE ").append(newSeq.getCacheSize());
+            appendSequenceCache(sb, newSeq.getCacheSize());
             hasChanges = true;
         }
         
