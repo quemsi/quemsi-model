@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import com.quemsi.commons.persistence.BaseDto;
 import com.quemsi.model.flow.subset.SubsetSnapshot;
@@ -12,12 +13,14 @@ import com.quemsi.model.flow.subset.SubsetSnapshot;
 import lombok.Builder;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
-import lombok.NoArgsConstructor;
 
 @Data
-@NoArgsConstructor
 @EqualsAndHashCode(callSuper = true)
 public class DataVersion extends BaseDto<Long>{
+	public DataVersion() {
+		super();
+	}
+
 	@Builder
 	public DataVersion(Long id, NamedEntityReference data, List<Tag> tags, List<DataFile> files, LocalDateTime createdAt,
 			String descript, String agentVersion, DatasourceType datasourceType, SubsetSnapshot subsetSnapshot){
@@ -48,6 +51,15 @@ public class DataVersion extends BaseDto<Long>{
 	public static final String DB_TAG = "db";
 	/** Reserved system tag name for whether the backup used subsetting (values {@code true}/{@code false}). */
 	public static final String SUBSET_TAG = "subset";
+	/**
+	 * Tags written by a snapshot. Version edits must not rename, retarget, or remove them.
+	 * Keep in sync with {@code SYSTEM_TAG_NAMES} in ui-next {@code versionDisplay.js}.
+	 */
+	public static final Set<String> SYSTEM_TAG_NAMES = Set.of("date", "time", "flow", DB_TAG, SUBSET_TAG, "timer");
+
+	public static boolean isSystemTag(String name) {
+		return name != null && SYSTEM_TAG_NAMES.contains(name);
+	}
 	public void setFiles(List<DataFile> fs){
 		if(files == null){
 			files = fs;
