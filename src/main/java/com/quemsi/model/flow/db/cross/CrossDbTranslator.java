@@ -116,6 +116,51 @@ public final class CrossDbTranslator {
 		return plan;
 	}
 
+	/**
+	 * Schemas a cross-database restore will write. Empty when the restore stays on the same engine,
+	 * or when the target is MySQL and tables are not schema-qualified.
+	 */
+	public static Set<String> crossDbLandingSchemas(DbModel model, DatasourceType target, String targetSchema) {
+		if (model == null || model.getSourceType() == null || target == null) {
+			return Set.of();
+		}
+		DatasourceType source = DatasourceType.valueOf(model.getSourceType());
+		if (!isSql(source) || !isSql(target) || source == target || target == DatasourceType.MYSQL) {
+			return Set.of();
+		}
+		if (source == DatasourceType.MYSQL) {
+			String schema = switch (target) {
+				case POSTGRES -> "public";
+				case SQLSERVER -> "dbo";
+				case ORACLE -> requiredOracleSchema(targetSchema);
+				default -> null;
+			};
+			return schema == null ? Set.of() : Set.of(schema);
+		}
+		Set<String> schemas = new LinkedHashSet<>();
+		if (model.getSchemas() != null) {
+			for (String schema : model.getSchemas()) {
+				if (schema != null && !schema.isBlank()) {
+					schemas.add(schema);
+				}
+			}
+		}
+		if (model.getTables() != null) {
+			for (DbTable table : model.getTables().values()) {
+				if (table.getSchema() != null && !table.getSchema().isBlank()) {
+					schemas.add(table.getSchema());
+				}
+			}
+		}
+		if (target == DatasourceType.SQLSERVER && schemas.removeIf(schema -> schema.equalsIgnoreCase("public"))) {
+			schemas.add("dbo");
+		}
+		if (target == DatasourceType.ORACLE && schemas.removeIf(schema -> schema.equalsIgnoreCase("public"))) {
+			schemas.add(requiredOracleSchema(targetSchema));
+		}
+		return schemas;
+	}
+
 	private static IdentityHashMap<DbTable, String> snapshotArchiveNames(DbModel model) {
 		IdentityHashMap<DbTable, String> names = new IdentityHashMap<>();
 		if (model.getTables() != null) {

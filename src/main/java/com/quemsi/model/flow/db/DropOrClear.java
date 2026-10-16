@@ -19,7 +19,9 @@ import com.quemsi.commons.util.LogMessage;
 import com.quemsi.model.flow.AbstractStep;
 import com.quemsi.model.flow.DataPackage;
 import com.quemsi.model.flow.FlowContext;
+import com.quemsi.model.flow.db.cross.CrossDbTranslator;
 import com.quemsi.model.flow.db.sql.DbModel;
+import com.quemsi.model.flow.out.RdbmsTarget;
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 import com.quemsi.model.flow.db.sql.diff.DbModelDiff;
 import com.quemsi.model.flow.db.sql.diff.DiffEntityType;
@@ -39,8 +41,14 @@ public class DropOrClear extends AbstractStep {
 	@Override
 	public void execute(FlowContext context) {
 		datasource.assertWritable();
+		Set<String> configuredSchemas = datasource.getSchemas() == null
+			? null
+			: new LinkedHashSet<>(datasource.getSchemas());
+		boolean schemasExpanded = false;
 		try {
 			DbModel sourceModel = loadBackupModel(context);
+			includeLandingSchemas(context, sourceModel, configuredSchemas);
+			schemasExpanded = true;
 			DbModel targetModel = datasource.getDbModel(msg -> context.logStep(context.getCurrentStep(), msg));
 
 			DbModelDiff diff = new DbModelDiffExtractor().extract(sourceModel, targetModel);
@@ -66,7 +74,38 @@ public class DropOrClear extends AbstractStep {
 				.withExtra("datasource", datasource.getName())
 				.withCause(e)
 				.get();
+		} finally {
+			if (schemasExpanded) {
+				datasource.setSchemas(configuredSchemas);
+			}
 		}
+	}
+
+	/**
+	 * A cross-database restore writes the backup's schemas after the usual renames, which may not be
+	 * the schemas configured on the target datasource. Include those schemas so a previous attempt is cleared.
+	 */
+	private void includeLandingSchemas(FlowContext context, DbModel sourceModel, Set<String> configuredSchemas) {
+		if (sourceModel.getSourceType() == null || datasource.type() == null) {
+			return;
+		}
+		Set<String> landing = CrossDbTranslator.crossDbLandingSchemas(
+			sourceModel, datasource.type(), RdbmsTarget.oracleTargetSchema(datasource));
+		if (landing.isEmpty()) {
+			return;
+		}
+		Set<String> union = new LinkedHashSet<>();
+		if (configuredSchemas != null) {
+			union.addAll(configuredSchemas);
+		}
+		int before = union.size();
+		union.addAll(landing);
+		if (union.size() == before) {
+			return;
+		}
+		context.logStepInfo(context.getCurrentStep(),
+			LogMessage.info("Restore writes schema {}, including it when clearing the target", String.join(", ", landing)));
+		datasource.setSchemas(union);
 	}
 
 	private void truncateLiveTables(DbModel targetModel) throws Exception {

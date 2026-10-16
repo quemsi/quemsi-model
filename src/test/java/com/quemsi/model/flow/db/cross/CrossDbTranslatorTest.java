@@ -2,7 +2,9 @@ package com.quemsi.model.flow.db.cross;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.arrayWithSize;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.is;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -530,6 +532,37 @@ public class CrossDbTranslatorTest {
 		assertThat(IdentityFlags.mysql(""), is(false));
 		assertThat(IdentityFlags.oracle("YES"), is(true));
 		assertThat(IdentityFlags.oracle("NO"), is(false));
+	}
+
+	@Test
+	public void landingSchemasKeepOracleHrAndRenamePublic() {
+		DbModel oracle = new DbModel();
+		oracle.setSourceType(DatasourceType.ORACLE.name());
+		oracle.setSchemas(Set.of("HR"));
+		oracle.crateIfAbsent("EMPLOYEES", "HR");
+
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(oracle, DatasourceType.SQLSERVER, null),
+			containsInAnyOrder("HR"));
+
+		DbModel postgres = new DbModel();
+		postgres.setSourceType(DatasourceType.POSTGRES.name());
+		postgres.setSchemas(Set.of("public"));
+		postgres.crateIfAbsent("flow", "public");
+
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(postgres, DatasourceType.SQLSERVER, null),
+			containsInAnyOrder("dbo"));
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(postgres, DatasourceType.ORACLE, "quemsi"),
+			containsInAnyOrder("QUEMSI"));
+
+		DbModel mysql = new DbModel();
+		mysql.setSourceType(DatasourceType.MYSQL.name());
+		mysql.crateIfAbsent("productlines", null);
+
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(mysql, DatasourceType.ORACLE, "classicmodels"),
+			containsInAnyOrder("CLASSICMODELS"));
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(mysql, DatasourceType.POSTGRES, null),
+			containsInAnyOrder("public"));
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(oracle, DatasourceType.ORACLE, null), empty());
 	}
 
 	private static DbModel sqlServerModel() {

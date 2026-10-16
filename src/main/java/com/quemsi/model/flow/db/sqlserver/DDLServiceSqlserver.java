@@ -9,8 +9,10 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -63,8 +65,11 @@ public class DDLServiceSqlserver implements DDLService{
 		if (dropSql == null) {
 			return true;
 		}
-        try{
-			Statement s = conn.createStatement();
+        try (Statement s = conn.createStatement()) {
+			for (String sql : foreignKeyDropSql(loadForeignKeys(tableNames), tableNames)) {
+				log.info("drop foreign key sql :{}", sql);
+				s.executeUpdate(sql);
+			}
 			log.info("drop tables sql :{}", dropSql);
 			s.executeUpdate(dropSql);
 			return true;
@@ -74,7 +79,84 @@ public class DDLServiceSqlserver implements DDLService{
 		}
     }
 
-	/** Single multi-table DROP; SQL Server drops FKs among listed tables without prior ALTER. */
+	/**
+	 * Foreign keys that touch a table in the drop list. SQL Server rejects {@code DROP TABLE} while any
+	 * foreign key still references the table, including a cycle such as HR departments and employees.
+	 */
+	static List<String> foreignKeyDropSql(List<ForeignKeyOnTable> keys, String... tableNames) {
+		if (keys == null || keys.isEmpty() || tableNames == null || tableNames.length == 0) {
+			return List.of();
+		}
+		Set<String> dropping = new HashSet<>();
+		for (String name : tableNames) {
+			if (name != null) {
+				dropping.add(name.toLowerCase(Locale.ROOT));
+			}
+		}
+		List<String> statements = new ArrayList<>();
+		for (ForeignKeyOnTable key : keys) {
+			String parent = CommonHelpers.qualifiedName(key.parentSchema(), key.parentTable());
+			String referenced = CommonHelpers.qualifiedName(key.referencedSchema(), key.referencedTable());
+			if (!dropping.contains(parent.toLowerCase(Locale.ROOT)) && !dropping.contains(referenced.toLowerCase(Locale.ROOT))) {
+				continue;
+			}
+			statements.add("ALTER TABLE " + CommonHelpers.bracketQuotedQualified(parent)
+				+ " DROP CONSTRAINT " + CommonHelpers.bracketQuoted(key.constraintName()));
+		}
+		return statements;
+	}
+
+	private List<ForeignKeyOnTable> loadForeignKeys(String... tableNames) throws SQLException {
+		Set<String> schemas = new LinkedHashSet<>();
+		if (tableNames != null) {
+			for (String name : tableNames) {
+				if (name == null) {
+					continue;
+				}
+				int dot = name.indexOf('.');
+				if (dot > 0) {
+					schemas.add(name.substring(0, dot));
+				}
+			}
+		}
+		if (schemas.isEmpty()) {
+			return List.of();
+		}
+		String sql = CommonHelpers.addInParameter(
+			"SELECT SCHEMA_NAME(parent.schema_id) AS parent_schema, parent.name AS parent_table, fk.name AS constraint_name, "
+			+ "SCHEMA_NAME(referenced.schema_id) AS referenced_schema, referenced.name AS referenced_table "
+			+ "FROM sys.foreign_keys fk "
+			+ "JOIN sys.tables parent ON fk.parent_object_id = parent.object_id "
+			+ "JOIN sys.tables referenced ON fk.referenced_object_id = referenced.object_id "
+			+ "WHERE SCHEMA_NAME(parent.schema_id) IN {inValues} OR SCHEMA_NAME(referenced.schema_id) IN {inValues}",
+			schemas.size());
+		try (PreparedStatement ps = conn.prepareStatement(sql)) {
+			int index = 1;
+			for (int pass = 0; pass < 2; pass++) {
+				for (String schema : schemas) {
+					ps.setString(index++, schema);
+				}
+			}
+			List<ForeignKeyOnTable> keys = new ArrayList<>();
+			try (ResultSet rs = ps.executeQuery()) {
+				while (rs.next()) {
+					keys.add(new ForeignKeyOnTable(
+						rs.getString("parent_schema"),
+						rs.getString("parent_table"),
+						rs.getString("constraint_name"),
+						rs.getString("referenced_schema"),
+						rs.getString("referenced_table")));
+				}
+			}
+			return keys;
+		}
+	}
+
+	static record ForeignKeyOnTable(String parentSchema, String parentTable, String constraintName,
+			String referencedSchema, String referencedTable) {
+	}
+
+	/** Single multi-table DROP. Foreign keys that touch these tables are removed first. */
 	static String buildMultiTableDropSql(String... tableNames) {
 		if (tableNames == null || tableNames.length == 0) {
 			return null;

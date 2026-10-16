@@ -87,7 +87,7 @@ public class RdbmsTarget extends AbstractStorage {
     }
 
     /** The Oracle user that should own restored tables: the datasource schema when one is set, otherwise the login. */
-    static String oracleTargetSchema(DataSourceFactory factory) {
+    public static String oracleTargetSchema(DataSourceFactory factory) {
         if (factory == null || factory.type() != DatasourceType.ORACLE) {
             return null;
         }

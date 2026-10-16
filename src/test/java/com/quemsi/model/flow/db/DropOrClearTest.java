@@ -2,6 +2,7 @@ package com.quemsi.model.flow.db;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
@@ -104,6 +105,33 @@ public class DropOrClearTest {
 
 		assertThat(ddl.droppedTables, empty());
 		assertThat(dml.truncated, contains("public.t1"));
+	}
+
+	@Test
+	public void crossEngineRestore_dropsTablesInTheSchemaTheBackupWillWrite() throws Exception {
+		DbModel live = new DbModel();
+		live.setSourceType(DatasourceType.SQLSERVER.name());
+		live.crateIfAbsent("keep", "dbo").addColumn(column("id"));
+		live.crateIfAbsent("EMPLOYEES", "HR").addColumn(column("id"));
+		live.build();
+		RecordingDdl ddl = new RecordingDdl();
+		RecordingDml dml = new RecordingDml();
+		FakeDatasource ds = new FakeDatasource(live, ddl, dml);
+		ds.setType(DatasourceType.SQLSERVER);
+		ds.setSchemas(Set.of("dbo"));
+
+		DbModel backup = new DbModel();
+		backup.setSourceType(DatasourceType.ORACLE.name());
+		backup.setSchemas(Set.of("HR"));
+		backup.crateIfAbsent("EMPLOYEES", "HR").addColumn(column("id"));
+		backup.build();
+
+		DropOrClear step = step(ds);
+		step.execute(contextWithArchive(backup));
+
+		assertThat(ddl.droppedTables, containsInAnyOrder("dbo.keep", "HR.EMPLOYEES"));
+		assertThat(dml.truncated, empty());
+		assertThat(ds.getSchemas(), contains("dbo"));
 	}
 
 	@Test
@@ -337,11 +365,17 @@ public class DropOrClearTest {
 		private final RecordingDml dml;
 		private String name = "test-ds";
 		private boolean readOnly;
+		private DatasourceType type = DatasourceType.POSTGRES;
+		private Set<String> schemas = new LinkedHashSet<>(Set.of("public"));
 
 		private FakeDatasource(DbModel live, RecordingDdl ddl, RecordingDml dml) {
 			this.live = live;
 			this.ddl = ddl;
 			this.dml = dml;
+		}
+
+		private void setType(DatasourceType type) {
+			this.type = type;
 		}
 
 		@Override
@@ -365,11 +399,12 @@ public class DropOrClearTest {
 
 		@Override
 		public Set<String> getSchemas() {
-			return Set.of("public");
+			return schemas;
 		}
 
 		@Override
 		public void setSchemas(Set<String> schemas) {
+			this.schemas = schemas == null ? new LinkedHashSet<>() : new LinkedHashSet<>(schemas);
 		}
 
 		@Override
@@ -416,7 +451,18 @@ public class DropOrClearTest {
 
 		@Override
 		public DbModel getDbModel(Consumer<LogMessage> progress) {
-			return live;
+			if (schemas.size() == 1 && schemas.stream().anyMatch("public"::equalsIgnoreCase)) {
+				return live;
+			}
+			DbModel visible = new DbModel();
+			visible.setSourceType(type.name());
+			visible.setSchemas(new LinkedHashSet<>(schemas));
+			for (DbTable table : live.getTables().values()) {
+				if (table.getSchema() != null && schemas.stream().anyMatch(schema -> schema.equalsIgnoreCase(table.getSchema()))) {
+					visible.getTables().put(table.qualifiedName(), table);
+				}
+			}
+			return visible;
 		}
 
 		@Override
@@ -431,7 +477,7 @@ public class DropOrClearTest {
 
 		@Override
 		public DatasourceType type() {
-			return DatasourceType.POSTGRES;
+			return type;
 		}
 	}
 }
