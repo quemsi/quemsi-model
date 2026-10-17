@@ -228,7 +228,7 @@ public class DMLServiceMysql implements DMLService{
 					sessionStmt.execute("SET FOREIGN_KEY_CHECKS=0, UNIQUE_CHECKS=0");
 				}
 				conn.setAutoCommit(false);
-				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(table.getName()).append("(");
+				StringBuilder sqlBuilder = new StringBuilder("insert into ").append(quoteTable(table)).append("(");
 				StringBuilder paramsBuilder = new StringBuilder("(");
 				int counter = 0;
 				for(String columnName : table.columnNames()){

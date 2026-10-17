@@ -411,6 +411,25 @@ public class CrossDbTranslatorTest {
 	}
 
 	@Test
+	public void sqlServerDboSchemaUsesOracleLogin() {
+		DbModel model = new DbModel();
+		model.setSourceType(DatasourceType.SQLSERVER.name());
+		model.setSchemas(Set.of("dbo"));
+		DbTable table = model.addTable("trip", "dbo");
+		table.addColumn(DbColumn.builder().name("id").dataType("bigint").columnType("bigint")
+			.ordinalPosition(1).nullable(false).build());
+		model.getSequences().add(DbSequence.builder().schema("dbo").name("trip_seq")
+			.startValue(1L).incrementBy(1L).build());
+
+		CrossDbPlan plan = CrossDbTranslator.translate(model, DatasourceType.ORACLE, "nytaxi");
+
+		assertThat(model.findTable("NYTAXI.trip").isPresent(), is(true));
+		assertThat(model.getSchemas(), org.hamcrest.Matchers.contains("NYTAXI"));
+		assertThat(model.getSequences().get(0).getSchema(), equalTo("NYTAXI"));
+		assertThat(joined(plan), containsString("schema dbo was written as NYTAXI"));
+	}
+
+	@Test
 	public void oracleTargetRequiresLoginWhenSchemaIsPublic() {
 		DbModel model = new DbModel();
 		model.setSourceType(DatasourceType.POSTGRES.name());
@@ -553,6 +572,13 @@ public class CrossDbTranslatorTest {
 			containsInAnyOrder("dbo"));
 		assertThat(CrossDbTranslator.crossDbLandingSchemas(postgres, DatasourceType.ORACLE, "quemsi"),
 			containsInAnyOrder("QUEMSI"));
+
+		DbModel sqlServer = new DbModel();
+		sqlServer.setSourceType(DatasourceType.SQLSERVER.name());
+		sqlServer.setSchemas(Set.of("dbo"));
+		sqlServer.crateIfAbsent("trip", "dbo");
+		assertThat(CrossDbTranslator.crossDbLandingSchemas(sqlServer, DatasourceType.ORACLE, "nytaxi"),
+			containsInAnyOrder("NYTAXI"));
 
 		DbModel mysql = new DbModel();
 		mysql.setSourceType(DatasourceType.MYSQL.name());

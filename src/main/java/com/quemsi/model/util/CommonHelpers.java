@@ -48,6 +48,37 @@ public class CommonHelpers {
         return doubleQuoted(qualifiedName.substring(0, dot)) + "." + doubleQuoted(qualifiedName.substring(dot + 1));
     }
 
+    /** MySQL identifier quoting; escape {@code `} as {@code ``}. */
+    public static String backtickQuoted(String identifier) {
+        if (identifier == null) {
+            return null;
+        }
+        return "`" + identifier.replace("`", "``") + "`";
+    }
+
+    /** Quotes schema and name separately for MySQL: {@code `schema`.`name`}. */
+    public static String backtickQuotedQualified(String schema, String name) {
+        if (StringUtils.isEmptyOrNull(schema)) {
+            return backtickQuoted(name);
+        }
+        return backtickQuoted(schema) + "." + backtickQuoted(name);
+    }
+
+    /**
+     * Quotes a {@code schema.name} (or bare name) for MySQL.
+     * Splits on the first {@code .} so names with spaces like {@code Order Details} work.
+     */
+    public static String backtickQuotedQualified(String qualifiedName) {
+        if (qualifiedName == null) {
+            return null;
+        }
+        int dot = qualifiedName.indexOf('.');
+        if (dot < 0) {
+            return backtickQuoted(qualifiedName);
+        }
+        return backtickQuoted(qualifiedName.substring(0, dot)) + "." + backtickQuoted(qualifiedName.substring(dot + 1));
+    }
+
     /** T-SQL bracket identifier; escape {@code ]} as {@code ]]}. */
     public static String bracketQuoted(String identifier) {
         if (identifier == null) {

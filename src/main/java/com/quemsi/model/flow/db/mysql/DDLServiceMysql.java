@@ -16,6 +16,7 @@ import java.util.stream.Collectors;
 import javax.sql.DataSource;
 
 import com.quemsi.commons.util.Exceptions;
+import com.quemsi.model.util.CommonHelpers;
 import com.quemsi.model.flow.db.DDLService;
 import com.quemsi.model.flow.db.sql.DbColumn;
 import com.quemsi.model.flow.db.sql.DbModel;
@@ -63,7 +64,9 @@ public class DDLServiceMysql implements DDLService{
 		if (tableNames == null || tableNames.length == 0) {
 			return null;
 		}
-		return "DROP TABLE IF EXISTS " + String.join(", ", tableNames);
+		return "DROP TABLE IF EXISTS " + Arrays.stream(tableNames)
+			.map(CommonHelpers::backtickQuotedQualified)
+			.collect(Collectors.joining(", "));
 	}
 
 	/** Strip trailing semicolons so rewriteBatchedStatements does not produce `;;`. */
@@ -206,7 +209,7 @@ public class DDLServiceMysql implements DDLService{
 		try (Connection conn = dataSource.getConnection();
 			 Statement s = conn.createStatement()) {
 			for (ReferenceInfo refInfo : constraints) {
-				String dropConstraintSql = "ALTER TABLE " + refInfo.getSrcTableName()
+				String dropConstraintSql = "ALTER TABLE " + CommonHelpers.backtickQuotedQualified(refInfo.getSrcTableName())
 					+ " DROP FOREIGN KEY " + backtickQuoted(refInfo.getConstraintName());
 				log.info("drop constraint sql :{}", dropConstraintSql);
 				s.addBatch(dropConstraintSql);
@@ -259,7 +262,7 @@ public class DDLServiceMysql implements DDLService{
 		/* FKs are applied after data load via enableContraints — omit from CREATE for faster DDL */
 		for(String tableName : dbModel.orderedTableNames()){
 			DbTable table = dbModel.findTable(tableName).orElseThrow();
-			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(tableName).append(" (").append(System.lineSeparator());
+			StringBuilder sb = new StringBuilder("CREATE TABLE IF NOT EXISTS ").append(CommonHelpers.backtickQuotedQualified(tableName)).append(" (").append(System.lineSeparator());
 			DbColumn[] columns = table.orderedColumns();
 			int index = 0;
             for(DbColumn c : columns){
@@ -296,7 +299,8 @@ public class DDLServiceMysql implements DDLService{
 					if(!"PRIMARY".equals(indName) && !constraintInfos.containsKey(indName)){
 						IndexInfo indCols = entry.getValue();
 						sb.append(",").append(System.lineSeparator());
-						sb.append("  ").append(mysqlInlineIndexKeyword(indCols)).append(" ").append(indName);
+						sb.append("  ").append(mysqlInlineIndexKeyword(indCols)).append(" ");
+						appendBacktickQuoted(sb, indName);
 						sb.append(" (");
 						appendMysqlIndexColumns(sb, indCols);
 						sb.append(")");
@@ -308,7 +312,7 @@ public class DDLServiceMysql implements DDLService{
 			scripts.add(sb);
 		}
 		for(ContraintInfo contraintInfo : dbModel.getContraintInfos()){
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.getTableName()).append(" ADD CONSTRAINT ");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.backtickQuotedQualified(contraintInfo.getTableName())).append(" ADD CONSTRAINT ");
 			appendBacktickQuoted(sb, contraintInfo.getConstraintName());
 			sb.append(" UNIQUE").append(" (");
 			Iterator<String> cIt = contraintInfo.getColumnNames().iterator();
@@ -324,15 +328,9 @@ public class DDLServiceMysql implements DDLService{
 			scripts.add(sb);
 		}
 		for(CheckConstraint checkConstraint : dbModel.getCheckConstraints()){
-			StringBuilder sb = new StringBuilder("ALTER TABLE ");
-			// Backtick table name if it contains special characters
-			String tableName = checkConstraint.getTableName();
-			if(tableName.contains(".") || tableName.contains("`")){
-				sb.append("`").append(tableName.replace("`", "``")).append("`");
-			} else {
-				sb.append(tableName);
-			}
-			sb.append(" ADD CONSTRAINT ");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ")
+				.append(CommonHelpers.backtickQuotedQualified(checkConstraint.getTableName()))
+				.append(" ADD CONSTRAINT ");
 			appendBacktickQuoted(sb, checkConstraint.getConstraintName());
 			String convertedCondef = convertCheckClause(checkConstraint.getCondef());
 			sb.append(" CHECK (").append(convertedCondef).append(");");
@@ -728,7 +726,7 @@ public class DDLServiceMysql implements DDLService{
     }
     
     private String generateAddForeignKeySql(ReferenceInfo ref) {
-        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
+        StringBuilder sb = new StringBuilder("ALTER TABLE ").append(CommonHelpers.backtickQuotedQualified(ref.srcQualifiedName()))
             .append(" ADD CONSTRAINT ");
         appendBacktickQuoted(sb, ref.getConstraintName());
         sb.append(" FOREIGN KEY (");
@@ -742,7 +740,7 @@ public class DDLServiceMysql implements DDLService{
             }
         }
         
-        sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
+        sb.append(") REFERENCES ").append(CommonHelpers.backtickQuotedQualified(ref.refQualifiedName())).append(" (");
         cIt = ref.getRefColumnNames().iterator();
         while (cIt.hasNext()) {
             String cName = cIt.next();

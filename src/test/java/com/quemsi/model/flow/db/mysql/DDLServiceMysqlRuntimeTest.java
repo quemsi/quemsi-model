@@ -35,7 +35,9 @@ public class DDLServiceMysqlRuntimeTest {
 	@Test
 	public void buildMultiTableDropSql_joinsNames() {
 		assertThat(DDLServiceMysql.buildMultiTableDropSql("a", "b", "c"),
-			equalTo("DROP TABLE IF EXISTS a, b, c"));
+			equalTo("DROP TABLE IF EXISTS `a`, `b`, `c`"));
+		assertThat(DDLServiceMysql.buildMultiTableDropSql("Order Details"),
+			equalTo("DROP TABLE IF EXISTS `Order Details`"));
 		assertThat(DDLServiceMysql.buildMultiTableDropSql(), nullValue());
 		assertThat(DDLServiceMysql.buildMultiTableDropSql((String[]) null), nullValue());
 	}
@@ -81,6 +83,27 @@ public class DDLServiceMysqlRuntimeTest {
 	}
 
 	@Test
+	public void createTables_quotesTableNamesThatContainSpaces() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
+			DbModel dbModel = new DbModel();
+			DbTable details = dbModel.addTable("Order Details");
+			details.addColumn(DbColumn.builder().name("OrderID").dataType("int").columnType("int")
+				.ordinalPosition(1).nullable(false).build());
+			details.addColumn(DbColumn.builder().name("ProductID").dataType("int").columnType("int")
+				.ordinalPosition(2).nullable(false).build());
+			details.getPkColumnNames().add("OrderID");
+			details.getPkColumnNames().add("ProductID");
+
+			ddl.createTables(dbModel);
+		}
+
+		assertThat(recording.batchedSql, hasSize(1));
+		assertThat(recording.batchedSql.get(0), containsString("CREATE TABLE IF NOT EXISTS `Order Details` ("));
+		assertThat(recording.batchedSql.get(0), containsString("`OrderID` int NOT NULL"));
+	}
+
+	@Test
 	public void createTables_emitsFulltextKeyAndPrefixLengths() throws Exception {
 		RecordingJdbc recording = new RecordingJdbc();
 		try (DDLServiceMysql ddl = new DDLServiceMysql(recording.dataSource)) {
@@ -111,8 +134,8 @@ public class DDLServiceMysqlRuntimeTest {
 		}
 
 		assertThat(recording.batchedSql, hasSize(1));
-		assertThat(recording.batchedSql.get(0), containsString("FULLTEXT KEY idx_title_description (`title`, `description`)"));
-		assertThat(recording.batchedSql.get(0), containsString("KEY idx_description_prefix (`description`(100))"));
+		assertThat(recording.batchedSql.get(0), containsString("FULLTEXT KEY `idx_title_description` (`title`, `description`)"));
+		assertThat(recording.batchedSql.get(0), containsString("KEY `idx_description_prefix` (`description`(100))"));
 	}
 
 	@Test
@@ -136,7 +159,7 @@ public class DDLServiceMysqlRuntimeTest {
 		}
 
 		assertThat(recording.batchedSql, hasSize(1));
-		assertThat(recording.batchedSql.get(0), containsString("KEY idx_16985_dept_no (`department_id`)"));
+		assertThat(recording.batchedSql.get(0), containsString("KEY `idx_16985_dept_no` (`department_id`)"));
 	}
 
 	@Test
@@ -173,7 +196,7 @@ public class DDLServiceMysqlRuntimeTest {
 		}
 
 		assertThat(recording.batchedSql, hasSize(1));
-		assertThat(recording.batchedSql.get(0), containsString("SPATIAL KEY idx_location (`location`)"));
+		assertThat(recording.batchedSql.get(0), containsString("SPATIAL KEY `idx_location` (`location`)"));
 		assertThat(recording.batchedSql.get(0), not(containsString("`location`(32)")));
 	}
 
@@ -186,7 +209,7 @@ public class DDLServiceMysqlRuntimeTest {
 
 		assertThat(recording.executedSql, contains(
 			"SET FOREIGN_KEY_CHECKS=0",
-			"DROP TABLE IF EXISTS orderdetails, orders, customers",
+			"DROP TABLE IF EXISTS `orderdetails`, `orders`, `customers`",
 			"SET FOREIGN_KEY_CHECKS=1"
 		));
 		assertThat(recording.executeBatchCalls.get(), equalTo(0));
@@ -238,8 +261,8 @@ public class DDLServiceMysqlRuntimeTest {
 
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
 		assertThat(recording.batchedSql, hasSize(2));
-		assertThat(recording.batchedSql.get(0), containsString("CREATE TABLE IF NOT EXISTS offices"));
-		assertThat(recording.batchedSql.get(1), containsString("CREATE TABLE IF NOT EXISTS employees"));
+		assertThat(recording.batchedSql.get(0), containsString("CREATE TABLE IF NOT EXISTS `offices`"));
+		assertThat(recording.batchedSql.get(1), containsString("CREATE TABLE IF NOT EXISTS `employees`"));
 		for (String sql : recording.batchedSql) {
 			assertThat(sql, not(containsString("FOREIGN KEY")));
 			assertThat(sql, not(containsString("employees_ibfk_1")));
@@ -267,7 +290,7 @@ public class DDLServiceMysqlRuntimeTest {
 
 		assertThat(recording.getConnectionCalls.get(), equalTo(1));
 		assertThat(recording.executeBatchCalls.get(), equalTo(1));
-		assertThat(recording.batchedSql, hasItem("ALTER TABLE orders DROP FOREIGN KEY `orders_ibfk_1`"));
+		assertThat(recording.batchedSql, hasItem("ALTER TABLE `orders` DROP FOREIGN KEY `orders_ibfk_1`"));
 	}
 
 	@Test

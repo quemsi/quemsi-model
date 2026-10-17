@@ -21,6 +21,14 @@ public class CommonHelpersQuoteTest {
 	}
 
 	@Test
+	public void backtickQuotedQualified_quotesNamesWithSpaces() {
+		assertThat(CommonHelpers.backtickQuoted("Order Details"), equalTo("`Order Details`"));
+		assertThat(CommonHelpers.backtickQuoted("a`b"), equalTo("`a``b`"));
+		assertThat(CommonHelpers.backtickQuotedQualified("Order Details"), equalTo("`Order Details`"));
+		assertThat(CommonHelpers.backtickQuotedQualified("db", "Order Details"), equalTo("`db`.`Order Details`"));
+	}
+
+	@Test
 	public void bracketQuoted_escapesEmbeddedBrackets() {
 		assertThat(CommonHelpers.bracketQuoted("Order Details"), equalTo("[Order Details]"));
 		assertThat(CommonHelpers.bracketQuoted("a]b"), equalTo("[a]]b]"));

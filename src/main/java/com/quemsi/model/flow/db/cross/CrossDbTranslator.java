@@ -155,7 +155,7 @@ public final class CrossDbTranslator {
 		if (target == DatasourceType.SQLSERVER && schemas.removeIf(schema -> schema.equalsIgnoreCase("public"))) {
 			schemas.add("dbo");
 		}
-		if (target == DatasourceType.ORACLE && schemas.removeIf(schema -> schema.equalsIgnoreCase("public"))) {
+		if (target == DatasourceType.ORACLE && schemas.removeIf(schema -> schema.equalsIgnoreCase("public") || schema.equalsIgnoreCase("dbo"))) {
 			schemas.add(requiredOracleSchema(targetSchema));
 		}
 		return schemas;
@@ -893,10 +893,12 @@ public final class CrossDbTranslator {
 			renameSchema(model, "public", "dbo", report, "sqlserver-public-role",
 				"SQL Server reserves public for the built-in database role, so schema public was written as dbo");
 		}
-		if (target == DatasourceType.ORACLE && containsSchema(model, "public")) {
+		if (target == DatasourceType.ORACLE && (containsSchema(model, "public") || containsSchema(model, "dbo"))) {
 			String schema = requiredOracleSchema(targetSchema);
 			renameSchema(model, "public", schema, report, "oracle-public-schema",
 				"Oracle has no schema public, so schema public was written as " + schema);
+			renameSchema(model, "dbo", schema, report, "oracle-dbo-schema",
+				"Oracle has no schema dbo, so schema dbo was written as " + schema);
 		}
 	}
 
