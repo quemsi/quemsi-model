@@ -1,6 +1,7 @@
 package com.quemsi.model.flow.db.oracle;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.equalTo;
@@ -8,7 +9,9 @@ import static org.hamcrest.Matchers.hasSize;
 import static org.hamcrest.Matchers.is;
 import static org.hamcrest.Matchers.not;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -78,6 +81,26 @@ public class DDLServiceOracleTest {
 		assertThat(statements.get(0), containsString("ID"));
 		assertThat(statements.get(0), containsString("NAME"));
 		assertThat(statements.get(0), containsString("VARCHAR2(100)"));
+	}
+
+	@Test
+	public void spacedTableNameIsQuoted() {
+		assertThat(DatasourceFactoryOracle.quotedQualified("HR.Order Details"), equalTo("HR.\"Order Details\""));
+		DbModelDiff diff = new DbModelDiff();
+		DbTable table = createTable("HR", "Order Details");
+		table.addColumn(createColumn("OrderID", "NUMBER", false, null, 10, 0));
+		table.getPkColumnNames().add("OrderID");
+		table.setPkConstraintName("PK_Order_Details");
+		diff.getOperations().add(DbTableDiffOp.builder()
+			.opType(DiffOpType.CREATE)
+			.qualifiedName("HR.Order Details")
+			.newTable(table)
+			.build());
+
+		List<String> statements = ddlService.ddlFrom(diff, createEmptyDbModel());
+
+		assertThat(statements.get(0), containsString("CREATE TABLE HR.\"Order Details\""));
+		assertThat(statements.get(0), containsString("\"OrderID\""));
 	}
 
 	@Test
@@ -417,6 +440,33 @@ public class DDLServiceOracleTest {
 			"CASE WHEN \"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL THEN \"data_id\" END, "
 			+ "CASE WHEN \"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL THEN \"restore_tag_name\" END, "
 			+ "CASE WHEN \"restore_tag_name\" IS NOT NULL AND \"restore_tag_value\" IS NOT NULL THEN \"restore_tag_value\" END"));
+	}
+
+	@Test
+	public void duplicateColumnListIndexesAreSkipped() {
+		DbTable table = createTable("HR", "Order Details");
+		table.getPkColumnNames().add("OrderID");
+		table.getPkColumnNames().add("ProductID");
+		IndexInfo orderId = new IndexInfo("HR", "Order Details", "OrderID", false, "NONCLUSTERED");
+		orderId.getColumns().add("OrderID");
+		IndexInfo ordersOrderDetails = new IndexInfo("HR", "Order Details", "OrdersOrder_Details", false, "NONCLUSTERED");
+		ordersOrderDetails.getColumns().add("OrderID");
+		IndexInfo productId = new IndexInfo("HR", "Order Details", "ProductID", false, "NONCLUSTERED");
+		productId.getColumns().add("ProductID");
+		IndexInfo pkIndex = new IndexInfo("HR", "Order Details", "PK_Order_Details", true, "CLUSTERED");
+		pkIndex.getColumns().add("OrderID");
+		pkIndex.getColumns().add("ProductID");
+		Map<String, IndexInfo> indexes = new LinkedHashMap<>();
+		indexes.put(orderId.getIndexName(), orderId);
+		indexes.put(ordersOrderDetails.getIndexName(), ordersOrderDetails);
+		indexes.put(productId.getIndexName(), productId);
+		indexes.put(pkIndex.getIndexName(), pkIndex);
+
+		List<String> names = DDLServiceOracle.indexesToCreate(table, indexes, new DbModel(), "HR.Order Details").stream()
+			.map(IndexInfo::getIndexName)
+			.toList();
+
+		assertThat(names, contains("OrderID", "ProductID"));
 	}
 
 	@Test

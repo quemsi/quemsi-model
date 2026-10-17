@@ -6,6 +6,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -65,7 +66,7 @@ public class DDLServiceOracle implements DDLService {
 		try {
 			Statement s = conn.createStatement();
 			for (String tableName : tableNames) {
-				s.addBatch("DROP TABLE " + tableName + " CASCADE CONSTRAINTS PURGE");
+				s.addBatch("DROP TABLE " + quoteQualified(tableName) + " CASCADE CONSTRAINTS PURGE");
 			}
 			s.executeBatch();
 			return true;
@@ -76,16 +77,38 @@ public class DDLServiceOracle implements DDLService {
 
 	@Override
 	public boolean dropSequences(String... sequenceNames) {
+		if (sequenceNames == null || sequenceNames.length == 0) {
+			return true;
+		}
 		try {
 			Statement s = conn.createStatement();
 			for (String sequenceName : sequenceNames) {
-				s.addBatch("DROP SEQUENCE " + sequenceName);
+				String sql = "DROP SEQUENCE " + quoteQualified(sequenceName);
+				try {
+					s.executeUpdate(sql);
+				} catch (SQLException e) {
+					// ORA-02289: already gone (identity sequences disappear with their table).
+					// ORA-32793: system-generated sequence cannot be dropped on its own.
+					if (!isSkippableDropSequence(e)) {
+						throw e;
+					}
+					log.info("ignored drop sequence {}", sequenceName);
+				}
 			}
-			s.executeBatch();
 			return true;
 		} catch (Exception e) {
 			throw Exceptions.server("failed-to-clear-sequences").withCause(e).get();
 		}
+	}
+
+	static boolean isSkippableDropSequence(SQLException error) {
+		for (SQLException current = error; current != null; current = current.getNextException()) {
+			int code = current.getErrorCode();
+			if (code == 2289 || code == 32793) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	@Override
@@ -165,7 +188,7 @@ public class DDLServiceOracle implements DDLService {
 			Statement s = conn.createStatement();
 			for (ReferenceInfo refInfo : constraints) {
 				StringBuilder sb = new StringBuilder("ALTER TABLE ");
-				sb.append(refInfo.srcQualifiedName()).append(" DROP CONSTRAINT ");
+				sb.append(quoteQualified(refInfo.srcQualifiedName())).append(" DROP CONSTRAINT ");
 				appendQuoted(sb, refInfo.getConstraintName());
 				String sql = sb.toString();
 				log.info("drop constraint sql :{}", sql);
@@ -236,6 +259,10 @@ public class DDLServiceOracle implements DDLService {
 		return DatasourceFactoryOracle.needsQuoting(name);
 	}
 
+	private static String quoteQualified(String qualifiedName) {
+		return DatasourceFactoryOracle.quotedQualified(qualifiedName);
+	}
+
 	private static void appendQuoted(StringBuilder sb, String name) {
 		sb.append('"').append(name.replace("\"", "\"\"")).append('"');
 	}
@@ -252,6 +279,85 @@ public class DDLServiceOracle implements DDLService {
 
 	private Map<String, IndexInfo> indexesForTable(DbModel dbModel, String qualifiedTableName) {
 		return dbModel.indexesForTable(qualifiedTableName);
+	}
+
+	/**
+	 * Oracle refuses a second index on the same column list (ORA-01408). A primary key or unique
+	 * constraint already creates that index, and SQL Server backups can contain two indexes on one list.
+	 */
+	static List<IndexInfo> indexesToCreate(DbTable table, Map<String, IndexInfo> indexes, DbModel dbModel, String qualifiedTableName) {
+		Set<String> occupied = new HashSet<>();
+		String pkKey = plainColumnListKey(table.getPkColumnNames());
+		if (pkKey != null) {
+			occupied.add(pkKey);
+		}
+		Set<String> uniqueNames = new HashSet<>();
+		if (dbModel.getContraintInfos() != null) {
+			for (ContraintInfo info : dbModel.getContraintInfos()) {
+				if (!qualifiedTableName.equals(info.qualifiedTableName())) {
+					continue;
+				}
+				if (info.getConstraintName() != null) {
+					uniqueNames.add(info.getConstraintName());
+				}
+				String key = plainColumnListKey(info.getColumnNames());
+				if (key != null) {
+					occupied.add(key);
+				}
+			}
+		}
+		List<IndexInfo> ordered = new ArrayList<>();
+		if (indexes != null) {
+			ordered.addAll(indexes.values());
+		}
+		ordered.sort(Comparator
+			.comparing((IndexInfo index) -> !index.isUnique())
+			.thenComparing(IndexInfo::getIndexName, Comparator.nullsLast(String::compareToIgnoreCase)));
+		List<IndexInfo> selected = new ArrayList<>();
+		for (IndexInfo index : ordered) {
+			if (index == null) {
+				continue;
+			}
+			if (index.getIndexName() != null && uniqueNames.contains(index.getIndexName())) {
+				log.info("skipping unique-constraint index {} on {}", index.getIndexName(), qualifiedTableName);
+				continue;
+			}
+			String key = indexColumnListKey(index);
+			if (key != null && !occupied.add(key)) {
+				log.info("skipping index {} on {} because those columns are already indexed", index.getIndexName(), qualifiedTableName);
+				continue;
+			}
+			selected.add(index);
+		}
+		return selected;
+	}
+
+	private static String plainColumnListKey(Iterable<String> columns) {
+		return columnListKey("plain", columns);
+	}
+
+	private static String indexColumnListKey(IndexInfo index) {
+		if (index.getColumns() == null || index.getColumns().isEmpty()) {
+			return null;
+		}
+		String kind = index.getFilter() != null && !index.getFilter().isBlank()
+			? "filter:" + index.getFilter()
+			: "plain";
+		return columnListKey(kind, index.getColumns());
+	}
+
+	private static String columnListKey(String kind, Iterable<String> columns) {
+		if (columns == null) {
+			return null;
+		}
+		StringBuilder key = new StringBuilder(kind);
+		boolean any = false;
+		for (String name : columns) {
+			key.append('\0');
+			any = true;
+			key.append(name == null ? "" : name.toUpperCase(Locale.ROOT));
+		}
+		return any ? key.toString() : null;
 	}
 
 	private void appendColumnDefault(StringBuilder sb, DbColumn column) {
@@ -380,7 +486,7 @@ public class DDLServiceOracle implements DDLService {
 			scripts.add(sb);
 			Map<String, IndexInfo> indexes = indexesForTable(dbModel, tableName);
 			DbColumn[] columns = table.orderedColumns();
-			for (IndexInfo indCols : indexes.values()) {
+			for (IndexInfo indCols : indexesToCreate(table, indexes, dbModel, tableName)) {
 				StringBuilder indBuilder = new StringBuilder("CREATE ");
 				if (indCols.isUnique()) {
 					indBuilder.append("UNIQUE ");
@@ -388,20 +494,20 @@ public class DDLServiceOracle implements DDLService {
 				indBuilder.append("INDEX ");
 				appendQuoted(indBuilder, indCols.getIndexName());
 				indBuilder.append(" ON ");
-				indBuilder.append(tableName).append(" (");
+				indBuilder.append(quoteQualified(tableName)).append(" (");
 				appendIndexKey(indBuilder, indCols);
 				indBuilder.append(")");
 				log.info("index sql : {}", indBuilder);
 				scripts.add(indBuilder);
 			}
 			if (table.getComment() != null && !table.getComment().isBlank()) {
-				StringBuilder commentSb = new StringBuilder("COMMENT ON TABLE ").append(tableName)
+				StringBuilder commentSb = new StringBuilder("COMMENT ON TABLE ").append(quoteQualified(tableName))
 					.append(" IS ").append(sqlStringLiteral(table.getComment()));
 				scripts.add(commentSb);
 			}
 			for (DbColumn c : columns) {
 				if (c.getComment() != null && !c.getComment().isBlank()) {
-					StringBuilder commentSb = new StringBuilder("COMMENT ON COLUMN ").append(tableName).append(".");
+					StringBuilder commentSb = new StringBuilder("COMMENT ON COLUMN ").append(quoteQualified(tableName)).append(".");
 					escape(commentSb, c.getName());
 					commentSb.append(" IS ").append(sqlStringLiteral(c.getComment()));
 					scripts.add(commentSb);
@@ -414,7 +520,7 @@ public class DDLServiceOracle implements DDLService {
 				log.info("unique constraint {} already exists on {} skipping", contraintInfo.getConstraintName(), contraintInfo.qualifiedTableName());
 				continue;
 			}
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(contraintInfo.qualifiedTableName()).append(" ADD CONSTRAINT ");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(quoteQualified(contraintInfo.qualifiedTableName())).append(" ADD CONSTRAINT ");
 			appendQuoted(sb, contraintInfo.getConstraintName());
 			sb.append(" UNIQUE (");
 			appendColumnList(sb, contraintInfo.getColumnNames());
@@ -430,7 +536,7 @@ public class DDLServiceOracle implements DDLService {
 				log.info("check constraint {} already exists on {} skipping", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName());
 				continue;
 			}
-			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(checkConstraint.qualifiedTableName()).append(" ADD CONSTRAINT ");
+			StringBuilder sb = new StringBuilder("ALTER TABLE ").append(quoteQualified(checkConstraint.qualifiedTableName())).append(" ADD CONSTRAINT ");
 			appendQuoted(sb, checkConstraint.getConstraintName());
 			sb.append(" CHECK ").append(formatCheckConstraintCondition(checkConstraint.getCondef()));
 			log.info("create check constraint {} for table {} : {}", checkConstraint.getConstraintName(), checkConstraint.qualifiedTableName(), sb);
@@ -664,7 +770,7 @@ public class DDLServiceOracle implements DDLService {
 		Set<String> pkColumns = primaryKeyColumnNamesUpper(table);
 		boolean hasPrimaryKey = table.getPkColumnNames() != null && !table.getPkColumnNames().isEmpty();
 
-		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(tableName).append(" (").append(System.lineSeparator());
+		StringBuilder sb = new StringBuilder("CREATE TABLE ").append(quoteQualified(tableName)).append(" (").append(System.lineSeparator());
 		boolean firstElement = true;
 		for (DbColumn c : table.orderedColumns()) {
 			if (!firstElement) {
@@ -829,12 +935,12 @@ public class DDLServiceOracle implements DDLService {
 	}
 
 	private String generateAddForeignKeySql(ReferenceInfo ref) {
-		StringBuilder sb = new StringBuilder("ALTER TABLE ").append(ref.srcQualifiedName())
+		StringBuilder sb = new StringBuilder("ALTER TABLE ").append(quoteQualified(ref.srcQualifiedName()))
 			.append(" ADD CONSTRAINT ");
 		appendQuoted(sb, ref.getConstraintName());
 		sb.append(" FOREIGN KEY (");
 		appendColumnList(sb, ref.getSrcColumnNames());
-		sb.append(") REFERENCES ").append(ref.refQualifiedName()).append(" (");
+		sb.append(") REFERENCES ").append(quoteQualified(ref.refQualifiedName())).append(" (");
 		appendColumnList(sb, ref.getRefColumnNames());
 		sb.append(")");
 		return sb.toString();

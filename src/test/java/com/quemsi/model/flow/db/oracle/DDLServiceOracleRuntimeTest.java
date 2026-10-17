@@ -1,10 +1,12 @@
 package com.quemsi.model.flow.db.oracle;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.contains;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.hasSize;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
@@ -19,9 +21,35 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import org.junit.jupiter.api.Test;
 
+import com.quemsi.commons.util.BaseRuntimeException;
+
 import com.quemsi.model.flow.db.sql.DbModel.ReferenceInfo;
 
 public class DDLServiceOracleRuntimeTest {
+
+	@Test
+	public void dropSequences_ignoresMissingSequenceAndContinues() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		try (DDLServiceOracle ddl = new DDLServiceOracle(recording.connection)) {
+			ddl.dropSequences("HR.EMP_SEQ", "HR.MISSING_SEQ", "HR.DEPT_SEQ");
+		}
+
+		assertThat(recording.executedSql, contains(
+			"DROP SEQUENCE HR.EMP_SEQ",
+			"DROP SEQUENCE HR.MISSING_SEQ",
+			"DROP SEQUENCE HR.DEPT_SEQ"
+		));
+	}
+
+	@Test
+	public void dropSequences_reportsOtherOracleErrors() throws Exception {
+		RecordingJdbc recording = new RecordingJdbc();
+		try (DDLServiceOracle ddl = new DDLServiceOracle(recording.connection)) {
+			BaseRuntimeException error = assertThrows(BaseRuntimeException.class,
+				() -> ddl.dropSequences("HR.DENIED_SEQ"));
+			assertThat(error.getMessageId(), equalTo("failed-to-clear-sequences"));
+		}
+	}
 
 	@Test
 	public void disableConstraints_batchesDropConstraint() throws Exception {
@@ -69,6 +97,7 @@ public class DDLServiceOracleRuntimeTest {
 
 	private static final class RecordingJdbc {
 		final List<String> batchedSql = new ArrayList<>();
+		final List<String> executedSql = new ArrayList<>();
 		final AtomicInteger executeBatchCalls = new AtomicInteger();
 		final Connection connection;
 
@@ -105,6 +134,16 @@ public class DDLServiceOracleRuntimeTest {
 					if ("executeBatch".equals(name)) {
 						executeBatchCalls.incrementAndGet();
 						return new int[batchedSql.size()];
+					}
+					if ("executeUpdate".equals(name) && args != null && args.length >= 1 && args[0] instanceof String sql) {
+						executedSql.add(sql);
+						if (sql.contains("MISSING_SEQ")) {
+							throw new SQLException("ORA-02289: sequence does not exist", "72000", 2289);
+						}
+						if (sql.contains("DENIED_SEQ")) {
+							throw new SQLException("ORA-01031: insufficient privileges", "42000", 1031);
+						}
+						return 0;
 					}
 					if ("close".equals(name) || "isClosed".equals(name)) {
 						return "isClosed".equals(name) ? false : null;

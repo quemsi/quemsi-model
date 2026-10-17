@@ -1,5 +1,6 @@
 package com.quemsi.model.flow.db.oracle;
 
+import java.util.regex.Pattern;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -64,13 +65,19 @@ public class DatasourceFactoryOracle implements DataSourceFactory {
 		"UPDATE", "USER", "VALIDATE", "VALUES", "VARCHAR", "VARCHAR2", "VIEW", "WHENEVER", "WHERE", "WITH"
 	);
 
-	/** Quote a name that is reserved or not already uppercase, matching {@code CREATE TABLE}. */
+	/** Unquoted Oracle identifiers are uppercase letters, digits, _, $, and #. */
+	private static final Pattern UNQUOTED_IDENTIFIER = Pattern.compile("[A-Z][A-Z0-9_$#]*");
+
+	/** Quote a name that is reserved, mixed-case, or not a legal unquoted identifier. */
 	public static boolean needsQuoting(String name) {
 		if (name == null || name.isEmpty()) {
 			return false;
 		}
 		String upper = name.toUpperCase(Locale.ROOT);
-		return RESERVED_KEYS.contains(upper) || !name.equals(upper);
+		if (RESERVED_KEYS.contains(upper) || !name.equals(upper)) {
+			return true;
+		}
+		return !UNQUOTED_IDENTIFIER.matcher(name).matches();
 	}
 
 	public static String quoteIfNeeded(String name) {
@@ -78,6 +85,18 @@ public class DatasourceFactoryOracle implements DataSourceFactory {
 			return name;
 		}
 		return "\"" + name.replace("\"", "\"\"") + "\"";
+	}
+
+	/** Quotes each part of {@code schema.name} only when that part needs it. */
+	public static String quotedQualified(String qualifiedName) {
+		if (qualifiedName == null) {
+			return null;
+		}
+		int dot = qualifiedName.indexOf('.');
+		if (dot < 0) {
+			return quoteIfNeeded(qualifiedName);
+		}
+		return quoteIfNeeded(qualifiedName.substring(0, dot)) + "." + quoteIfNeeded(qualifiedName.substring(dot + 1));
 	}
 
 	protected static final String SQL_FOR_TABLES = """
