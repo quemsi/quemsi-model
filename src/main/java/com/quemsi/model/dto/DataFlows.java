@@ -34,6 +34,7 @@ public class DataFlows extends BaseDto<Long>{
         private String title;
         private String dataName;
         private boolean back;
+        private boolean defaultRestore;
         private NamedEntityReference timer;
         private Long lastExecutionId;
         private LocalDateTime lastExecutionTime;

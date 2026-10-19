@@ -42,4 +42,6 @@ public class FlowDetail extends BaseDto<Long>{
 	private boolean ephemeral;
 	private String restoreTagName;
 	private String restoreTagValue;
+	/** When true, the Restore page runs this back flow instead of generating one. */
+	private boolean defaultRestore;
 }
